@@ -6,7 +6,8 @@
 import {
   METHOD_INDEX,
   buildResultCached,
-  parseLine,
+  createLineScratch,
+  parseLineInto,
   type AggregatedResult,
   type CronEventCompact,
   type LogMethod,
@@ -99,6 +100,13 @@ function ensureCapacity(need: number) {
   capacity = next;
 }
 
+/** Rough hit estimate from file bytes — avoids repeated typed-array realloc copies. */
+function preallocateForFile(fileSize: number) {
+  // api-out corpus ≈ 150–160 bytes per HTTP hit including non-HTTP lines
+  const estimate = Math.min(8_000_000, Math.max(65536, Math.ceil(fileSize / 140)));
+  ensureCapacity(estimate);
+}
+
 function internPath(path: string): number {
   let id = pathIndex.get(path);
   if (id !== undefined) return id;
@@ -107,6 +115,8 @@ function internPath(path: string): number {
   pathIndex.set(path, id);
   return id;
 }
+
+const lineScratch = createLineScratch();
 
 function pushRequest(method: LogMethod, path: string, status: number, durationMs: number) {
   ensureCapacity(count + 1);
@@ -121,15 +131,14 @@ function pushRequest(method: LogMethod, path: string, status: number, durationMs
 }
 
 function ingestLine(line: string) {
-  const parsed = parseLine(line);
-  if (parsed.kind === "empty") return;
-  if (parsed.kind === "cron") {
-    cronEvents.push(parsed.event);
+  parseLineInto(line, lineScratch);
+  if (lineScratch.kind === "empty") return;
+  if (lineScratch.kind === "cron") {
+    cronEvents.push(lineScratch.cron!);
     return;
   }
-  if (parsed.kind === "http") {
-    const { method, path, status, durationMs } = parsed.hit;
-    pushRequest(method, path, status, durationMs);
+  if (lineScratch.kind === "http") {
+    pushRequest(lineScratch.method, lineScratch.path, lineScratch.status, lineScratch.durationMs);
     return;
   }
   unmatchedCount++;
@@ -161,14 +170,46 @@ function makeResult(options: ParseOptions): AggregatedResult {
   return result;
 }
 
+const PROGRESS_INTERVAL_MS = 150;
+
+function postParseProgress(processed: number, total: number, force: boolean, lastAt: { t: number }) {
+  const now = performance.now();
+  if (!force && now - lastAt.t < PROGRESS_INTERVAL_MS) return;
+  lastAt.t = now;
+  self.postMessage({
+    type: "PROGRESS",
+    payload: {
+      stage: "parsing",
+      processed,
+      total,
+      percent: Math.min(force ? 100 : 99, Math.round((processed / total) * 100)),
+    },
+  } satisfies WorkerResponse);
+}
+
+/** Consume complete lines from text; return unfinished trailing fragment. */
+function ingestCompleteLines(text: string): string {
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) === 10) {
+      let line = text.slice(start, i);
+      if (line.endsWith("\r")) line = line.slice(0, -1);
+      ingestLine(line);
+      start = i + 1;
+    }
+  }
+  return start < text.length ? text.slice(start) : "";
+}
+
 async function parseFileStream(file: File) {
   resetStore();
+  preallocateForFile(file.size);
   const reader = file.stream().getReader();
   const decoder = new TextDecoder();
-  let buffer = "";
+  let carry = "";
   let bytesRead = 0;
   const total = file.size || 1;
-  let linesSinceProgress = 0;
+  const lastProgress = { t: 0 };
 
   while (true) {
     if (cancelled) throw new Error("Cancelled");
@@ -176,64 +217,35 @@ async function parseFileStream(file: File) {
     if (done) break;
 
     bytesRead += value.byteLength;
-    buffer += decoder.decode(value, { stream: true });
-
-    let start = 0;
-    for (let i = 0; i < buffer.length; i++) {
-      const c = buffer.charCodeAt(i);
-      if (c === 10) {
-        let line = buffer.slice(start, i);
-        if (line.endsWith("\r")) line = line.slice(0, -1);
-        ingestLine(line);
-        start = i + 1;
-        linesSinceProgress++;
-      }
+    const chunk = decoder.decode(value, { stream: true });
+    if (carry.length === 0) {
+      carry = ingestCompleteLines(chunk);
+    } else {
+      carry = ingestCompleteLines(carry + chunk);
     }
-    buffer = buffer.slice(start);
-
-    if (linesSinceProgress >= 8000) {
-      linesSinceProgress = 0;
-      self.postMessage({
-        type: "PROGRESS",
-        payload: {
-          stage: "parsing",
-          processed: bytesRead,
-          total,
-          percent: Math.min(99, Math.round((bytesRead / total) * 100)),
-        },
-      } satisfies WorkerResponse);
-      await new Promise<void>((r) => setTimeout(r, 0));
-    }
+    postParseProgress(bytesRead, total, false, lastProgress);
   }
 
-  buffer += decoder.decode();
-  if (buffer) ingestLine(buffer);
+  const tail = decoder.decode();
+  if (tail) {
+    carry = carry.length === 0 ? ingestCompleteLines(tail) : ingestCompleteLines(carry + tail);
+  }
+  if (carry) ingestLine(carry);
 
-  self.postMessage({
-    type: "PROGRESS",
-    payload: { stage: "parsing", processed: total, total, percent: 100 },
-  } satisfies WorkerResponse);
+  postParseProgress(total, total, true, lastProgress);
 }
 
 function parseText(text: string) {
   resetStore();
   const lines = text.split(/\r?\n/);
   const total = lines.length || 1;
+  const lastProgress = { t: 0 };
   for (let i = 0; i < lines.length; i++) {
     if (cancelled) throw new Error("Cancelled");
     ingestLine(lines[i]!);
-    if (i > 0 && i % 10000 === 0) {
-      self.postMessage({
-        type: "PROGRESS",
-        payload: {
-          stage: "parsing",
-          processed: i,
-          total,
-          percent: Math.round((i / total) * 100),
-        },
-      } satisfies WorkerResponse);
-    }
+    postParseProgress(i + 1, total, false, lastProgress);
   }
+  postParseProgress(total, total, true, lastProgress);
 }
 
 self.onmessage = async (e: MessageEvent<WorkerMessage>) => {

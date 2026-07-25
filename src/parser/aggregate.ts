@@ -1,5 +1,6 @@
+import { DDSketch } from "@datadog/sketches-js";
 import { normalizePath } from "./normalize";
-import { percentile, sortAsc, sortedDurations } from "./percentiles";
+import { percentile, sortAsc } from "./percentiles";
 import type {
   AggregatedEndpoint,
   AggregatedResult,
@@ -11,6 +12,8 @@ import type {
   ParseOptions,
 } from "./types";
 import { METHODS } from "./types";
+
+const SKETCH_OPTS = { relativeAccuracy: 0.01 } as const;
 
 export type ColumnarStore = {
   methodCodes: Uint8Array;
@@ -25,59 +28,13 @@ export type ColumnarStore = {
   methodSeen: Set<string>;
 };
 
-export function aggregateApi(store: ColumnarStore, options: ParseOptions): AggregatedEndpoint[] {
-  const methodFilter = options.methodFilter ? new Set(options.methodFilter) : null;
-  const bucket = new Map<
-    string,
-    { method: LogMethod; path: string; durations: number[]; errorCount: number }
-  >();
+function makeSketch(): DDSketch {
+  return new DDSketch(SKETCH_OPTS);
+}
 
-  for (let i = 0; i < store.count; i++) {
-    const durationMs = store.durations[i]!;
-    if (durationMs < options.minMs) continue;
-
-    const method = METHODS[store.methodCodes[i]!]!;
-    if (methodFilter && !methodFilter.has(method)) continue;
-
-    const status = store.statuses[i]!;
-    if (options.statusFamily !== "all") {
-      const want = Number(options.statusFamily[0]);
-      if (Math.floor(status / 100) !== want) continue;
-    }
-
-    const rawPath = store.pathTable[store.pathIds[i]!]!;
-    const normPath = normalizePath(rawPath, options.normalizeMode);
-    const key = `${method} ${normPath}`;
-    let entry = bucket.get(key);
-    if (!entry) {
-      entry = { method, path: normPath, durations: [], errorCount: 0 };
-      bucket.set(key, entry);
-    }
-    entry.durations.push(durationMs);
-    if (status >= 400) entry.errorCount++;
-  }
-
-  const out: AggregatedEndpoint[] = [];
-  for (const [key, v] of bucket) {
-    const sorted = sortAsc(v.durations);
-    const n = sorted.length;
-    const sum = sorted.reduce((a, b) => a + b, 0);
-    out.push({
-      key,
-      method: v.method,
-      path: v.path,
-      count: n,
-      avgMs: n ? sum / n : 0,
-      p50Ms: percentile(sorted, 50),
-      p90Ms: percentile(sorted, 90),
-      p95Ms: percentile(sorted, 95),
-      p99Ms: percentile(sorted, 99),
-      minMs: sorted[0] ?? 0,
-      maxMs: sorted[n - 1] ?? 0,
-      errorCount: v.errorCount,
-    });
-  }
-  return out;
+function sketchQuantile(sketch: DDSketch, q: number, count: number): number {
+  if (count === 0) return 0;
+  return sketch.getValueAtQuantile(q);
 }
 
 export function aggregateCron(events: CronEventCompact[], options: ParseOptions): CronAggregated[] {
@@ -150,28 +107,126 @@ export function aggregateCron(events: CronEventCompact[], options: ParseOptions)
   return out;
 }
 
-function buildSummary(store: ColumnarStore): LogSummary {
-  let max = 0;
-  let sum = 0;
-  let errors = 0;
-  let slow = 0;
-  for (let i = 0; i < store.count; i++) {
-    const d = store.durations[i]!;
-    sum += d;
-    if (d > max) max = d;
-    if (store.statuses[i]! >= 400) errors++;
-    if (d >= 3000) slow++;
-  }
-  const sorted = sortedDurations(store.durations, store.count);
-  return {
-    matched: store.count,
-    unmatched: store.unmatchedCount,
-    max,
-    avg: store.count ? sum / store.count : 0,
-    p95Ms: percentile(sorted, 95),
-    errors,
-    slow,
+/** One store pass: filtered API buckets + optional unfiltered summary. */
+export function aggregateApiWithSummary(
+  store: ColumnarStore,
+  options: ParseOptions,
+  needSummary: boolean,
+): { api: AggregatedEndpoint[]; summary: LogSummary | null } {
+  const methodFilter = options.methodFilter ? new Set(options.methodFilter) : null;
+  const normCache = new Map<number, string>();
+  type Entry = {
+    method: LogMethod;
+    path: string;
+    sketch: DDSketch;
+    count: number;
+    sum: number;
+    min: number;
+    max: number;
+    errorCount: number;
   };
+  const byMethod = new Map<LogMethod, Map<string, Entry>>();
+
+  let sumMax = 0;
+  let sumSum = 0;
+  let sumErrors = 0;
+  let sumSlow = 0;
+  const sumSketch = needSummary ? makeSketch() : null;
+
+  for (let i = 0; i < store.count; i++) {
+    const durationMs = store.durations[i]!;
+    const status = store.statuses[i]!;
+
+    if (sumSketch) {
+      sumSum += durationMs;
+      sumSketch.accept(durationMs);
+      if (durationMs > sumMax) sumMax = durationMs;
+      if (status >= 400) sumErrors++;
+      if (durationMs >= 3000) sumSlow++;
+    }
+
+    if (durationMs < options.minMs) continue;
+
+    const method = METHODS[store.methodCodes[i]!]!;
+    if (methodFilter && !methodFilter.has(method)) continue;
+
+    if (options.statusFamily !== "all") {
+      const want = Number(options.statusFamily[0]);
+      if (Math.floor(status / 100) !== want) continue;
+    }
+
+    const pathId = store.pathIds[i]!;
+    let normPath = normCache.get(pathId);
+    if (normPath === undefined) {
+      normPath = normalizePath(store.pathTable[pathId]!, options.normalizeMode);
+      normCache.set(pathId, normPath);
+    }
+
+    let pathMap = byMethod.get(method);
+    if (!pathMap) {
+      pathMap = new Map();
+      byMethod.set(method, pathMap);
+    }
+    let entry = pathMap.get(normPath);
+    if (!entry) {
+      entry = {
+        method,
+        path: normPath,
+        sketch: makeSketch(),
+        count: 0,
+        sum: 0,
+        min: Infinity,
+        max: -Infinity,
+        errorCount: 0,
+      };
+      pathMap.set(normPath, entry);
+    }
+    entry.sketch.accept(durationMs);
+    entry.count++;
+    entry.sum += durationMs;
+    if (durationMs < entry.min) entry.min = durationMs;
+    if (durationMs > entry.max) entry.max = durationMs;
+    if (status >= 400) entry.errorCount++;
+  }
+
+  const api: AggregatedEndpoint[] = [];
+  for (const pathMap of byMethod.values()) {
+    for (const v of pathMap.values()) {
+      const n = v.count;
+      api.push({
+        key: `${v.method} ${v.path}`,
+        method: v.method,
+        path: v.path,
+        count: n,
+        avgMs: n ? v.sum / n : 0,
+        p50Ms: sketchQuantile(v.sketch, 0.5, n),
+        p90Ms: sketchQuantile(v.sketch, 0.9, n),
+        p95Ms: sketchQuantile(v.sketch, 0.95, n),
+        p99Ms: sketchQuantile(v.sketch, 0.99, n),
+        minMs: n ? v.min : 0,
+        maxMs: n ? v.max : 0,
+        errorCount: v.errorCount,
+      });
+    }
+  }
+
+  const summary = sumSketch
+    ? {
+        matched: store.count,
+        unmatched: store.unmatchedCount,
+        max: sumMax,
+        avg: store.count ? sumSum / store.count : 0,
+        p95Ms: sketchQuantile(sumSketch, 0.95, store.count),
+        errors: sumErrors,
+        slow: sumSlow,
+      }
+    : null;
+
+  return { api, summary };
+}
+
+export function aggregateApi(store: ColumnarStore, options: ParseOptions): AggregatedEndpoint[] {
+  return aggregateApiWithSummary(store, options, false).api;
 }
 
 function buildCronSummary(events: CronEventCompact[], cron: CronAggregated[]): CronSummary {
@@ -194,12 +249,12 @@ function buildCronSummary(events: CronEventCompact[], cron: CronAggregated[]): C
 
 /** Summary/methods/unmatched are store-wide (ignore filters). Cron summary jobs count uses filtered cron rows. */
 export function buildResult(store: ColumnarStore, options: ParseOptions): AggregatedResult {
-  const api = aggregateApi(store, options);
+  const { api, summary } = aggregateApiWithSummary(store, options, true);
   const cron = aggregateCron(store.cronEvents, options);
   return {
     api,
     cron,
-    summary: buildSummary(store),
+    summary: summary!,
     cronSummary: buildCronSummary(store.cronEvents, cron),
     methods: Array.from(store.methodSeen).sort(),
     unmatchedSample: store.unmatchedSample,
@@ -207,15 +262,16 @@ export function buildResult(store: ColumnarStore, options: ParseOptions): Aggreg
   };
 }
 
-/** Avoid re-sorting all durations on every REAGGREGATE — summary is filter-independent. */
+/** Avoid rebuilding summary on every REAGGREGATE — summary is filter-independent. */
 export function buildResultCached(
   store: ColumnarStore,
   options: ParseOptions,
   cached: { summary: LogSummary; methods: string[] } | null,
 ): AggregatedResult {
-  const api = aggregateApi(store, options);
+  const needSummary = !cached?.summary;
+  const { api, summary: built } = aggregateApiWithSummary(store, options, needSummary);
   const cron = aggregateCron(store.cronEvents, options);
-  const summary = cached?.summary ?? buildSummary(store);
+  const summary = cached?.summary ?? built!;
   const methods = cached?.methods ?? Array.from(store.methodSeen).sort();
   return {
     api,
