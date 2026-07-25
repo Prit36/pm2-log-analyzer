@@ -3,76 +3,29 @@
  * Keeps compact typed arrays for fast re-aggregation when filters change.
  */
 
-export type LogMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
-export type NormalizeMode = "exact" | "stripQuery" | "collapseIds";
+import {
+  METHOD_INDEX,
+  buildResultCached,
+  parseLine,
+  type AggregatedResult,
+  type CronEventCompact,
+  type LogMethod,
+  type LogSummary,
+  type ParseOptions,
+  EMPTY_RESULT,
+} from "../parser";
 
-export type AggregatedEndpoint = {
-  key: string;
-  method: LogMethod;
-  path: string;
-  count: number;
-  avgMs: number;
-  p50Ms: number;
-  p90Ms: number;
-  p95Ms: number;
-  p99Ms: number;
-  maxMs: number;
-  minMs: number;
-  errorCount: number;
-};
-
-export type CronAggregated = {
-  name: string;
-  runs: number;
-  starts: number;
-  fails: number;
-  avgMs: number;
-  p50Ms: number;
-  p90Ms: number;
-  p95Ms: number;
-  p99Ms: number;
-  maxMs: number;
-  minMs: number;
-  lastRunTs?: string;
-  lastDurationMs?: number;
-};
-
-export type LogSummary = {
-  matched: number;
-  unmatched: number;
-  max: number;
-  avg: number;
-  errors: number;
-  slow: number;
-};
-
-export type CronSummary = {
-  starts: number;
-  dones: number;
-  fails: number;
-  jobs: number;
-  slowestRun: number;
-};
-
-export type ParseOptions = {
-  normalizeMode: NormalizeMode;
-  methodFilter: string[] | null;
-  statusFamily: "all" | "2xx" | "3xx" | "4xx" | "5xx";
-  minMs: number;
-  cronQuery: string;
-  cronMinMs: number;
-  cronShowFailedOnly: boolean;
-};
-
-export type AggregatedResult = {
-  api: AggregatedEndpoint[];
-  cron: CronAggregated[];
-  summary: LogSummary;
-  cronSummary: CronSummary;
-  methods: string[];
-  unmatchedSample: string[];
-  unmatchedCount: number;
-};
+export type {
+  AggregatedEndpoint,
+  AggregatedResult,
+  CronAggregated,
+  CronSummary,
+  LogMethod,
+  LogSummary,
+  NormalizeMode,
+  ParseOptions,
+  StatusFamily,
+} from "../parser";
 
 export type WorkerMessage =
   | { type: "PARSE_FILE"; payload: { file: File; options: ParseOptions } }
@@ -95,63 +48,6 @@ export type WorkerResponse =
   | { type: "ERROR"; payload: { message: string } }
   | { type: "DONE" };
 
-const METHODS: LogMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"];
-const METHOD_INDEX = new Map(METHODS.map((m, i) => [m, i]));
-
-// oxlint-disable-next-line no-control-regex -- intentional ESC (0x1b) for ANSI strip
-const ANSI_REGEX = /\u001b\[[0-9;]*m/g;
-// After stripAnsi: "2026-07-24T00:00:10: GET /api/... 200 150.517 ms - 379"
-const LINE_REGEX_A =
-  /^\s*(?:\d{4}-\d{2}-\d{2}(?:T|\s)\d{2}:\d{2}:\d{2}):\s*(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(\S+)\s+(\d{3})\s+([0-9.]+)\s*ms\s*-\s*(-|\d+)\s*$/;
-const LINE_REGEX_B =
-  /^\s*([0-9.]+)\s*ms\s*[\t ]+\s*(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(\S+)\s*$/;
-const CRON_REGEX =
-  /^\s*(?:(\d{4}-\d{2}-\d{2}(?:T|\s)\d{2}:\d{2}:\d{2}):\s*)?\[cron\]\s+(start|done|fail)\s+(.+?)\s*$/i;
-
-function stripAnsi(input: string): string {
-  return input.replace(ANSI_REGEX, "");
-}
-
-function percentile(sorted: number[], p: number): number {
-  if (sorted.length === 0) return 0;
-  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
-  return sorted[idx]!;
-}
-
-function normalizePath(path: string, mode: NormalizeMode): string {
-  if (mode === "exact") return path;
-  let p = path;
-  if (mode === "stripQuery" || mode === "collapseIds") {
-    const q = p.indexOf("?");
-    if (q !== -1) p = p.slice(0, q);
-  }
-  if (mode === "collapseIds") {
-    p = p
-      .split("/")
-      .map((seg) => {
-        if (!seg) return seg;
-        if (/^[a-f0-9]{24}$/i.test(seg)) return ":id";
-        if (/^[0-9]{6,}$/.test(seg)) return ":id";
-        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg))
-          return ":id";
-        if (/^PR-[A-Z]{3,}-\d{8,}$/i.test(seg)) return ":id";
-        if (/^[A-Z]{2,}-[A-Z]{2,}-\d{6,}$/i.test(seg)) return ":id";
-        return seg;
-      })
-      .join("/");
-  }
-  return p;
-}
-
-/* ---------- compact in-worker store ---------- */
-
-type CronEventCompact = {
-  ts?: string;
-  event: "start" | "done" | "fail";
-  name: string;
-  durationMs?: number;
-};
-
 let cancelled = false;
 let methodCodes = new Uint8Array(0);
 let statuses = new Uint16Array(0);
@@ -165,6 +61,7 @@ let unmatchedCount = 0;
 let unmatchedSample: string[] = [];
 let cronEvents: CronEventCompact[] = [];
 let methodSeen = new Set<string>();
+let cachedSummary: { summary: LogSummary; methods: string[] } | null = null;
 
 function resetStore() {
   methodCodes = new Uint8Array(0);
@@ -179,6 +76,7 @@ function resetStore() {
   unmatchedSample = [];
   cronEvents = [];
   methodSeen = new Set();
+  cachedSummary = null;
 }
 
 function ensureCapacity(need: number) {
@@ -222,217 +120,45 @@ function pushRequest(method: LogMethod, path: string, status: number, durationMs
   methodSeen.add(method);
 }
 
-function parseLine(line: string) {
-  if (!line.trim()) return;
-
-  const clean = stripAnsi(line).trim();
-
-  const cronMatch = clean.match(CRON_REGEX);
-  if (cronMatch) {
-    const ts = cronMatch[1];
-    const event = cronMatch[2]!.toLowerCase() as "start" | "done" | "fail";
-    let name = cronMatch[3]!.trim();
-    let durationMs: number | undefined;
-    const durMatch = name.match(/^(.+?)\s+([0-9.]+)\s*ms\s*$/);
-    if (durMatch) {
-      name = durMatch[1]!.trim();
-      durationMs = Number(durMatch[2]);
-    }
-    const ev: CronEventCompact = { event, name };
-    if (ts) ev.ts = ts;
-    if (durationMs !== undefined) ev.durationMs = durationMs;
-    cronEvents.push(ev);
+function ingestLine(line: string) {
+  const parsed = parseLine(line);
+  if (parsed.kind === "empty") return;
+  if (parsed.kind === "cron") {
+    cronEvents.push(parsed.event);
     return;
   }
-
-  const matchA = clean.match(LINE_REGEX_A);
-  if (matchA) {
-    pushRequest(matchA[1] as LogMethod, matchA[2]!, Number(matchA[3]), Number(matchA[4]));
+  if (parsed.kind === "http") {
+    const { method, path, status, durationMs } = parsed.hit;
+    pushRequest(method, path, status, durationMs);
     return;
   }
-
-  const matchB = clean.match(LINE_REGEX_B);
-  if (matchB) {
-    pushRequest(matchB[2] as LogMethod, matchB[3]!, 0, Number(matchB[1]));
-    return;
-  }
-
   unmatchedCount++;
   if (unmatchedSample.length < 40) unmatchedSample.push(line.slice(0, 500));
 }
 
-function aggregateApi(options: ParseOptions): AggregatedEndpoint[] {
-  const methodFilter = options.methodFilter ? new Set(options.methodFilter) : null;
-  const bucket = new Map<
-    string,
-    { method: LogMethod; path: string; durations: number[]; errorCount: number }
-  >();
-
-  for (let i = 0; i < count; i++) {
-    const durationMs = durations[i]!;
-    if (durationMs < options.minMs) continue;
-
-    const method = METHODS[methodCodes[i]!]!;
-    if (methodFilter && !methodFilter.has(method)) continue;
-
-    const status = statuses[i]!;
-    if (options.statusFamily !== "all") {
-      const want = Number(options.statusFamily[0]);
-      if (Math.floor(status / 100) !== want) continue;
-    }
-
-    const rawPath = pathTable[pathIds[i]!]!;
-    const normPath = normalizePath(rawPath, options.normalizeMode);
-    const key = `${method} ${normPath}`;
-    let entry = bucket.get(key);
-    if (!entry) {
-      entry = { method, path: normPath, durations: [], errorCount: 0 };
-      bucket.set(key, entry);
-    }
-    entry.durations.push(durationMs);
-    if (status >= 400) entry.errorCount++;
-  }
-
-  const out: AggregatedEndpoint[] = [];
-  for (const [key, v] of bucket) {
-    const sorted = v.durations.slice().sort((a, b) => a - b);
-    const n = sorted.length;
-    const sum = sorted.reduce((a, b) => a + b, 0);
-    out.push({
-      key,
-      method: v.method,
-      path: v.path,
-      count: n,
-      avgMs: n ? sum / n : 0,
-      p50Ms: percentile(sorted, 50),
-      p90Ms: percentile(sorted, 90),
-      p95Ms: percentile(sorted, 95),
-      p99Ms: percentile(sorted, 99),
-      minMs: sorted[0] ?? 0,
-      maxMs: sorted[n - 1] ?? 0,
-      errorCount: v.errorCount,
-    });
-  }
-  return out;
+function storeSnapshot() {
+  return {
+    methodCodes,
+    statuses,
+    durations,
+    pathIds,
+    pathTable,
+    count,
+    unmatchedCount,
+    unmatchedSample,
+    cronEvents,
+    methodSeen,
+  };
 }
 
-function aggregateCron(options: ParseOptions): CronAggregated[] {
-  const q = options.cronQuery.trim().toLowerCase();
-  const minMs = options.cronMinMs;
-  const map = new Map<
-    string,
-    {
-      name: string;
-      starts: number;
-      durations: number[];
-      fails: number;
-      lastRunTs?: string;
-      lastDurationMs?: number;
-    }
-  >();
-  const startMap = new Map<string, string | undefined>();
-
-  for (const ev of cronEvents) {
-    if (q && !ev.name.toLowerCase().includes(q)) continue;
-    const bucket = map.get(ev.name) ?? { name: ev.name, starts: 0, durations: [], fails: 0 };
-
-    if (ev.event === "start") {
-      bucket.starts++;
-      startMap.set(ev.name, ev.ts);
-    } else if (ev.event === "done" || ev.event === "fail") {
-      let dur = ev.durationMs;
-      if (dur === undefined) {
-        const startTs = startMap.get(ev.name);
-        if (startTs && ev.ts) {
-          const s = Date.parse(startTs.replace(" ", "T"));
-          const e = Date.parse(ev.ts.replace(" ", "T"));
-          if (!Number.isNaN(s) && !Number.isNaN(e) && e >= s) dur = e - s;
-        }
-        startMap.delete(ev.name);
-      }
-      if (dur !== undefined && dur >= minMs) {
-        bucket.durations.push(dur);
-        bucket.lastDurationMs = dur;
-        if (ev.ts) bucket.lastRunTs = ev.ts;
-      }
-      if (ev.event === "fail") bucket.fails++;
-    }
-    map.set(ev.name, bucket);
-  }
-
-  const out: CronAggregated[] = [];
-  for (const b of map.values()) {
-    if (options.cronShowFailedOnly && b.fails === 0) continue;
-    const sorted = b.durations.slice().sort((a, b) => a - b);
-    const runs = sorted.length;
-    const sum = sorted.reduce((a, x) => a + x, 0);
-    const row: CronAggregated = {
-      name: b.name,
-      runs,
-      starts: b.starts,
-      fails: b.fails,
-      avgMs: runs ? sum / runs : 0,
-      p50Ms: percentile(sorted, 50),
-      p90Ms: percentile(sorted, 90),
-      p95Ms: percentile(sorted, 95),
-      p99Ms: percentile(sorted, 99),
-      minMs: sorted[0] ?? 0,
-      maxMs: sorted[runs - 1] ?? 0,
-    };
-    if (b.lastRunTs !== undefined) row.lastRunTs = b.lastRunTs;
-    if (b.lastDurationMs !== undefined) row.lastDurationMs = b.lastDurationMs;
-    out.push(row);
-  }
-  return out;
-}
-
-function buildResult(options: ParseOptions): AggregatedResult {
+function makeResult(options: ParseOptions): AggregatedResult {
   self.postMessage({
     type: "PROGRESS",
     payload: { stage: "aggregating", processed: 0, total: 100, percent: 0 },
   } satisfies WorkerResponse);
-
-  const api = aggregateApi(options);
-  const cron = aggregateCron(options);
-
-  let max = 0;
-  let sum = 0;
-  let errors = 0;
-  let slow = 0;
-  for (let i = 0; i < count; i++) {
-    const d = durations[i]!;
-    sum += d;
-    if (d > max) max = d;
-    if (statuses[i]! >= 400) errors++;
-    if (d >= 3000) slow++;
-  }
-
-  const summary: LogSummary = {
-    matched: count,
-    unmatched: unmatchedCount,
-    max,
-    avg: count ? sum / count : 0,
-    errors,
-    slow,
-  };
-
-  const cronSummary: CronSummary = {
-    starts: cronEvents.filter((e) => e.event === "start").length,
-    dones: cronEvents.filter((e) => e.event === "done").length,
-    fails: cronEvents.filter((e) => e.event === "fail").length,
-    jobs: cron.length,
-    slowestRun: cron.reduce((m, r) => Math.max(m, r.maxMs), 0),
-  };
-
-  return {
-    api,
-    cron,
-    summary,
-    cronSummary,
-    methods: Array.from(methodSeen).sort(),
-    unmatchedSample,
-    unmatchedCount,
-  };
+  const result = buildResultCached(storeSnapshot(), options, cachedSummary);
+  cachedSummary = { summary: result.summary, methods: result.methods };
+  return result;
 }
 
 async function parseFileStream(file: File) {
@@ -458,7 +184,7 @@ async function parseFileStream(file: File) {
       if (c === 10) {
         let line = buffer.slice(start, i);
         if (line.endsWith("\r")) line = line.slice(0, -1);
-        parseLine(line);
+        ingestLine(line);
         start = i + 1;
         linesSinceProgress++;
       }
@@ -476,13 +202,12 @@ async function parseFileStream(file: File) {
           percent: Math.min(99, Math.round((bytesRead / total) * 100)),
         },
       } satisfies WorkerResponse);
-      // Yield so progress messages flush
       await new Promise<void>((r) => setTimeout(r, 0));
     }
   }
 
   buffer += decoder.decode();
-  if (buffer) parseLine(buffer);
+  if (buffer) ingestLine(buffer);
 
   self.postMessage({
     type: "PROGRESS",
@@ -496,7 +221,7 @@ function parseText(text: string) {
   const total = lines.length || 1;
   for (let i = 0; i < lines.length; i++) {
     if (cancelled) throw new Error("Cancelled");
-    parseLine(lines[i]!);
+    ingestLine(lines[i]!);
     if (i > 0 && i % 10000 === 0) {
       self.postMessage({
         type: "PROGRESS",
@@ -528,7 +253,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
 
     if (msg.type === "PARSE_FILE") {
       await parseFileStream(msg.payload.file);
-      const result = buildResult(msg.payload.options);
+      const result = makeResult(msg.payload.options);
       self.postMessage({ type: "RESULT", payload: result } satisfies WorkerResponse);
       self.postMessage({ type: "DONE" } satisfies WorkerResponse);
       return;
@@ -536,7 +261,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
 
     if (msg.type === "PARSE_TEXT") {
       parseText(msg.payload.text);
-      const result = buildResult(msg.payload.options);
+      const result = makeResult(msg.payload.options);
       self.postMessage({ type: "RESULT", payload: result } satisfies WorkerResponse);
       self.postMessage({ type: "DONE" } satisfies WorkerResponse);
       return;
@@ -544,21 +269,10 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
 
     if (msg.type === "REAGGREGATE") {
       if (count === 0 && cronEvents.length === 0) {
-        self.postMessage({
-          type: "RESULT",
-          payload: {
-            api: [],
-            cron: [],
-            summary: { matched: 0, unmatched: 0, max: 0, avg: 0, errors: 0, slow: 0 },
-            cronSummary: { starts: 0, dones: 0, fails: 0, jobs: 0, slowestRun: 0 },
-            methods: [],
-            unmatchedSample: [],
-            unmatchedCount: 0,
-          },
-        } satisfies WorkerResponse);
+        self.postMessage({ type: "RESULT", payload: EMPTY_RESULT } satisfies WorkerResponse);
         return;
       }
-      const result = buildResult(msg.payload.options);
+      const result = makeResult(msg.payload.options);
       self.postMessage({ type: "RESULT", payload: result } satisfies WorkerResponse);
       self.postMessage({ type: "DONE" } satisfies WorkerResponse);
     }
