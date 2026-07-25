@@ -3,11 +3,21 @@
 use crate::normalize::{normalize_path, NormalizeMode};
 use crate::parse::{parse_line_bytes, LineKind, Method};
 use crate::relhist::RelHist;
-use ahash::AHashMap;
+use hashbrown::hash_map::EntryRef;
+use hashbrown::HashMap;
+use memchr::memchr;
+use rapidhash::fast::RandomState;
 
 const LINE_EXTEND: usize = 256 * 1024;
 /// Reusable ingest window. Keeps Wasm peak memory bounded.
 pub const INGEST_CAP: usize = 8 * 1024 * 1024;
+
+/// Path/norm indexes: rapidhash beats foldhash on byte keys.
+type ByteMap<V> = HashMap<Vec<u8>, V, RandomState>;
+
+fn new_byte_map<V>() -> ByteMap<V> {
+    HashMap::with_hasher(RandomState::default())
+}
 
 #[derive(Clone)]
 struct CronEv {
@@ -37,7 +47,7 @@ pub struct Engine {
     path_bytes: Vec<u8>,
     path_off: Vec<u32>,
     path_len: Vec<u16>,
-    path_index: AHashMap<Vec<u8>, u32>,
+    path_index: ByteMap<u32>,
 
     method_codes: Vec<u8>,
     statuses: Vec<u16>,
@@ -52,7 +62,7 @@ pub struct Engine {
     norm_bytes: [Vec<u8>; 3],
     norm_off: [Vec<u32>; 3],
     norm_len: [Vec<u16>; 3],
-    norm_index_map: [AHashMap<Vec<u8>, u32>; 3],
+    norm_index_map: [ByteMap<u32>; 3],
     path_to_norm: [Vec<u32>; 3],
     mode_ready: [bool; 3],
 
@@ -80,7 +90,7 @@ impl Engine {
             path_bytes: Vec::new(),
             path_off: Vec::new(),
             path_len: Vec::new(),
-            path_index: AHashMap::new(),
+            path_index: new_byte_map(),
             method_codes: Vec::new(),
             statuses: Vec::new(),
             durations: Vec::new(),
@@ -92,7 +102,7 @@ impl Engine {
             norm_bytes: [Vec::new(), Vec::new(), Vec::new()],
             norm_off: [Vec::new(), Vec::new(), Vec::new()],
             norm_len: [Vec::new(), Vec::new(), Vec::new()],
-            norm_index_map: [AHashMap::new(), AHashMap::new(), AHashMap::new()],
+            norm_index_map: [new_byte_map(), new_byte_map(), new_byte_map()],
             path_to_norm: [Vec::new(), Vec::new(), Vec::new()],
             mode_ready: [false; 3],
             summary_sum: 0.0,
@@ -191,12 +201,81 @@ impl Engine {
     /// Feed `len` bytes already written at ingest[0..len] starting at absolute `abs_off`.
     pub fn feed(&mut self, len: u32, abs_off: u32) -> u32 {
         let len = (len as usize).min(self.ingest.len());
+        if self.carry.is_empty() {
+            self.feed_ingest_only(len, abs_off)
+        } else {
+            self.feed_with_carry(len, abs_off)
+        }
+    }
+
+    /// Common path: no carry — SIMD memchr newline scan over ingest window.
+    fn feed_ingest_only(&mut self, len: usize, abs_off: u32) -> u32 {
+        let abs_off = abs_off as u64;
+        let before = self.method_codes.len();
+        let mut ingest = std::mem::take(&mut self.ingest);
+        if ingest.len() < len {
+            ingest.resize(len, 0);
+        }
+        let chunk_end = abs_off + len as u64;
+        let at_file_end = chunk_end >= self.file_size;
+        let extend_limit = self.shard_end + LINE_EXTEND as u64;
+        let view = &ingest[..len];
+
+        let mut i = 0usize;
+        if self.skip_partial {
+            match memchr(b'\n', view) {
+                Some(nl) => {
+                    i = nl + 1;
+                    self.skip_partial = false;
+                }
+                None => {
+                    if !at_file_end {
+                        self.carry.extend_from_slice(view);
+                        self.carry_abs = abs_off;
+                    }
+                    self.ingest = ingest;
+                    return 0;
+                }
+            }
+        }
+
+        while i < len {
+            let abs_line_start = abs_off + i as u64;
+            if abs_line_start >= self.shard_end {
+                break;
+            }
+            let line_start = i;
+            let rest = &view[i..];
+            match memchr(b'\n', rest) {
+                Some(rel) => {
+                    let line_end = i + rel;
+                    self.accept_line(view, line_start, line_end);
+                    i = line_end + 1;
+                }
+                None => {
+                    if !at_file_end && abs_line_start < extend_limit {
+                        self.carry.clear();
+                        self.carry.extend_from_slice(&view[line_start..]);
+                        self.carry_abs = abs_line_start;
+                    } else if at_file_end {
+                        self.accept_line(view, line_start, len);
+                    }
+                    break;
+                }
+            }
+        }
+
+        self.ingest = ingest;
+        (self.method_codes.len() - before) as u32
+    }
+
+    /// Rare path: leftover partial line from previous chunk.
+    fn feed_with_carry(&mut self, len: usize, abs_off: u32) -> u32 {
         let abs_off = abs_off as u64;
         let before = self.method_codes.len();
 
         let mut ingest = std::mem::take(&mut self.ingest);
         if ingest.len() < len {
-            // should not happen after ingest_ptr
             ingest.resize(len, 0);
         }
         let mut carry = std::mem::take(&mut self.carry);
@@ -208,7 +287,7 @@ impl Engine {
         let ingest_view = &ingest[..len];
 
         let total = carry.len() + len;
-        let buf_abs = if carry.is_empty() { abs_off } else { carry_abs };
+        let buf_abs = carry_abs;
         let byte_at = |idx: usize| -> u8 {
             if idx < carry.len() {
                 carry[idx]
@@ -224,14 +303,9 @@ impl Engine {
             }
             if i >= total {
                 if !at_file_end {
-                    if carry.is_empty() {
-                        self.carry.extend_from_slice(ingest_view);
-                        self.carry_abs = abs_off;
-                    } else {
-                        carry.extend_from_slice(ingest_view);
-                        self.carry = carry;
-                        self.carry_abs = carry_abs;
-                    }
+                    carry.extend_from_slice(ingest_view);
+                    self.carry = carry;
+                    self.carry_abs = carry_abs;
                 }
                 self.ingest = ingest;
                 return 0;
@@ -422,17 +496,19 @@ impl Engine {
     }
 
     fn intern_path(&mut self, path: &[u8]) -> u32 {
-        if let Some(&id) = self.path_index.get(path) {
-            return id;
+        let next_id = self.path_off.len() as u32;
+        match self.path_index.entry_ref(path) {
+            EntryRef::Occupied(e) => return *e.get(),
+            EntryRef::Vacant(e) => {
+                e.insert(next_id);
+            }
         }
-        let id = self.path_off.len() as u32;
         let off = self.path_bytes.len() as u32;
         self.path_bytes.extend_from_slice(path);
         self.path_off.push(off);
         self.path_len.push(path.len() as u16);
-        self.path_index.insert(path.to_vec(), id);
         self.mode_ready = [false; 3];
-        id
+        next_id
     }
 
     fn path_slice(&self, id: usize) -> &[u8] {
@@ -449,16 +525,18 @@ impl Engine {
     }
 
     fn intern_norm(&mut self, mode: usize, path: &[u8]) -> u32 {
-        if let Some(&id) = self.norm_index_map[mode].get(path) {
-            return id;
+        let next_id = self.norm_off[mode].len() as u32;
+        match self.norm_index_map[mode].entry_ref(path) {
+            EntryRef::Occupied(e) => return *e.get(),
+            EntryRef::Vacant(e) => {
+                e.insert(next_id);
+            }
         }
-        let id = self.norm_off[mode].len() as u32;
         let off = self.norm_bytes[mode].len() as u32;
         self.norm_bytes[mode].extend_from_slice(path);
         self.norm_off[mode].push(off);
         self.norm_len[mode].push(path.len() as u16);
-        self.norm_index_map[mode].insert(path.to_vec(), id);
-        id
+        next_id
     }
 
     pub fn norm_path_bytes(&self, mode: u8, norm_id: usize) -> Option<Vec<u8>> {
@@ -483,8 +561,9 @@ impl Engine {
         self.path_to_norm[m].resize(self.path_off.len(), 0);
         let mode_enum = NormalizeMode::from_u8(mode);
         for pid in 0..self.path_off.len() {
-            let raw = self.path_slice(pid);
-            let norm = normalize_path(raw, mode_enum);
+            let off = self.path_off[pid] as usize;
+            let len = self.path_len[pid] as usize;
+            let norm = normalize_path(&self.path_bytes[off..off + len], mode_enum).into_owned();
             let nid = self.intern_norm(m, &norm);
             self.path_to_norm[m][pid] = nid;
         }
@@ -530,22 +609,22 @@ impl Engine {
         } else {
             Vec::new()
         };
-        let mut by_key: AHashMap<u64, EndpointAcc> = if use_dense {
-            AHashMap::new()
+        let mut by_key: HashMap<u64, EndpointAcc> = if use_dense {
+            HashMap::new()
         } else {
-            AHashMap::with_capacity((self.path_off.len() / 4).max(64))
+            HashMap::with_capacity((self.path_off.len() / 4).max(64))
         };
 
         let mut sum_max = 0.0f32;
         let mut sum_sum = 0.0f64;
         let mut sum_errors = 0u32;
         let mut sum_slow = 0u32;
-        let summary_sketch_owned: Option<RelHist> = if need_summary && self.summary_ready {
+        let summary_ref: Option<&RelHist> = if need_summary && self.summary_ready {
             sum_sum = self.summary_sum;
             sum_max = self.summary_max;
             sum_errors = self.summary_errors;
             sum_slow = self.summary_slow;
-            Some(self.summary_sketch.clone())
+            Some(&self.summary_sketch)
         } else {
             None
         };
@@ -650,7 +729,7 @@ impl Engine {
         encode_partial_vec(
             mode as u8,
             &endpoints,
-            summary_sketch_owned.as_ref(),
+            summary_ref,
             sum_sum,
             sum_max,
             sum_errors,
@@ -786,5 +865,24 @@ socket connected\n\
         assert_eq!(a.unmatched_count(), b.unmatched_count());
         assert_eq!(a.hit_count(), 2);
         assert_eq!(a.unmatched_count(), 1);
+    }
+
+    #[test]
+    fn mid_line_chunk_boundary() {
+        let sample = b"2026-07-24T00:00:10: GET /api/health 200 12.5 ms - 42\n";
+        let split = 20; // inside timestamp
+        let mut e = Engine::new();
+        e.begin_shard(0, sample.len() as u32, sample.len() as u32);
+        let _ = e.ingest_ptr(split as u32);
+        e.ingest[..split].copy_from_slice(&sample[..split]);
+        e.feed(split as u32, 0);
+        let rest = sample.len() - split;
+        let _ = e.ingest_ptr(rest as u32);
+        e.ingest[..rest].copy_from_slice(&sample[split..]);
+        e.feed(rest as u32, split as u32);
+        e.end_shard();
+        assert_eq!(e.hit_count(), 1);
+        assert!(e.summary_ready);
+        assert!(e.summary_sum > 0.0);
     }
 }

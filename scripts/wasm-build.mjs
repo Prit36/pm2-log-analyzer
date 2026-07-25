@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Rebuild pm2-core Wasm and embed bytes for the single-file Vite bundle.
- * Requires: rustc/cargo (wasm32-unknown-unknown), wasm-bindgen CLI matching Cargo.toml.
+ * Requires: rustc/cargo (wasm32-unknown-unknown), wasm-bindgen CLI matching Cargo.toml,
+ * and wasm-opt (Binaryen) on PATH — install from https://github.com/WebAssembly/binaryen/releases
  */
 import { execSync } from "node:child_process";
 import fs from "node:fs";
@@ -24,6 +25,22 @@ function run(cmd, cwd = root, extraEnv = {}) {
   });
 }
 
+function requireWasmOpt() {
+  try {
+    const v = execSync("wasm-opt --version", { encoding: "utf8", shell: true }).trim();
+    console.log(`wasm-opt: ${v}`);
+  } catch {
+    console.error(
+      "wasm-opt not found. Install Binaryen and put wasm-opt on PATH:\n" +
+        "  https://github.com/WebAssembly/binaryen/releases\n" +
+        "  (Windows: extract bin/wasm-opt.exe into a directory on PATH)",
+    );
+    process.exit(1);
+  }
+}
+
+requireWasmOpt();
+
 run("cargo test --manifest-path wasm/pm2-core/Cargo.toml");
 run(
   "cargo build --manifest-path wasm/pm2-core/Cargo.toml --target wasm32-unknown-unknown --release",
@@ -37,16 +54,11 @@ run(
 );
 
 const wasmPath = path.join(pkgDir, "pm2_core_bg.wasm");
-let wasm = fs.readFileSync(wasmPath);
-
-try {
-  execSync("wasm-opt -version", { stdio: "ignore" });
-  run(`wasm-opt -O --enable-bulk-memory -o "${wasmPath}" "${wasmPath}"`);
-  wasm = fs.readFileSync(wasmPath);
-  console.log(`wasm-opt → ${wasm.length} bytes`);
-} catch {
-  console.log("wasm-opt not found; using wasm-bindgen output as-is");
-}
+run(
+  `wasm-opt -O3 --enable-simd --enable-bulk-memory -o "${wasmPath}" "${wasmPath}"`,
+);
+const wasm = fs.readFileSync(wasmPath);
+console.log(`wasm-opt -O3 → ${wasm.length} bytes`);
 
 fs.writeFileSync(
   bytesTs,
@@ -54,12 +66,17 @@ fs.writeFileSync(
 );
 console.log(`embedded ${wasm.length} wasm bytes → ${path.relative(root, bytesTs)}`);
 
-// Prevent Vite from emitting a .wasm sidecar via `new URL(..., import.meta.url)`.
 const jsPath = path.join(pkgDir, "pm2_core.js");
 let js = fs.readFileSync(jsPath, "utf8");
+const urlDefault =
+  /if\s*\(\s*(?:typeof\s+module_or_path\s*===\s*'undefined'|module_or_path\s*===\s*undefined)\s*\)\s*\{\s*module_or_path\s*=\s*new URL\(\s*'pm2_core_bg\.wasm'\s*,\s*import\.meta\.url\s*\)\s*;\s*\}/;
+if (!urlDefault.test(js)) {
+  console.error("failed to patch pm2_core.js URL default (pattern not found)");
+  process.exit(1);
+}
 js = js.replace(
-  /if \(typeof module_or_path === 'undefined'\) \{\s*module_or_path = new URL\('pm2_core_bg\.wasm', import\.meta\.url\);\s*\}/,
-  `if (typeof module_or_path === 'undefined') {
+  urlDefault,
+  `if (module_or_path === undefined) {
         throw new Error('pm2_core: pass WebAssembly.Module or bytes (single-file embed)');
     }`,
 );

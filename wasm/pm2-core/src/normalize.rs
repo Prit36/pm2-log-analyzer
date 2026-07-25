@@ -1,5 +1,7 @@
 //! Path normalization (parity with src/parser/normalize.ts).
 
+use std::borrow::Cow;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum NormalizeMode {
@@ -104,9 +106,9 @@ fn collapse_segment(seg: &[u8]) -> &[u8] {
     seg
 }
 
-pub fn normalize_path(path: &[u8], mode: NormalizeMode) -> Vec<u8> {
+pub fn normalize_path(path: &[u8], mode: NormalizeMode) -> Cow<'_, [u8]> {
     if mode == NormalizeMode::Exact {
-        return path.to_vec();
+        return Cow::Borrowed(path);
     }
     let mut p = path;
     if matches!(mode, NormalizeMode::StripQuery | NormalizeMode::CollapseIds) {
@@ -115,7 +117,7 @@ pub fn normalize_path(path: &[u8], mode: NormalizeMode) -> Vec<u8> {
         }
     }
     if mode != NormalizeMode::CollapseIds {
-        return p.to_vec();
+        return Cow::Owned(p.to_vec());
     }
     let mut out = Vec::with_capacity(p.len());
     let mut start = 0usize;
@@ -130,7 +132,7 @@ pub fn normalize_path(path: &[u8], mode: NormalizeMode) -> Vec<u8> {
             start = i + 1;
         }
     }
-    out
+    Cow::Owned(out)
 }
 
 #[cfg(test)]
@@ -141,7 +143,7 @@ mod tests {
     fn collapse_object_id() {
         let p = b"/api/users/507f1f77bcf86cd799439011/profile";
         assert_eq!(
-            normalize_path(p, NormalizeMode::CollapseIds),
+            normalize_path(p, NormalizeMode::CollapseIds).as_ref(),
             b"/api/users/:id/profile"
         );
     }
@@ -149,16 +151,16 @@ mod tests {
     #[test]
     fn strip_query() {
         assert_eq!(
-            normalize_path(b"/api/x?foo=1&bar=2", NormalizeMode::StripQuery),
+            normalize_path(b"/api/x?foo=1&bar=2", NormalizeMode::StripQuery).as_ref(),
             b"/api/x"
         );
     }
 
     #[test]
     fn exact_keeps_query() {
-        assert_eq!(
-            normalize_path(b"/api/x?foo=1", NormalizeMode::Exact),
-            b"/api/x?foo=1"
-        );
+        let p = b"/api/x?foo=1";
+        let out = normalize_path(p, NormalizeMode::Exact);
+        assert_eq!(out.as_ref(), p);
+        assert!(matches!(out, Cow::Borrowed(_)));
     }
 }

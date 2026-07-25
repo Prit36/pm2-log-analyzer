@@ -217,14 +217,10 @@ fn parse_float(buf: &[u8], mut i: usize, end: usize) -> Option<(f32, usize)> {
 }
 
 fn find_cron_mark(buf: &[u8], from: usize, end: usize) -> Option<usize> {
-    let mut i = from;
-    while i + CRON_MARK.len() <= end {
-        if &buf[i..i + CRON_MARK.len()] == CRON_MARK {
-            return Some(i);
-        }
-        i += 1;
+    if from >= end {
+        return None;
     }
-    None
+    memchr::memmem::find(&buf[from..end], CRON_MARK).map(|rel| from + rel)
 }
 
 fn has_non_space(buf: &[u8], start: usize, end: usize) -> bool {
@@ -375,12 +371,17 @@ fn try_cron(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
     };
     i = skip_space_ansi(buf, i, end);
     let mut name = strip_ansi_bytes(&buf[i..end]);
-    // trim
-    while name.first() == Some(&b' ') || name.first() == Some(&b'\t') {
-        name.remove(0);
+    // trim without O(n) remove(0)
+    let mut lo = 0usize;
+    let mut hi = name.len();
+    while lo < hi && (name[lo] == b' ' || name[lo] == b'\t') {
+        lo += 1;
     }
-    while name.last() == Some(&b' ') || name.last() == Some(&b'\t') {
-        name.pop();
+    while hi > lo && (name[hi - 1] == b' ' || name[hi - 1] == b'\t') {
+        hi -= 1;
+    }
+    if lo > 0 || hi < name.len() {
+        name = name[lo..hi].to_vec();
     }
     if name.is_empty() {
         return None;
@@ -406,8 +407,8 @@ fn try_cron(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
                 n
             };
             if !name_part.is_empty() {
-                if let Ok(s) = std::str::from_utf8(num) {
-                    if let Ok(v) = s.parse::<f32>() {
+                if let Some((v, consumed)) = parse_float(num, 0, num.len()) {
+                    if consumed == num.len() {
                         name = name_part;
                         duration_ms = Some(v);
                     }

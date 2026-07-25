@@ -1,7 +1,7 @@
 [package]
 name = "pm2-core"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "PM2 log parse + reagg kernel for browser Wasm"
 license = "MIT"
 
@@ -9,8 +9,13 @@ license = "MIT"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-wasm-bindgen = "=0.2.100"
-ahash = { version = "0.8.12", default-features = false, features = ["std"] }
+# CLI must match crate version exactly (`cargo install -f wasm-bindgen-cli --version 0.2.126`).
+wasm-bindgen = "=0.2.126"
+# SwissTable + foldhash default (RelHist i32 buckets). Byte-key maps use rapidhash below.
+hashbrown = "0.17"
+# Faster than foldhash on byte/string keys (path intern).
+rapidhash = "4"
+memchr = "2.8"
 
 [profile.release]
 opt-level = 3
@@ -18,6 +23,5 @@ lto = true
 codegen-units = 1
 panic = "abort"
 
-# Enable bulk memory; SIMD via RUSTFLAGS in wasm:build when desired.
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-O", "--enable-bulk-memory", "--enable-simd"]
+wasm-opt = ["-O3", "--enable-bulk-memory", "--enable-simd"]

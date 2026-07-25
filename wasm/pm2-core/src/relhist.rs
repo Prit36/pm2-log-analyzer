@@ -1,24 +1,22 @@
 //! Relative-error histogram (parity with src/parser/relHist.ts, a=0.01).
 
-use ahash::AHashMap;
+use hashbrown::HashMap;
 
 const RELATIVE_ACCURACY: f64 = 0.01;
 const GAMMA: f64 = (1.0 + RELATIVE_ACCURACY) / (1.0 - RELATIVE_ACCURACY);
-
-fn inv_log_gamma() -> f64 {
-    1.0 / GAMMA.ln()
-}
+/// 1/ln(γ); precomputed so accept() never calls ln(γ) (value.ln() still per sample).
+const INV_LOG_GAMMA: f64 = 1.0 / 0.020000666688891502; // == 1.0 / GAMMA.ln()
 
 #[derive(Clone, Debug)]
 pub struct RelHist {
-    buckets: AHashMap<i32, u32>,
+    buckets: HashMap<i32, u32>,
     pub count: u32,
 }
 
 impl Default for RelHist {
     fn default() -> Self {
         Self {
-            buckets: AHashMap::new(),
+            buckets: HashMap::new(),
             count: 0,
         }
     }
@@ -35,7 +33,7 @@ impl RelHist {
         if !(v > 0.0) || !v.is_finite() {
             return;
         }
-        let key = (v.ln() * inv_log_gamma()).ceil() as i32;
+        let key = (v.ln() * INV_LOG_GAMMA).ceil() as i32;
         *self.buckets.entry(key).or_insert(0) += 1;
         self.count += 1;
     }

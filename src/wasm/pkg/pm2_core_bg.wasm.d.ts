@@ -21,7 +21,7 @@ export const pm2engine_reaggregate: (a: number, b: number, c: number, d: number,
 export const pm2engine_summary_wire: (a: number) => [number, number];
 export const pm2engine_unmatched_count: (a: number) => number;
 export const pm2engine_unmatched_sample_wire: (a: number) => [number, number];
-export const __wbindgen_export_0: WebAssembly.Table;
+export const __wbindgen_externrefs: WebAssembly.Table;
 export const __wbindgen_free: (a: number, b: number, c: number) => void;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_start: () => void;
