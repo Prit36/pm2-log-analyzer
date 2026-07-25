@@ -90,7 +90,7 @@ node scripts/bench/bench.mjs --runs 5 --note "my-note"
 node scripts/bench/bench.mjs --runs 5 --note "my-note" --skip-build
 ```
 
-Results append to `scripts/bench/history.json`. Prefer a quiet shell (fresh Chromium, no stacked agent previews) for gate numbers.
+Results append to `scripts/bench/history.json`. Prefer a quiet shell (fresh Chromium, no stacked agent previews) for gate numbers. Each run prints a compact `stages (avg ms): …` line (`feed`, `firstReagg`, warm reagg shard/decode/finish, etc.).
 
 ### Reference machine
 
@@ -135,13 +135,17 @@ Early post-worker UI still felt heavy on huge files (multi‑second filter reagg
 | Manual quiet opt | (post `wasm-opt` + `memchr`) | **~1.33 s** | **~97 ms** | ~1.15 GiB | Required `wasm-opt -O3`, SIMD newline scan |
 | hashbrown + foldhash | `hashbrown-foldhash` | **~1.28 s** | **~86 ms** | ~1.15 GiB | Drop ahash (no AES on Wasm) |
 | Modernize (manual) | `rust-modernize-manual` | **~1.19 s** | **~86 ms** | ~1.15 GiB | rapidhash path maps, `entry_ref`, `Cow` normalize, `memmem`, no RelHist clone |
+| Stage breakdown | `stage-breakdown` | ~1.19 s | ~86 ms | ~1.15 GiB | Bench prints parse/reagg stage ms (`feed`, `firstReagg`, …) via `__PM2_BENCH__` |
+| Sub-1s (quiet) | `sub1s-quiet` / `e7dd750` | **~0.99 s** | **~82 ms** | **~1.15 GiB** | Cron/`memchr` gate + method order; overlap `ENSURE_MODE` on early shards; `summary_wire` cache |
 
 **Net**
 
 - **Usability:** ~50 MB logs went from tab crash / multi‑minute hang → interactive (worker + streaming + virtualization).  
-- **Speed (quiet-shell best vs first instrumented 535 MiB baseline):** parse **~12.2 s → ~1.19 s** (~10×); filter reagg **~3.2 s → ~86 ms** (~37×); peak Chromium RSS **~2.6 GiB → ~1.15 GiB** (~2.3× less).
+- **Speed (quiet-shell best vs first instrumented 535 MiB baseline):** parse **~12.2 s → ~0.99 s** (~12×); filter reagg **~3.2 s → ~82 ms** (~39×); peak Chromium RSS **~2.6 GiB → ~1.15 GiB** (~2.3× less).
 
 Exact result parity held across the timed journey: matched **3,718,450**, unmatched **2,788,590**, endpoints **6,107**, cron **9**.
+
+Quiet stage map at the sub-1s point (avg ms): `feed≈524` (still the largest slice), `firstReagg≈159` (was ~414 before `ENSURE_MODE` overlap), warm reagg `shard≈32` / `decode≈10` / `finish≈24`.
 
 ### Architecture (current)
 
@@ -151,11 +155,13 @@ File drop
   → 4 shard workers, each with one Pm2Engine
        write 8 MiB chunks into Wasm ingest window
        feed / end_shard → columnar hits + path arena + summary
-  → filter change → in-shard reaggregate → compact PM2P partials
+       early shards: ENSURE_MODE(collapseIds) while siblings still feed
+  → absorb summary_wire + cron/unmatched (KPI summary cached)
+  → first / filter reagg → in-shard reaggregate → compact PM2P partials
   → coordinator merge → Zustand → UI
 ```
 
-Failed approach (kept as a lesson): copying whole shards into Rust and keeping dual JS/Wasm residency beat reagg slightly but missed parse/RSS gates. Chunked in-place ingest fixed that.
+Failed approach (kept as a lesson): copying whole shards into Rust and keeping dual JS/Wasm residency beat reagg slightly but missed parse/RSS gates. Chunked in-place ingest fixed that. Stuffing cold `ensure_mode` only into `end_shard` is a wall wash — overlap it with sibling feeds instead.
 
 ---
 
