@@ -47,6 +47,36 @@ function stddev(nums) {
   return Math.sqrt(avg(nums.map((n) => (n - m) ** 2)));
 }
 
+/** Average numeric fields across objects that share the same keys. */
+function avgObjects(objs) {
+  if (!objs.length) return null;
+  const keys = Object.keys(objs[0]).filter((k) => typeof objs[0][k] === "number");
+  const out = {};
+  for (const k of keys) {
+    const vals = objs.map((o) => o[k]).filter((n) => typeof n === "number");
+    if (vals.length) out[k] = avg(vals);
+  }
+  // Preserve non-numeric kind/label from first object when present
+  if (typeof objs[0].kind === "string") out.kind = objs[0].kind;
+  return out;
+}
+
+function fmtStageLine(stages, reaggAvg) {
+  if (!stages) return null;
+  const n = (k) => (typeof stages[k] === "number" ? stages[k].toFixed(0) : "?");
+  let line =
+    `stages (avg ms): wasmInit=${n("wasmCompileMs")} pool=${n("shardPoolInitMs")} ` +
+    `read=${n("readMs")} copy=${n("copyIngestMs")} feed=${n("feedMs")} ` +
+    `endShard=${n("endShardMs")} meta=${n("metaWireMs")} merge=${n("mergeMetaMs")} ` +
+    `firstReagg=${n("firstReaggMs")} (shard=${n("shardReaggMaxMs")} decode=${n("decodePartialsMs")} finish=${n("finishApiMs")})`;
+  if (reaggAvg) {
+    const r = (k) => (typeof reaggAvg[k] === "number" ? reaggAvg[k].toFixed(0) : "?");
+    line +=
+      ` | reagg shard=${r("shardReaggMaxMs")} decode=${r("decodePartialsMs")} finish=${r("finishApiMs")}`;
+  }
+  return line;
+}
+
 function gitMeta() {
   try {
     return {
@@ -185,6 +215,12 @@ try {
   const peakHeap = iterations.map((r) => r.memory.jsHeapPeakMB).filter((n) => typeof n === "number");
   const reaggAvg = iterations.map((r) => r.reaggregate.avgWallMs).filter((n) => typeof n === "number");
 
+  const parseStages = iterations.map((r) => r.stages).filter(Boolean);
+  const stagesAvg = avgObjects(parseStages);
+  // Flatten all filter-reagg stage blobs across runs, then average numeric fields
+  const reaggStageBlobs = iterations.flatMap((r) => r.reaggregate?.stages ?? []).filter(Boolean);
+  const reaggStagesAvg = avgObjects(reaggStageBlobs);
+
   const session = {
     id: new Date().toISOString(),
     method: "browser-app",
@@ -222,6 +258,8 @@ try {
       reaggAvgMs: reaggAvg.length
         ? { avg: avg(reaggAvg), stddev: stddev(reaggAvg), min: Math.min(...reaggAvg), max: Math.max(...reaggAvg) }
         : null,
+      stages: stagesAvg,
+      reaggStages: reaggStagesAvg,
     },
     iterations: iterations.map((r, i) => ({
       run: i + 1,
@@ -230,6 +268,8 @@ try {
       throughputMBps: r.parse.throughputMBps,
       reaggAvgMs: r.reaggregate.avgWallMs,
       reaggWallMs: r.reaggregate.wallMs,
+      stages: r.stages ?? null,
+      reaggStages: r.reaggregate?.stages ?? [],
       browserRssPeakMB: r.memory.browserRssPeakMB,
       jsHeapPeakMB: r.memory.jsHeapPeakMB,
       jsHeapUsedAfterMB: r.memory.jsHeapUsedAfterMB,
@@ -256,6 +296,9 @@ try {
     );
   if (session.summary.reaggAvgMs)
     console.log(`reagg avg:         ${session.summary.reaggAvgMs.avg.toFixed(0)} ms`);
+  const stageLine = fmtStageLine(session.summary.stages, session.summary.reaggStages);
+  if (stageLine) console.log(stageLine);
+  else console.log("stages:            (missing — PERF race or older build?)");
   console.log(`\nAppended → ${HISTORY_PATH} (session ${history.length})`);
 } finally {
   preview.kill();

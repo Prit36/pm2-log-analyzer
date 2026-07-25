@@ -1,11 +1,52 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { WorkerMessage, WorkerResponse } from "../workers/logParserWorker";
+import type {
+  ParsePerfStages,
+  ReaggPerfStages,
+  WorkerMessage,
+  WorkerResponse,
+} from "../workers/logParserWorker";
 import LogParserWorker from "../workers/logParserWorker.ts?worker&inline";
 import {
   useAnalysisStore,
   workerParseOptions,
   type ParseProgress,
 } from "../store/analysisStore";
+
+type Pm2Bench = {
+  at: string;
+  source: string;
+  fileName?: string;
+  fileBytes?: number;
+  parseWallMs?: number;
+  matched?: number;
+  unmatched?: number;
+  apiEndpoints?: number;
+  cronJobs?: number;
+  p95Ms?: number;
+  crossOriginIsolated?: boolean;
+  stages?: ParsePerfStages;
+  reaggTimes: number[];
+  reaggStages: ReaggPerfStages[];
+  lastReaggMs?: number;
+};
+
+function benchWin(): Window & { __PM2_BENCH__?: Pm2Bench } {
+  return window as Window & { __PM2_BENCH__?: Pm2Bench };
+}
+
+function ensureBench(partial?: Partial<Pm2Bench>): Pm2Bench {
+  const w = benchWin();
+  if (!w.__PM2_BENCH__) {
+    w.__PM2_BENCH__ = {
+      at: new Date().toISOString(),
+      source: "unknown",
+      reaggTimes: [],
+      reaggStages: [],
+    };
+  }
+  if (partial) Object.assign(w.__PM2_BENCH__, partial);
+  return w.__PM2_BENCH__;
+}
 
 export function useParserWorker() {
   const workerRef = useRef<Worker | null>(null);
@@ -31,8 +72,12 @@ export function useParserWorker() {
           setProgress(msg.payload as ParseProgress);
           break;
         case "PERF": {
-          const w = window as Window & { __PM2_BENCH__?: { stages?: unknown } };
-          if (w.__PM2_BENCH__) w.__PM2_BENCH__.stages = msg.payload;
+          const b = ensureBench();
+          if (msg.payload.kind === "reagg") {
+            b.reaggStages = [...(b.reaggStages ?? []), msg.payload];
+          } else {
+            b.stages = msg.payload;
+          }
           break;
         }
         case "RESULT":
@@ -96,25 +141,30 @@ export function useParserWorker() {
     async (file: File) => {
       const options = workerParseOptions(useAnalysisStore.getState().filters);
       skipNextReagg.current = true;
-      const t0 = performance.now();
-      await run({ type: "PARSE_FILE", payload: { file, options } });
-      const ms = Math.round(performance.now() - t0);
-      const result = useAnalysisStore.getState().result;
-      // Local bench only — strip before commit
-      (window as Window & { __PM2_BENCH__?: unknown }).__PM2_BENCH__ = {
+      // Create before PARSE so PERF messages can land stages.
+      ensureBench({
         at: new Date().toISOString(),
         source: "file",
         fileName: file.name,
         fileBytes: file.size,
+        crossOriginIsolated: window.crossOriginIsolated,
+        reaggTimes: [],
+        reaggStages: [],
+        stages: undefined,
+        parseWallMs: undefined,
+      });
+      const t0 = performance.now();
+      await run({ type: "PARSE_FILE", payload: { file, options } });
+      const ms = Math.round(performance.now() - t0);
+      const result = useAnalysisStore.getState().result;
+      ensureBench({
         parseWallMs: ms,
         matched: result?.summary.matched ?? 0,
         unmatched: result?.summary.unmatched ?? 0,
         apiEndpoints: result?.api.length ?? 0,
         cronJobs: result?.cron.length ?? 0,
         p95Ms: result?.summary.p95Ms ?? 0,
-        crossOriginIsolated: window.crossOriginIsolated,
-        reaggTimes: [] as number[],
-      };
+      });
       showToast(`Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests in ${ms}ms`);
     },
     [run, showToast],
@@ -124,10 +174,26 @@ export function useParserWorker() {
     async (text: string) => {
       const options = workerParseOptions(useAnalysisStore.getState().filters);
       skipNextReagg.current = true;
+      ensureBench({
+        at: new Date().toISOString(),
+        source: "text",
+        reaggTimes: [],
+        reaggStages: [],
+        stages: undefined,
+        parseWallMs: undefined,
+      });
       const t0 = performance.now();
       await run({ type: "PARSE_TEXT", payload: { text, options } });
       const ms = Math.round(performance.now() - t0);
       const result = useAnalysisStore.getState().result;
+      ensureBench({
+        parseWallMs: ms,
+        matched: result?.summary.matched ?? 0,
+        unmatched: result?.summary.unmatched ?? 0,
+        apiEndpoints: result?.api.length ?? 0,
+        cronJobs: result?.cron.length ?? 0,
+        p95Ms: result?.summary.p95Ms ?? 0,
+      });
       showToast(`Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests in ${ms}ms`);
     },
     [run, showToast],
@@ -138,13 +204,9 @@ export function useParserWorker() {
     const t0 = performance.now();
     await run({ type: "REAGGREGATE", payload: { options } });
     const ms = Math.round(performance.now() - t0);
-    const w = window as Window & {
-      __PM2_BENCH__?: { lastReaggMs?: number; reaggTimes?: number[]; stages?: unknown };
-    };
-    if (w.__PM2_BENCH__) {
-      w.__PM2_BENCH__.lastReaggMs = ms;
-      w.__PM2_BENCH__.reaggTimes = [...(w.__PM2_BENCH__.reaggTimes ?? []), ms];
-    }
+    const b = ensureBench();
+    b.lastReaggMs = ms;
+    b.reaggTimes = [...(b.reaggTimes ?? []), ms];
   }, [run]);
 
   const cancel = useCallback(() => {

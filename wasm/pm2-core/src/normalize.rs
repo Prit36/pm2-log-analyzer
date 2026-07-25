@@ -117,15 +117,31 @@ pub fn normalize_path(path: &[u8], mode: NormalizeMode) -> Cow<'_, [u8]> {
         }
     }
     if mode != NormalizeMode::CollapseIds {
-        return Cow::Owned(p.to_vec());
+        // StripQuery: borrow the (possibly query-trimmed) slice — no alloc.
+        return Cow::Borrowed(p);
     }
-    let mut out = Vec::with_capacity(p.len());
+    // CollapseIds: borrow when no segment needs collapsing.
     let mut start = 0usize;
+    let mut needs_collapse = false;
     for i in 0..=p.len() {
         if i == p.len() || p[i] == b'/' {
             let seg = &p[start..i];
-            let collapsed = collapse_segment(seg);
-            out.extend_from_slice(collapsed);
+            if collapse_segment(seg) != seg {
+                needs_collapse = true;
+                break;
+            }
+            start = i + 1;
+        }
+    }
+    if !needs_collapse {
+        return Cow::Borrowed(p);
+    }
+    let mut out = Vec::with_capacity(p.len());
+    start = 0;
+    for i in 0..=p.len() {
+        if i == p.len() || p[i] == b'/' {
+            let seg = &p[start..i];
+            out.extend_from_slice(collapse_segment(seg));
             if i < p.len() {
                 out.push(b'/');
             }
@@ -150,10 +166,17 @@ mod tests {
 
     #[test]
     fn strip_query() {
-        assert_eq!(
-            normalize_path(b"/api/x?foo=1&bar=2", NormalizeMode::StripQuery).as_ref(),
-            b"/api/x"
-        );
+        let out = normalize_path(b"/api/x?foo=1&bar=2", NormalizeMode::StripQuery);
+        assert_eq!(out.as_ref(), b"/api/x");
+        assert!(matches!(out, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn collapse_noop_borrows() {
+        let p = b"/api/health";
+        let out = normalize_path(p, NormalizeMode::CollapseIds);
+        assert_eq!(out.as_ref(), p);
+        assert!(matches!(out, Cow::Borrowed(_)));
     }
 
     #[test]

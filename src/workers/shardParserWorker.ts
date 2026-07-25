@@ -24,6 +24,12 @@ export type ShardRequest =
       shardIndex: number;
     }
   | {
+      type: "ENSURE_MODE";
+      epoch: number;
+      /** 0 exact / 1 stripQuery / 2 collapseIds */
+      mode: number;
+    }
+  | {
       type: "REAGGREGATE";
       epoch: number;
       shardIndex: number;
@@ -33,10 +39,15 @@ export type ShardRequest =
       needSummary: boolean;
     };
 
+/** Per-shard parse critical-path pieces (coordinator takes max across shards). */
 export type ShardTiming = {
   readMs: number;
-  scanParseMs: number;
-  internMs: number;
+  copyIngestMs: number;
+  feedMs: number;
+  endShardMs: number;
+  metaWireMs: number;
+  /** Sum of the above for this shard's wall. */
+  shardWallMs: number;
 };
 
 export type ShardParsed = {
@@ -48,6 +59,7 @@ export type ShardParsed = {
   methodsMask: number;
   cronWire: ArrayBuffer;
   unmatchedWire: ArrayBuffer;
+  summaryWire: ArrayBuffer;
   timing: ShardTiming;
 };
 
@@ -56,6 +68,7 @@ export type ShardPartial = {
   shardIndex: number;
   epoch: number;
   partial: ArrayBuffer;
+  reaggMs: number;
 };
 
 export type ShardError = {
@@ -66,6 +79,8 @@ export type ShardError = {
 };
 
 export type ShardReady = { type: "SHARD_READY" };
+
+export type ShardModeReady = { type: "SHARD_MODE_READY"; epoch: number };
 
 const CHUNK = 8 * 1024 * 1024;
 const LINE_EXTEND = 256 * 1024;
@@ -95,13 +110,10 @@ async function ensureInit(module: WebAssembly.Module) {
   ready = true;
 }
 
-async function parseFileRange(
-  file: File,
-  start: number,
-  end: number,
-): Promise<ShardTiming> {
+async function parseFileRange(file: File, start: number, end: number): Promise<ShardTiming> {
   let readMs = 0;
-  let scanParseMs = 0;
+  let copyIngestMs = 0;
+  let feedMs = 0;
 
   engine!.begin_shard(start, end, file.size);
   const readEnd = Math.min(file.size, end + LINE_EXTEND);
@@ -113,33 +125,50 @@ async function parseFileRange(
     const chunk = new Uint8Array(await file.slice(off, off + take).arrayBuffer());
     readMs += performance.now() - t0;
 
-    const t1 = performance.now();
+    const tCopy = performance.now();
     const n = writeIngest(chunk);
-    engine!.feed(n, off);
-    scanParseMs += performance.now() - t1;
-    off += take;
+    copyIngestMs += performance.now() - tCopy;
 
-    // Early exit once past ownership and no need for extend (engine keeps carry).
+    const tFeed = performance.now();
+    engine!.feed(n, off);
+    feedMs += performance.now() - tFeed;
+
+    off += take;
     if (off >= end + LINE_EXTEND) break;
   }
 
-  const t2 = performance.now();
+  const tEnd = performance.now();
   engine!.end_shard();
-  // Only the mode used by first reagg — ensure_mode is lazy inside reaggregate.
-  scanParseMs += performance.now() - t2;
+  const endShardMs = performance.now() - tEnd;
 
-  return { readMs, scanParseMs, internMs: 0 };
+  return {
+    readMs,
+    copyIngestMs,
+    feedMs,
+    endShardMs,
+    metaWireMs: 0,
+    shardWallMs: readMs + copyIngestMs + feedMs + endShardMs,
+  };
 }
 
-function metaBuffers(): { cronWire: ArrayBuffer; unmatchedWire: ArrayBuffer } {
+function metaBuffers(): {
+  cronWire: ArrayBuffer;
+  unmatchedWire: ArrayBuffer;
+  summaryWire: ArrayBuffer;
+} {
   const cron = engine!.cron_wire();
   const unmatched = engine!.unmatched_sample_wire();
+  const summary = engine!.summary_wire();
   return {
-    cronWire: cron.buffer.slice(cron.byteOffset, cron.byteOffset + cron.byteLength),
+    cronWire: cron.buffer.slice(cron.byteOffset, cron.byteOffset + cron.byteLength) as ArrayBuffer,
     unmatchedWire: unmatched.buffer.slice(
       unmatched.byteOffset,
       unmatched.byteOffset + unmatched.byteLength,
-    ),
+    ) as ArrayBuffer,
+    summaryWire: summary.buffer.slice(
+      summary.byteOffset,
+      summary.byteOffset + summary.byteLength,
+    ) as ArrayBuffer,
   };
 }
 
@@ -160,11 +189,25 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
       return;
     }
 
+    if (msg.type === "ENSURE_MODE") {
+      engine.ensure_mode(msg.mode);
+      self.postMessage({ type: "SHARD_MODE_READY", epoch: msg.epoch } satisfies ShardModeReady);
+      return;
+    }
+
     if (msg.type === "PARSE_SHARD") {
       const { file, start, end, shardIndex, epoch } = msg;
       engine.clear();
       const timing = await parseFileRange(file, start, end);
-      const { cronWire, unmatchedWire } = metaBuffers();
+      const tMeta = performance.now();
+      const { cronWire, unmatchedWire, summaryWire } = metaBuffers();
+      timing.metaWireMs = performance.now() - tMeta;
+      timing.shardWallMs =
+        timing.readMs +
+        timing.copyIngestMs +
+        timing.feedMs +
+        timing.endShardMs +
+        timing.metaWireMs;
       const result: ShardParsed = {
         type: "SHARD_PARSED",
         shardIndex,
@@ -174,9 +217,10 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         methodsMask: engine.methods_mask(),
         cronWire,
         unmatchedWire,
+        summaryWire,
         timing,
       };
-      self.postMessage(result, [cronWire, unmatchedWire]);
+      self.postMessage(result, [cronWire, unmatchedWire, summaryWire]);
       return;
     }
 
@@ -184,18 +228,34 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
       const { buf, shardIndex, epoch } = msg;
       engine.clear();
       const bytes = new Uint8Array(buf);
-      const t0 = performance.now();
+      let copyIngestMs = 0;
+      let feedMs = 0;
       engine.begin_shard(0, bytes.length, bytes.length);
       let off = 0;
       while (off < bytes.length) {
         const take = Math.min(CHUNK, bytes.length - off);
+        const tCopy = performance.now();
         const n = writeIngest(bytes.subarray(off, off + take));
+        copyIngestMs += performance.now() - tCopy;
+        const tFeed = performance.now();
         engine.feed(n, off);
+        feedMs += performance.now() - tFeed;
         off += take;
       }
+      const tEnd = performance.now();
       engine.end_shard();
-      const scanParseMs = performance.now() - t0;
-      const { cronWire, unmatchedWire } = metaBuffers();
+      const endShardMs = performance.now() - tEnd;
+      const tMeta = performance.now();
+      const { cronWire, unmatchedWire, summaryWire } = metaBuffers();
+      const metaWireMs = performance.now() - tMeta;
+      const timing: ShardTiming = {
+        readMs: 0,
+        copyIngestMs,
+        feedMs,
+        endShardMs,
+        metaWireMs,
+        shardWallMs: copyIngestMs + feedMs + endShardMs + metaWireMs,
+      };
       const result: ShardParsed = {
         type: "SHARD_PARSED",
         shardIndex,
@@ -205,29 +265,33 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         methodsMask: engine.methods_mask(),
         cronWire,
         unmatchedWire,
-        timing: { readMs: 0, scanParseMs, internMs: 0 },
+        summaryWire,
+        timing,
       };
-      self.postMessage(result, [cronWire, unmatchedWire]);
+      self.postMessage(result, [cronWire, unmatchedWire, summaryWire]);
       return;
     }
 
     if (msg.type === "REAGGREGATE") {
+      const t0 = performance.now();
       const partial = engine.reaggregate(
         normalizeModeCode(msg.normalizeMode),
         statusFamilyCode(msg.statusFamily),
         msg.minMs,
         msg.needSummary,
       );
+      const reaggMs = performance.now() - t0;
       const ab = partial.buffer.slice(
         partial.byteOffset,
         partial.byteOffset + partial.byteLength,
-      );
+      ) as ArrayBuffer;
       self.postMessage(
         {
           type: "SHARD_PARTIAL",
           shardIndex: msg.shardIndex,
           epoch: msg.epoch,
           partial: ab,
+          reaggMs,
         } satisfies ShardPartial,
         [ab],
       );

@@ -136,7 +136,10 @@ try {
   await sample("after-parse");
 
   await page.evaluate(() => {
-    if (window.__PM2_BENCH__) window.__PM2_BENCH__.reaggTimes = [];
+    if (window.__PM2_BENCH__) {
+      window.__PM2_BENCH__.reaggTimes = [];
+      window.__PM2_BENCH__.reaggStages = [];
+    }
   });
 
   async function waitReaggCount(n) {
@@ -192,10 +195,12 @@ try {
       uploadToReadySec: uploadToReadyMs / 1000,
       throughputMBps: fileBytes / (1024 * 1024) / (finalBench.parseWallMs / 1000),
     },
+    stages: finalBench.stages ?? null,
     reaggregate: {
       runs: reaggTimes.length,
       wallMs: reaggTimes,
       avgWallMs: reaggTimes.length ? reaggTimes.reduce((a, b) => a + b, 0) / reaggTimes.length : null,
+      stages: finalBench.reaggStages ?? [],
     },
     memory: {
       browserRssBeforeMB: memSamples.find((s) => s.label === "before")?.browserRssMB ?? null,

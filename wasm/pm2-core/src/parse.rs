@@ -134,14 +134,15 @@ fn skip_timestamp(buf: &[u8], start: usize, end: usize) -> Option<(usize, usize,
 
 fn parse_method(buf: &[u8], mut i: usize, end: usize) -> Option<(Method, usize)> {
     i = skip_space_ansi(buf, i, end);
+    // Frequency order for this corpus (GET/POST dominate).
     const METHODS: &[(Method, &[u8])] = &[
-        (Method::Options, b"OPTIONS"),
-        (Method::Delete, b"DELETE"),
-        (Method::Patch, b"PATCH"),
-        (Method::Post, b"POST"),
-        (Method::Head, b"HEAD"),
         (Method::Get, b"GET"),
+        (Method::Post, b"POST"),
         (Method::Put, b"PUT"),
+        (Method::Head, b"HEAD"),
+        (Method::Patch, b"PATCH"),
+        (Method::Delete, b"DELETE"),
+        (Method::Options, b"OPTIONS"),
     ];
     for &(method, bytes) in METHODS {
         if i + bytes.len() > end {
@@ -218,6 +219,10 @@ fn parse_float(buf: &[u8], mut i: usize, end: usize) -> Option<(f32, usize)> {
 
 fn find_cron_mark(buf: &[u8], from: usize, end: usize) -> Option<usize> {
     if from >= end {
+        return None;
+    }
+    // Most lines have no '[' — skip full-line memmem for "[cron]".
+    if memchr::memchr(b'[', &buf[from..end]).is_none() {
         return None;
     }
     memchr::memmem::find(&buf[from..end], CRON_MARK).map(|rel| from + rel)

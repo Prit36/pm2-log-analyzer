@@ -563,11 +563,42 @@ impl Engine {
         for pid in 0..self.path_off.len() {
             let off = self.path_off[pid] as usize;
             let len = self.path_len[pid] as usize;
-            let norm = normalize_path(&self.path_bytes[off..off + len], mode_enum).into_owned();
-            let nid = self.intern_norm(m, &norm);
+            // Normalize may borrow path_bytes; intern without into_owned when unchanged.
+            let owned: Option<Vec<u8>>;
+            let borrow_off: usize;
+            let borrow_len: usize;
+            {
+                let raw = &self.path_bytes[off..off + len];
+                match normalize_path(raw, mode_enum) {
+                    std::borrow::Cow::Owned(v) => {
+                        owned = Some(v);
+                        borrow_off = 0;
+                        borrow_len = 0;
+                    }
+                    std::borrow::Cow::Borrowed(b) => {
+                        borrow_off = b.as_ptr() as usize - self.path_bytes.as_ptr() as usize;
+                        borrow_len = b.len();
+                        owned = None;
+                    }
+                }
+            }
+            let nid = if let Some(ref v) = owned {
+                self.intern_norm(m, v)
+            } else {
+                self.intern_norm_from_path_bytes(m, borrow_off, borrow_len)
+            };
             self.path_to_norm[m][pid] = nid;
         }
         self.mode_ready[m] = true;
+    }
+
+    /// Intern a norm key that lives in `path_bytes` (no intermediate Vec when already present).
+    fn intern_norm_from_path_bytes(&mut self, mode: usize, off: usize, len: usize) -> u32 {
+        if let Some(&id) = self.norm_index_map[mode].get(&self.path_bytes[off..off + len]) {
+            return id;
+        }
+        let key = self.path_bytes[off..off + len].to_vec();
+        self.intern_norm(mode, &key)
     }
 
     pub fn finalize_paths(&mut self) {

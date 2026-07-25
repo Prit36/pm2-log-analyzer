@@ -21,6 +21,7 @@ export {
   aggregateCron,
   aggregateColumnSlice,
   finishApiFromPartials,
+  logSummaryFromSummaryParts,
   buildResult,
   buildResultCached,
   buildResultFromPartials,
