@@ -16,11 +16,17 @@ export { normalizePath } from "./normalize";
 export { parseLine, parseLineInto, parseLineBytes, createLineScratch, stripAnsi } from "./parseLine";
 export type { LineScratch } from "./parseLine";
 export { percentile, sortAsc } from "./percentiles";
-export { RelHist, makeRelHist } from "./relHist";
 export {
   aggregateApi,
   aggregateCron,
+  aggregateColumnSlice,
+  finishApiFromPartials,
   buildResult,
   buildResultCached,
+  buildResultFromPartials,
   type ColumnarStore,
+  type AggPartial,
+  type NormBucketWire,
 } from "./aggregate";
+export { RelHist, makeRelHist } from "./relHist";
+export type { RelHistWire } from "./relHist";

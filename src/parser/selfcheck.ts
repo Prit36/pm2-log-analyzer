@@ -2,7 +2,9 @@ import { normalizePath } from "./normalize";
 import { createLineScratch, parseLine, parseLineBytes } from "./parseLine";
 import { percentile, sortAsc } from "./percentiles";
 import { RelHist } from "./relHist";
-
+import { aggregateColumnSlice, finishApiFromPartials, aggregateApiWithSummary } from "./aggregate";
+import type { ColumnarStore, ParseOptions } from "./types";
+import { METHODS } from "./types";
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(`selfcheck failed: ${msg}`);
 }
@@ -118,5 +120,85 @@ if (cron.kind === "cron") {
 
 assert(parseLine("socket connected").kind === "unmatched", "unmatched");
 assert(parseLine("   ").kind === "empty", "empty");
+
+// --- parallel column-slice agg merges to same result as one-pass ---
+{
+  const n = 10_000;
+  const methodCodes = new Uint8Array(n);
+  const statuses = new Uint16Array(n);
+  const durations = new Float32Array(n);
+  const pathIds = new Uint32Array(n);
+  const pathTable = ["/a", "/b/:id", "/c?x=1", "/users/1"];
+  for (let i = 0; i < n; i++) {
+    methodCodes[i] = i % METHODS.length;
+    statuses[i] = i % 17 === 0 ? 500 : 200;
+    durations[i] = 10 + (i % 1000);
+    pathIds[i] = i % pathTable.length;
+  }
+  const store: ColumnarStore = {
+    methodCodes,
+    statuses,
+    durations,
+    pathIds,
+    pathTable,
+    count: n,
+    unmatchedCount: 3,
+    unmatchedSample: [],
+    cronEvents: [],
+    methodSeen: new Set(["GET", "POST"]),
+  };
+  const options: ParseOptions = {
+    normalizeMode: "collapseIds",
+    methodFilter: null,
+    statusFamily: "all",
+    minMs: 0,
+    cronQuery: "",
+    cronMinMs: 0,
+    cronShowFailedOnly: false,
+  };
+  const one = aggregateApiWithSummary(store, options, true);
+  const mid = (n / 2) | 0;
+  const p0 = aggregateColumnSlice(
+    methodCodes,
+    statuses,
+    durations,
+    pathIds,
+    pathTable,
+    0,
+    mid,
+    options,
+    true,
+  );
+  const p1 = aggregateColumnSlice(
+    methodCodes,
+    statuses,
+    durations,
+    pathIds,
+    pathTable,
+    mid,
+    n,
+    options,
+    true,
+  );
+  const two = finishApiFromPartials([p0, p1], options, {
+    count: n,
+    unmatchedCount: 3,
+  });
+  assert(one.api.length === two.api.length, "api row count parity");
+  const byKey = new Map(two.api.map((r) => [r.key, r]));
+  for (const r of one.api) {
+    const o = byKey.get(r.key);
+    assert(o, `missing key ${r.key}`);
+    assert(o!.count === r.count, `count ${r.key}`);
+    assert(o!.errorCount === r.errorCount, `errors ${r.key}`);
+    approx(o!.avgMs, r.avgMs, 1e-6);
+    approx(o!.p95Ms, r.p95Ms, 1e-6);
+  }
+  assert(one.summary && two.summary, "summaries present");
+  assert(one.summary!.matched === two.summary!.matched, "summary matched");
+  assert(one.summary!.errors === two.summary!.errors, "summary errors");
+  approx(one.summary!.avg, two.summary!.avg, 1e-6);
+  approx(one.summary!.p95Ms, two.summary!.p95Ms, 1e-6);
+}
 
 console.log("parser selfcheck: ok");

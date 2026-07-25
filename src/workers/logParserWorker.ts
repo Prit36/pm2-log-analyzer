@@ -5,9 +5,11 @@
 import {
   METHOD_INDEX,
   buildResultCached,
+  buildResultFromPartials,
   createLineScratch,
   parseLineInto,
   type AggregatedResult,
+  type AggPartial,
   type CronEventCompact,
   type LogMethod,
   type LogSummary,
@@ -15,8 +17,10 @@ import {
   EMPTY_RESULT,
 } from "../parser";
 import type { ShardError, ShardRequest, ShardResult } from "./shardParserWorker";
-// Inline so vite-plugin-singlefile does not leave a separate shard chunk
+import type { AggShardError, AggShardRequest, AggShardResult } from "./aggShardWorker";
+// Inline so vite-plugin-singlefile does not leave separate worker chunks
 import ShardWorkerCtor from "./shardParserWorker.ts?worker&inline";
+import AggWorkerCtor from "./aggShardWorker.ts?worker&inline";
 
 export type {
   AggregatedEndpoint,
@@ -51,6 +55,32 @@ export type WorkerResponse =
   | { type: "ERROR"; payload: { message: string } }
   | { type: "DONE" };
 
+/** Below this hit count, parallel reagg isn't worth the worker fan-out. */
+const PARALLEL_AGG_MIN = 250_000;
+
+function canShareColumns(): boolean {
+  return typeof SharedArrayBuffer !== "undefined" && !!self.crossOriginIsolated;
+}
+
+function allocU8(n: number): Uint8Array {
+  return canShareColumns() ? new Uint8Array(new SharedArrayBuffer(n)) : new Uint8Array(n);
+}
+function allocU16(n: number): Uint16Array {
+  return canShareColumns()
+    ? new Uint16Array(new SharedArrayBuffer(n * 2))
+    : new Uint16Array(n);
+}
+function allocF32(n: number): Float32Array {
+  return canShareColumns()
+    ? new Float32Array(new SharedArrayBuffer(n * 4))
+    : new Float32Array(n);
+}
+function allocU32(n: number): Uint32Array {
+  return canShareColumns()
+    ? new Uint32Array(new SharedArrayBuffer(n * 4))
+    : new Uint32Array(n);
+}
+
 let cancelled = false;
 let methodCodes = new Uint8Array(0);
 let statuses = new Uint16Array(0);
@@ -67,6 +97,13 @@ let methodSeen = new Set<string>();
 let cachedSummary: { summary: LogSummary; methods: string[] } | null = null;
 
 let shardPool: Worker[] = [];
+let aggPool: Worker[] = [];
+/** Bumped when pathTable identity changes; agg workers refresh when mismatched. */
+let pathTableGen = 0;
+let aggPathTableGen = -1;
+/** Bumped when column SharedArrayBuffers are replaced (capacity growth). */
+let columnsGen = 0;
+let aggColumnsGen = -1;
 
 function resetStore() {
   methodCodes = new Uint8Array(0);
@@ -82,6 +119,8 @@ function resetStore() {
   cronEvents = [];
   methodSeen = new Set();
   cachedSummary = null;
+  pathTableGen++;
+  columnsGen++;
 }
 
 function terminateShards() {
@@ -89,13 +128,20 @@ function terminateShards() {
   shardPool = [];
 }
 
+function terminateAgg() {
+  for (const w of aggPool) w.terminate();
+  aggPool = [];
+  aggPathTableGen = -1;
+  aggColumnsGen = -1;
+}
+
 function ensureCapacity(need: number) {
   if (need <= capacity) return;
   const next = Math.max(capacity * 2 || 65536, need);
-  const mc = new Uint8Array(next);
-  const st = new Uint16Array(next);
-  const du = new Float32Array(next);
-  const pi = new Uint32Array(next);
+  const mc = allocU8(next);
+  const st = allocU16(next);
+  const du = allocF32(next);
+  const pi = allocU32(next);
   if (capacity > 0) {
     mc.set(methodCodes.subarray(0, count));
     st.set(statuses.subarray(0, count));
@@ -107,6 +153,7 @@ function ensureCapacity(need: number) {
   durations = du;
   pathIds = pi;
   capacity = next;
+  columnsGen++;
 }
 
 function internPath(path: string): number {
@@ -162,23 +209,104 @@ function storeSnapshot() {
   };
 }
 
-function makeResult(options: ParseOptions): AggregatedResult {
+function poolSize(): number {
+  const hc =
+    typeof navigator !== "undefined" && navigator.hardwareConcurrency
+      ? navigator.hardwareConcurrency
+      : 4;
+  return Math.max(2, Math.min(4, hc));
+}
+
+function runAggSlice(
+  worker: Worker,
+  req: Extract<AggShardRequest, { type: "AGG_SLICE" }>,
+): Promise<AggPartial> {
+  return new Promise((resolve, reject) => {
+    const onMsg = (e: MessageEvent<AggShardResult | AggShardError>) => {
+      worker.removeEventListener("message", onMsg);
+      const data = e.data;
+      if (data.type === "AGG_ERROR") {
+        reject(new Error(data.message));
+        return;
+      }
+      resolve(data.partial);
+    };
+    worker.addEventListener("message", onMsg);
+    worker.postMessage(req);
+  });
+}
+
+async function aggregateParallel(options: ParseOptions): Promise<AggregatedResult> {
+  const needSummary = !cachedSummary?.summary;
+  // Without SharedArrayBuffer (no COOP/COEP), column copies cancel the parallel win — stay sync.
+  const n =
+    count < PARALLEL_AGG_MIN || !canShareColumns() ? 1 : poolSize();
+
+  if (n === 1) {
+    return buildResultCached(storeSnapshot(), options, cachedSummary);
+  }
+
+  if (aggPool.length !== n) {
+    terminateAgg();
+    for (let i = 0; i < n; i++) aggPool.push(new AggWorkerCtor());
+  }
+  if (aggPathTableGen !== pathTableGen) {
+    for (const w of aggPool) {
+      w.postMessage({ type: "SET_PATH_TABLE", pathTable } satisfies AggShardRequest);
+    }
+    aggPathTableGen = pathTableGen;
+  }
+  if (aggColumnsGen !== columnsGen) {
+    const mc = methodCodes.buffer as SharedArrayBuffer;
+    const st = statuses.buffer as SharedArrayBuffer;
+    const du = durations.buffer as SharedArrayBuffer;
+    const pi = pathIds.buffer as SharedArrayBuffer;
+    for (const w of aggPool) {
+      w.postMessage({
+        type: "SET_COLUMNS",
+        methodCodes: mc,
+        statuses: st,
+        durations: du,
+        pathIds: pi,
+      } satisfies AggShardRequest);
+    }
+    aggColumnsGen = columnsGen;
+  }
+
+  const chunk = Math.ceil(count / n);
+  const tasks: Promise<AggPartial>[] = [];
+  for (let i = 0; i < n; i++) {
+    const start = i * chunk;
+    const end = Math.min(count, (i + 1) * chunk);
+    if (start >= end) break;
+    tasks.push(
+      runAggSlice(aggPool[i]!, {
+        type: "AGG_SLICE",
+        shardIndex: i,
+        start,
+        end,
+        options,
+        needSummary,
+      }),
+    );
+  }
+  const partials = await Promise.all(tasks);
+  return buildResultFromPartials(storeSnapshot(), options, partials, cachedSummary);
+}
+
+async function makeResult(options: ParseOptions): Promise<AggregatedResult> {
   self.postMessage({
     type: "PROGRESS",
     payload: { stage: "aggregating", processed: 0, total: 100, percent: 0 },
   } satisfies WorkerResponse);
-  const result = buildResultCached(storeSnapshot(), options, cachedSummary);
+  const result = await aggregateParallel(options);
   cachedSummary = { summary: result.summary, methods: result.methods };
   return result;
 }
 
 function shardCountFor(fileSize: number): number {
   if (fileSize < 8 * 1024 * 1024) return 1;
-  const hc =
-    typeof navigator !== "undefined" && navigator.hardwareConcurrency
-      ? navigator.hardwareConcurrency
-      : 4;
-  return Math.max(2, Math.min(4, hc));
+  return poolSize();
 }
 
 function mergeShard(shard: ShardResult) {
@@ -331,11 +459,13 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
     if (msg.type === "CANCEL") {
       cancelled = true;
       terminateShards();
+      terminateAgg();
       return;
     }
     if (msg.type === "CLEAR") {
       resetStore();
       terminateShards();
+      terminateAgg();
       self.postMessage({ type: "DONE" } satisfies WorkerResponse);
       return;
     }
@@ -345,7 +475,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
     if (msg.type === "PARSE_FILE") {
       await parseFileSharded(msg.payload.file);
       if (cancelled) throw new Error("Cancelled");
-      const result = makeResult(msg.payload.options);
+      const result = await makeResult(msg.payload.options);
       self.postMessage({ type: "RESULT", payload: result } satisfies WorkerResponse);
       self.postMessage({ type: "DONE" } satisfies WorkerResponse);
       return;
@@ -353,7 +483,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
 
     if (msg.type === "PARSE_TEXT") {
       parseText(msg.payload.text);
-      const result = makeResult(msg.payload.options);
+      const result = await makeResult(msg.payload.options);
       self.postMessage({ type: "RESULT", payload: result } satisfies WorkerResponse);
       self.postMessage({ type: "DONE" } satisfies WorkerResponse);
       return;
@@ -364,12 +494,13 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
         self.postMessage({ type: "RESULT", payload: EMPTY_RESULT } satisfies WorkerResponse);
         return;
       }
-      const result = makeResult(msg.payload.options);
+      const result = await makeResult(msg.payload.options);
       self.postMessage({ type: "RESULT", payload: result } satisfies WorkerResponse);
       self.postMessage({ type: "DONE" } satisfies WorkerResponse);
     }
   } catch (err) {
     terminateShards();
+    terminateAgg();
     self.postMessage({
       type: "ERROR",
       payload: { message: err instanceof Error ? err.message : String(err) },
