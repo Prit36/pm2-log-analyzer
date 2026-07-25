@@ -40,6 +40,9 @@ coverage/
 # Vite
 .vite/
 
+# Rust / Wasm build intermediates (committed artifact lives in src/wasm/)
+wasm/pm2-core/target/
+
 # Package manager (optional - lock files are often committed)
 # pnpm-lock.yaml
 

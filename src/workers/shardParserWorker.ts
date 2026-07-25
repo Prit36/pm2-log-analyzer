@@ -1,169 +1,246 @@
 /**
- * Shard worker: parse a byte range of a File with line-boundary rules.
- * Owns [start, end); skips leading partial line; takes straddling trailing line.
+ * Persistent Rust/Wasm shard: columns + paths stay in Wasm linear memory.
+ * Ingest uses ingest_ptr + memory.set (one copy into Wasm, no wasm-bindgen &[u8] copy).
  */
 
-import {
-  METHOD_INDEX,
-  createLineScratch,
-  parseLineBytes,
-  type CronEventCompact,
-  type LogMethod,
-} from "../parser";
+import init, { Pm2Engine } from "../wasm/pkg/pm2_core.js";
+import { normalizeModeCode, statusFamilyCode } from "../wasm/decodePartial";
 
-export type ShardRequest = {
-  type: "PARSE_SHARD";
-  file: File;
-  start: number;
-  end: number;
-  shardIndex: number;
+export type ShardRequest =
+  | { type: "INIT"; module: WebAssembly.Module }
+  | { type: "CLEAR"; epoch: number }
+  | {
+      type: "PARSE_SHARD";
+      epoch: number;
+      file: File;
+      start: number;
+      end: number;
+      shardIndex: number;
+    }
+  | {
+      type: "PARSE_BYTES";
+      epoch: number;
+      buf: ArrayBuffer;
+      shardIndex: number;
+    }
+  | {
+      type: "REAGGREGATE";
+      epoch: number;
+      shardIndex: number;
+      normalizeMode: string;
+      statusFamily: string;
+      minMs: number;
+      needSummary: boolean;
+    };
+
+export type ShardTiming = {
+  readMs: number;
+  scanParseMs: number;
+  internMs: number;
 };
 
-export type ShardResult = {
-  type: "SHARD_RESULT";
+export type ShardParsed = {
+  type: "SHARD_PARSED";
   shardIndex: number;
-  methodCodes: Uint8Array;
-  statuses: Uint16Array;
-  durations: Float32Array;
-  pathIds: Uint32Array;
-  count: number;
-  pathTable: string[];
+  epoch: number;
+  hitCount: number;
   unmatchedCount: number;
-  unmatchedSample: string[];
-  cronEvents: CronEventCompact[];
-  methods: string[];
+  methodsMask: number;
+  cronWire: ArrayBuffer;
+  unmatchedWire: ArrayBuffer;
+  timing: ShardTiming;
 };
 
-export type ShardError = { type: "SHARD_ERROR"; shardIndex: number; message: string };
+export type ShardPartial = {
+  type: "SHARD_PARTIAL";
+  shardIndex: number;
+  epoch: number;
+  partial: ArrayBuffer;
+};
 
-const decoder = new TextDecoder();
-/** Max line length when extending past ownership end to finish a straddling line. */
+export type ShardError = {
+  type: "SHARD_ERROR";
+  shardIndex: number;
+  epoch: number;
+  message: string;
+};
+
+export type ShardReady = { type: "SHARD_READY" };
+
+const CHUNK = 8 * 1024 * 1024;
 const LINE_EXTEND = 256 * 1024;
+
+let engine: Pm2Engine | null = null;
+let wasmMemory: WebAssembly.Memory | null = null;
+let ready = false;
+
+function heapU8(): Uint8Array {
+  return new Uint8Array(wasmMemory!.buffer);
+}
+
+/** Write bytes into Wasm ingest window; return length written. */
+function writeIngest(src: Uint8Array): number {
+  const len = Math.min(src.length, CHUNK);
+  const ptr = engine!.ingest_ptr(len);
+  // Re-read heap after possible grow from ingest_ptr.
+  heapU8().set(src.subarray(0, len), ptr);
+  return len;
+}
+
+async function ensureInit(module: WebAssembly.Module) {
+  if (ready && engine) return;
+  const exports = await init({ module_or_path: module });
+  wasmMemory = exports.memory;
+  engine = new Pm2Engine();
+  ready = true;
+}
+
+async function parseFileRange(
+  file: File,
+  start: number,
+  end: number,
+): Promise<ShardTiming> {
+  let readMs = 0;
+  let scanParseMs = 0;
+
+  engine!.begin_shard(start, end, file.size);
+  const readEnd = Math.min(file.size, end + LINE_EXTEND);
+  let off = start;
+
+  while (off < readEnd) {
+    const take = Math.min(CHUNK, readEnd - off);
+    const t0 = performance.now();
+    const chunk = new Uint8Array(await file.slice(off, off + take).arrayBuffer());
+    readMs += performance.now() - t0;
+
+    const t1 = performance.now();
+    const n = writeIngest(chunk);
+    engine!.feed(n, off);
+    scanParseMs += performance.now() - t1;
+    off += take;
+
+    // Early exit once past ownership and no need for extend (engine keeps carry).
+    if (off >= end + LINE_EXTEND) break;
+  }
+
+  const t2 = performance.now();
+  engine!.end_shard();
+  // Only the mode used by first reagg — ensure_mode is lazy inside reaggregate.
+  scanParseMs += performance.now() - t2;
+
+  return { readMs, scanParseMs, internMs: 0 };
+}
+
+function metaBuffers(): { cronWire: ArrayBuffer; unmatchedWire: ArrayBuffer } {
+  const cron = engine!.cron_wire();
+  const unmatched = engine!.unmatched_sample_wire();
+  return {
+    cronWire: cron.buffer.slice(cron.byteOffset, cron.byteOffset + cron.byteLength),
+    unmatchedWire: unmatched.buffer.slice(
+      unmatched.byteOffset,
+      unmatched.byteOffset + unmatched.byteLength,
+    ),
+  };
+}
 
 self.onmessage = async (e: MessageEvent<ShardRequest>) => {
   const msg = e.data;
-  if (msg.type !== "PARSE_SHARD") return;
-  const { file, start, end, shardIndex } = msg;
   try {
-    const readEnd = Math.min(file.size, end + LINE_EXTEND);
-    const buf = new Uint8Array(await file.slice(start, readEnd).arrayBuffer());
-
-    const scratch = createLineScratch();
-    let methodCodes = new Uint8Array(65536);
-    let statuses = new Uint16Array(65536);
-    let durations = new Float32Array(65536);
-    let pathIds = new Uint32Array(65536);
-    let capacity = 65536;
-    let count = 0;
-    const pathTable: string[] = [];
-    const pathIndex = new Map<string, number>();
-    let unmatchedCount = 0;
-    const unmatchedSample: string[] = [];
-    const cronEvents: CronEventCompact[] = [];
-    const methodSeen = new Set<string>();
-
-    function ensure(need: number) {
-      if (need <= capacity) return;
-      const next = Math.max(capacity * 2, need);
-      const mc = new Uint8Array(next);
-      const st = new Uint16Array(next);
-      const du = new Float32Array(next);
-      const pi = new Uint32Array(next);
-      mc.set(methodCodes.subarray(0, count));
-      st.set(statuses.subarray(0, count));
-      du.set(durations.subarray(0, count));
-      pi.set(pathIds.subarray(0, count));
-      methodCodes = mc;
-      statuses = st;
-      durations = du;
-      pathIds = pi;
-      capacity = next;
+    if (msg.type === "INIT") {
+      await ensureInit(msg.module);
+      self.postMessage({ type: "SHARD_READY" } satisfies ShardReady);
+      return;
+    }
+    if (!engine || !ready || !wasmMemory) {
+      throw new Error("shard wasm not initialized");
     }
 
-    function intern(path: string): number {
-      let id = pathIndex.get(path);
-      if (id !== undefined) return id;
-      id = pathTable.length;
-      pathTable.push(path);
-      pathIndex.set(path, id);
-      return id;
+    if (msg.type === "CLEAR") {
+      engine.clear();
+      return;
     }
 
-    function pushHttp(method: LogMethod, path: string, status: number, durationMs: number) {
-      const mi = METHOD_INDEX.get(method);
-      if (mi === undefined) return;
-      ensure(count + 1);
-      methodCodes[count] = mi;
-      statuses[count] = status;
-      durations[count] = durationMs;
-      pathIds[count] = intern(path);
-      count++;
-      methodSeen.add(method);
+    if (msg.type === "PARSE_SHARD") {
+      const { file, start, end, shardIndex, epoch } = msg;
+      engine.clear();
+      const timing = await parseFileRange(file, start, end);
+      const { cronWire, unmatchedWire } = metaBuffers();
+      const result: ShardParsed = {
+        type: "SHARD_PARSED",
+        shardIndex,
+        epoch,
+        hitCount: engine.hit_count(),
+        unmatchedCount: engine.unmatched_count(),
+        methodsMask: engine.methods_mask(),
+        cronWire,
+        unmatchedWire,
+        timing,
+      };
+      self.postMessage(result, [cronWire, unmatchedWire]);
+      return;
     }
 
-    let i = 0;
-    if (start > 0) {
-      while (i < buf.length && buf[i] !== 10) i++;
-      if (i < buf.length) i++;
-    }
-
-    while (i < buf.length) {
-      const lineStart = i;
-      const absLineStart = start + lineStart;
-      if (absLineStart >= end) break;
-
-      while (i < buf.length && buf[i] !== 10) i++;
-      const lineEnd = i;
-      const hasNl = i < buf.length && buf[i] === 10;
-      if (hasNl) i++;
-
-      // Incomplete line mid-file (extend wasn't enough) — stop; rare for normal logs
-      if (!hasNl && readEnd < file.size) break;
-
-      parseLineBytes(buf, lineStart, lineEnd, scratch);
-      if (scratch.kind === "empty") continue;
-      if (scratch.kind === "cron") {
-        cronEvents.push(scratch.cron!);
-        continue;
+    if (msg.type === "PARSE_BYTES") {
+      const { buf, shardIndex, epoch } = msg;
+      engine.clear();
+      const bytes = new Uint8Array(buf);
+      const t0 = performance.now();
+      engine.begin_shard(0, bytes.length, bytes.length);
+      let off = 0;
+      while (off < bytes.length) {
+        const take = Math.min(CHUNK, bytes.length - off);
+        const n = writeIngest(bytes.subarray(off, off + take));
+        engine.feed(n, off);
+        off += take;
       }
-      if (scratch.kind === "http") {
-        pushHttp(scratch.method, scratch.path, scratch.status, scratch.durationMs);
-        continue;
-      }
-      unmatchedCount++;
-      if (unmatchedSample.length < 40) {
-        unmatchedSample.push(
-          decoder.decode(buf.subarray(lineStart, Math.min(lineEnd, lineStart + 500))),
-        );
-      }
+      engine.end_shard();
+      const scanParseMs = performance.now() - t0;
+      const { cronWire, unmatchedWire } = metaBuffers();
+      const result: ShardParsed = {
+        type: "SHARD_PARSED",
+        shardIndex,
+        epoch,
+        hitCount: engine.hit_count(),
+        unmatchedCount: engine.unmatched_count(),
+        methodsMask: engine.methods_mask(),
+        cronWire,
+        unmatchedWire,
+        timing: { readMs: 0, scanParseMs, internMs: 0 },
+      };
+      self.postMessage(result, [cronWire, unmatchedWire]);
+      return;
     }
 
-    const mc = methodCodes.slice(0, count);
-    const st = statuses.slice(0, count);
-    const du = durations.slice(0, count);
-    const pi = pathIds.slice(0, count);
-
-    const result: ShardResult = {
-      type: "SHARD_RESULT",
-      shardIndex,
-      methodCodes: mc,
-      statuses: st,
-      durations: du,
-      pathIds: pi,
-      count,
-      pathTable,
-      unmatchedCount,
-      unmatchedSample,
-      cronEvents,
-      methods: Array.from(methodSeen),
-    };
-    self.postMessage(result, [mc.buffer, st.buffer, du.buffer, pi.buffer]);
+    if (msg.type === "REAGGREGATE") {
+      const partial = engine.reaggregate(
+        normalizeModeCode(msg.normalizeMode),
+        statusFamilyCode(msg.statusFamily),
+        msg.minMs,
+        msg.needSummary,
+      );
+      const ab = partial.buffer.slice(
+        partial.byteOffset,
+        partial.byteOffset + partial.byteLength,
+      );
+      self.postMessage(
+        {
+          type: "SHARD_PARTIAL",
+          shardIndex: msg.shardIndex,
+          epoch: msg.epoch,
+          partial: ab,
+        } satisfies ShardPartial,
+        [ab],
+      );
+      return;
+    }
   } catch (err) {
-    const errMsg: ShardError = {
+    const shardIndex = "shardIndex" in msg ? (msg as { shardIndex: number }).shardIndex : 0;
+    const epoch = "epoch" in msg ? (msg as { epoch: number }).epoch : 0;
+    self.postMessage({
       type: "SHARD_ERROR",
       shardIndex,
+      epoch,
       message: err instanceof Error ? err.message : String(err),
-    };
-    self.postMessage(errMsg);
+    } satisfies ShardError);
   }
 };

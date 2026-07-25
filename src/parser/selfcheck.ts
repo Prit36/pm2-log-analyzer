@@ -201,4 +201,42 @@ assert(parseLine("   ").kind === "empty", "empty");
   approx(one.summary!.p95Ms, two.summary!.p95Ms, 1e-6);
 }
 
+// --- Wasm core parity (Node): parse + reagg vs TS column slice ---
+{
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const path = await import("node:path");
+  const root = path.dirname(fileURLToPath(import.meta.url));
+  const wasmPath = path.resolve(root, "../wasm/pkg/pm2_core_bg.wasm");
+  const { default: init, Pm2Engine, initSync } = await import("../wasm/pkg/pm2_core.js");
+  void init;
+  const wasmBytes = readFileSync(wasmPath);
+  initSync({ module: wasmBytes });
+  const eng = new Pm2Engine();
+  const sample = [
+    "2026-07-24T00:00:10: GET /api/health 200 12.5 ms - 42",
+    "2026-07-24T00:00:11: POST /api/users/507f1f77bcf86cd799439011 201 3.1 ms - -",
+    "2026-07-24T00:00:12: GET /api/health 500 40 ms - 1",
+    "socket connected",
+    "2026-07-24T09:15:38: [cron] done export-motor-policy-csv 179ms",
+  ].join("\n");
+  const buf = new TextEncoder().encode(sample);
+  eng.parse_shard(buf, 0, buf.length, buf.length);
+  eng.finalize_paths();
+  assert(eng.hit_count() === 3, `wasm hits ${eng.hit_count()}`);
+  assert(eng.unmatched_count() === 1, "wasm unmatched");
+  const { decodePm2Partial, decodeCronWire } = await import("../wasm/decodePartial");
+  const wire = eng.reaggregate(2, 0, 0, true); // collapseIds, all
+  const { matched, unmatched, partial } = decodePm2Partial(wire);
+  assert(matched === 3, "partial matched");
+  assert(unmatched === 1, "partial unmatched");
+  assert(partial.buckets.length >= 2, "wasm endpoints");
+  const health = partial.buckets.find((b) => b.path === "/api/health" && b.method === "GET");
+  assert(health && health.count === 2, "health count");
+  assert(health!.errorCount === 1, "health errors");
+  const cronEv = decodeCronWire(eng.cron_wire());
+  assert(cronEv.length === 1 && cronEv[0]!.name === "export-motor-policy-csv", "cron wire");
+}
+
 console.log("parser selfcheck: ok");
+

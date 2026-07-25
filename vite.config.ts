@@ -8,7 +8,7 @@ import { viteSingleFile } from "vite-plugin-singlefile";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/** Needed for SharedArrayBuffer so agg workers can scan columns without copying. */
+/** COOP/COEP keep crossOriginIsolated available for any SAB use; Wasm path does not require it. */
 const coiHeaders = {
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Embedder-Policy": "require-corp",
@@ -21,6 +21,9 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "src"),
     },
+  },
+  build: {
+    assetsInlineLimit: 100_000_000,
   },
   server: { headers: coiHeaders },
   preview: { headers: coiHeaders },

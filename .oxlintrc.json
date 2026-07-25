@@ -11,5 +11,9 @@
   "rules": {},
   "env": {
     "builtin": true
-  }
+  },
+  "ignorePatterns": [
+    "src/wasm/pkg/**",
+    "wasm/pm2-core/target/**"
+  ]
 }

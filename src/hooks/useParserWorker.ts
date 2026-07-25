@@ -30,6 +30,11 @@ export function useParserWorker() {
         case "PROGRESS":
           setProgress(msg.payload as ParseProgress);
           break;
+        case "PERF": {
+          const w = window as Window & { __PM2_BENCH__?: { stages?: unknown } };
+          if (w.__PM2_BENCH__) w.__PM2_BENCH__.stages = msg.payload;
+          break;
+        }
         case "RESULT":
           setResult(msg.payload);
           setProgress({ stage: "complete", processed: 100, total: 100, percent: 100 });
@@ -95,6 +100,21 @@ export function useParserWorker() {
       await run({ type: "PARSE_FILE", payload: { file, options } });
       const ms = Math.round(performance.now() - t0);
       const result = useAnalysisStore.getState().result;
+      // Local bench only — strip before commit
+      (window as Window & { __PM2_BENCH__?: unknown }).__PM2_BENCH__ = {
+        at: new Date().toISOString(),
+        source: "file",
+        fileName: file.name,
+        fileBytes: file.size,
+        parseWallMs: ms,
+        matched: result?.summary.matched ?? 0,
+        unmatched: result?.summary.unmatched ?? 0,
+        apiEndpoints: result?.api.length ?? 0,
+        cronJobs: result?.cron.length ?? 0,
+        p95Ms: result?.summary.p95Ms ?? 0,
+        crossOriginIsolated: window.crossOriginIsolated,
+        reaggTimes: [] as number[],
+      };
       showToast(`Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests in ${ms}ms`);
     },
     [run, showToast],
@@ -115,7 +135,16 @@ export function useParserWorker() {
 
   const reaggregate = useCallback(async () => {
     const options = workerParseOptions(useAnalysisStore.getState().filters);
+    const t0 = performance.now();
     await run({ type: "REAGGREGATE", payload: { options } });
+    const ms = Math.round(performance.now() - t0);
+    const w = window as Window & {
+      __PM2_BENCH__?: { lastReaggMs?: number; reaggTimes?: number[]; stages?: unknown };
+    };
+    if (w.__PM2_BENCH__) {
+      w.__PM2_BENCH__.lastReaggMs = ms;
+      w.__PM2_BENCH__.reaggTimes = [...(w.__PM2_BENCH__.reaggTimes ?? []), ms];
+    }
   }, [run]);
 
   const cancel = useCallback(() => {
