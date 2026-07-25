@@ -14,10 +14,8 @@
     "selfcheck": "tsx src/parser/selfcheck.ts"
   },
   "dependencies": {
-    "@datadog/sketches-js": "^2.1.1",
     "clsx": "2.1.1",
     "lucide-react": "^1.26.0",
-    "protobufjs": "^8.7.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-window": "^2.3.0",

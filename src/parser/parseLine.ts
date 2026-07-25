@@ -1,7 +1,14 @@
 import type { CronEventCompact, LogMethod, ParsedLine } from "./types";
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"] as const;
+const METHOD_BYTES: { method: LogMethod; bytes: number[] }[] = METHODS.map((m) => ({
+  method: m,
+  bytes: Array.from(m, (ch) => ch.charCodeAt(0)),
+}));
+
 const ANSI_RE = /\u001b\[[0-9;]*m/g; // oxlint-disable-line no-control-regex -- ESC for ANSI strip
+const CRON_MARK = [0x5b, 0x63, 0x72, 0x6f, 0x6e, 0x5d]; // [cron]
+const decoder = new TextDecoder("utf-8", { fatal: false });
 
 /** Strip ANSI (kept for callers / tests). Prefer in-scanner skip on the hot path. */
 export function stripAnsi(input: string): string {
@@ -13,23 +20,22 @@ function isDigit(c: number): boolean {
   return c >= 48 && c <= 57;
 }
 
-/** Advance past CSI sequences ESC[ ... final. */
-function skipAnsi(s: string, i: number): number {
-  while (i < s.length && s.charCodeAt(i) === 0x1b && s.charCodeAt(i + 1) === 91) {
+function skipAnsiBytes(buf: Uint8Array, i: number, end: number): number {
+  while (i + 1 < end && buf[i] === 0x1b && buf[i + 1] === 0x5b) {
     i += 2;
-    while (i < s.length) {
-      const c = s.charCodeAt(i++);
+    while (i < end) {
+      const c = buf[i++]!;
       if (c >= 0x40 && c <= 0x7e) break;
     }
   }
   return i;
 }
 
-function skipSpaceAnsi(s: string, i: number): number {
+function skipSpaceAnsiBytes(buf: Uint8Array, i: number, end: number): number {
   for (;;) {
-    i = skipAnsi(s, i);
-    if (i >= s.length) return i;
-    const c = s.charCodeAt(i);
+    i = skipAnsiBytes(buf, i, end);
+    if (i >= end) return i;
+    const c = buf[i]!;
     if (c === 32 || c === 9) {
       i++;
       continue;
@@ -38,155 +44,209 @@ function skipSpaceAnsi(s: string, i: number): number {
   }
 }
 
-function onlySpaceAnsiLeft(s: string, i: number): boolean {
-  i = skipSpaceAnsi(s, i);
-  return i >= s.length;
+function onlySpaceAnsiLeftBytes(buf: Uint8Array, i: number, end: number): boolean {
+  return skipSpaceAnsiBytes(buf, i, end) >= end;
 }
 
-function skipTimestamp(s: string, start: number): { i: number; ts?: string } {
-  if (s.length - start < 20) return { i: start };
+function skipTimestampBytes(
+  buf: Uint8Array,
+  start: number,
+  end: number,
+): { i: number; tsStart: number; tsEnd: number } | null {
+  if (end - start < 20) return null;
   const a = start;
   for (let k = 0; k < 10; k++) {
-    const c = s.charCodeAt(a + k);
+    const c = buf[a + k]!;
     if (k === 4 || k === 7) {
-      if (c !== 45) return { i: start };
-    } else if (!isDigit(c)) return { i: start };
+      if (c !== 45) return null;
+    } else if (!isDigit(c)) return null;
   }
-  const sep = s.charCodeAt(a + 10);
-  if (sep !== 84 && sep !== 32) return { i: start };
+  const sep = buf[a + 10]!;
+  if (sep !== 84 && sep !== 32) return null;
   for (let k = 11; k < 19; k++) {
-    const c = s.charCodeAt(a + k);
+    const c = buf[a + k]!;
     if (k === 13 || k === 16) {
-      if (c !== 58) return { i: start };
-    } else if (!isDigit(c)) return { i: start };
+      if (c !== 58) return null;
+    } else if (!isDigit(c)) return null;
   }
-  if (s.charCodeAt(a + 19) !== 58) return { i: start };
-  return { i: skipSpaceAnsi(s, a + 20), ts: s.slice(a, a + 19) };
+  if (buf[a + 19] !== 58) return null;
+  return { i: skipSpaceAnsiBytes(buf, a + 20, end), tsStart: a, tsEnd: a + 19 };
 }
 
-function parseMethod(s: string, i: number): { method: LogMethod; i: number } | null {
-  i = skipSpaceAnsi(s, i);
-  for (const m of METHODS) {
-    if (!s.startsWith(m, i)) continue;
-    const after = i + m.length;
-    const next = after < s.length ? s.charCodeAt(after) : 32;
-    // space, tab, or ESC (ANSI before next token)
-    if (next === 32 || next === 9 || next === 0x1b || after >= s.length) {
-      return { method: m, i: after };
+function parseMethodBytes(
+  buf: Uint8Array,
+  i: number,
+  end: number,
+): { method: LogMethod; i: number } | null {
+  i = skipSpaceAnsiBytes(buf, i, end);
+  for (const { method, bytes } of METHOD_BYTES) {
+    if (i + bytes.length > end) continue;
+    let ok = true;
+    for (let k = 0; k < bytes.length; k++) {
+      if (buf[i + k] !== bytes[k]) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    const after = i + bytes.length;
+    const next = after < end ? buf[after]! : 32;
+    if (next === 32 || next === 9 || next === 0x1b || after >= end) {
+      return { method, i: after };
     }
   }
   return null;
 }
 
-function readToken(s: string, i: number): { token: string; i: number } | null {
-  i = skipSpaceAnsi(s, i);
-  if (i >= s.length) return null;
+function readTokenRange(
+  buf: Uint8Array,
+  i: number,
+  end: number,
+): { start: number; end: number; i: number } | null {
+  i = skipSpaceAnsiBytes(buf, i, end);
+  if (i >= end) return null;
   const start = i;
-  while (i < s.length) {
-    const c = s.charCodeAt(i);
+  while (i < end) {
+    const c = buf[i]!;
     if (c === 32 || c === 9 || c === 0x1b) break;
     i++;
   }
   if (i === start) return null;
-  return { token: s.slice(start, i), i };
+  return { start, end: i, i };
 }
 
-function parseFloatAt(s: string, i: number): { value: number; i: number } | null {
-  i = skipSpaceAnsi(s, i);
+function parseFloatBytes(
+  buf: Uint8Array,
+  i: number,
+  end: number,
+): { value: number; i: number } | null {
+  i = skipSpaceAnsiBytes(buf, i, end);
   const start = i;
-  while (i < s.length && isDigit(s.charCodeAt(i))) i++;
-  if (i < s.length && s.charCodeAt(i) === 46) {
+  while (i < end && isDigit(buf[i]!)) i++;
+  if (i < end && buf[i] === 46) {
     i++;
-    while (i < s.length && isDigit(s.charCodeAt(i))) i++;
+    while (i < end && isDigit(buf[i]!)) i++;
   }
   if (i === start) return null;
-  const value = Number(s.slice(start, i));
-  if (!Number.isFinite(value)) return null;
+  let value = 0;
+  let frac = 0;
+  let fracDiv = 1;
+  let seenDot = false;
+  for (let k = start; k < i; k++) {
+    const c = buf[k]!;
+    if (c === 46) {
+      seenDot = true;
+      continue;
+    }
+    if (!seenDot) value = value * 10 + (c - 48);
+    else {
+      frac = frac * 10 + (c - 48);
+      fracDiv *= 10;
+    }
+  }
+  if (seenDot) value += frac / fracDiv;
   return { value, i };
 }
 
-function tryHttpA(s: string, start: number, out: LineScratch): boolean {
-  let i = skipSpaceAnsi(s, start);
-  const tsPart = skipTimestamp(s, i);
-  if (tsPart.ts === undefined || tsPart.i === i) return false;
-  i = tsPart.i;
+function decodeAscii(buf: Uint8Array, start: number, end: number): string {
+  return decoder.decode(buf.subarray(start, end));
+}
 
-  const meth = parseMethod(s, i);
+function findCronMark(buf: Uint8Array, from: number, end: number): number {
+  outer: for (let i = from; i + CRON_MARK.length <= end; i++) {
+    for (let k = 0; k < CRON_MARK.length; k++) {
+      if (buf[i + k] !== CRON_MARK[k]) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+
+function tryHttpABytes(buf: Uint8Array, start: number, end: number, out: LineScratch): boolean {
+  let i = skipSpaceAnsiBytes(buf, start, end);
+  const ts = skipTimestampBytes(buf, i, end);
+  if (!ts || ts.i === i) return false;
+  i = ts.i;
+
+  const meth = parseMethodBytes(buf, i, end);
   if (!meth) return false;
   i = meth.i;
 
-  const pathTok = readToken(s, i);
+  const pathTok = readTokenRange(buf, i, end);
   if (!pathTok) return false;
   i = pathTok.i;
 
-  const statusTok = readToken(s, i);
-  if (!statusTok || statusTok.token.length !== 3) return false;
-  const status = Number(statusTok.token);
-  if (!Number.isFinite(status)) return false;
+  const statusTok = readTokenRange(buf, i, end);
+  if (!statusTok || statusTok.end - statusTok.start !== 3) return false;
+  const s0 = buf[statusTok.start]!;
+  const s1 = buf[statusTok.start + 1]!;
+  const s2 = buf[statusTok.start + 2]!;
+  if (!isDigit(s0) || !isDigit(s1) || !isDigit(s2)) return false;
+  const status = (s0 - 48) * 100 + (s1 - 48) * 10 + (s2 - 48);
   i = statusTok.i;
 
-  const dur = parseFloatAt(s, i);
+  const dur = parseFloatBytes(buf, i, end);
   if (!dur) return false;
-  i = skipSpaceAnsi(s, dur.i);
-  if (!s.startsWith("ms", i)) return false;
-  i = skipSpaceAnsi(s, i + 2);
-  if (s.charCodeAt(i) !== 45) return false;
-  i = skipSpaceAnsi(s, i + 1);
-  if (i >= s.length) return false;
-  if (s.charCodeAt(i) === 45) i++;
+  i = skipSpaceAnsiBytes(buf, dur.i, end);
+  if (i + 1 >= end || buf[i] !== 0x6d || buf[i + 1] !== 0x73) return false; // ms
+  i = skipSpaceAnsiBytes(buf, i + 2, end);
+  if (i >= end || buf[i] !== 45) return false;
+  i = skipSpaceAnsiBytes(buf, i + 1, end);
+  if (i >= end) return false;
+  if (buf[i] === 45) i++;
   else {
     const b0 = i;
-    while (i < s.length && isDigit(s.charCodeAt(i))) i++;
+    while (i < end && isDigit(buf[i]!)) i++;
     if (i === b0) return false;
   }
-  if (!onlySpaceAnsiLeft(s, i)) return false;
+  if (!onlySpaceAnsiLeftBytes(buf, i, end)) return false;
 
   out.kind = "http";
   out.method = meth.method;
-  out.path = pathTok.token;
+  out.path = decodeAscii(buf, pathTok.start, pathTok.end);
   out.status = status;
   out.durationMs = dur.value;
   out.cron = null;
   return true;
 }
 
-function tryHttpB(s: string, start: number, out: LineScratch): boolean {
-  let i = skipSpaceAnsi(s, start);
-  const dur = parseFloatAt(s, i);
+function tryHttpBBytes(buf: Uint8Array, start: number, end: number, out: LineScratch): boolean {
+  let i = skipSpaceAnsiBytes(buf, start, end);
+  const dur = parseFloatBytes(buf, i, end);
   if (!dur) return false;
-  i = skipSpaceAnsi(s, dur.i);
-  if (!s.startsWith("ms", i)) return false;
-  i = skipSpaceAnsi(s, i + 2);
+  i = skipSpaceAnsiBytes(buf, dur.i, end);
+  if (i + 1 >= end || buf[i] !== 0x6d || buf[i + 1] !== 0x73) return false;
+  i = skipSpaceAnsiBytes(buf, i + 2, end);
 
-  const meth = parseMethod(s, i);
+  const meth = parseMethodBytes(buf, i, end);
   if (!meth) return false;
   i = meth.i;
 
-  const pathTok = readToken(s, i);
+  const pathTok = readTokenRange(buf, i, end);
   if (!pathTok) return false;
-  if (!onlySpaceAnsiLeft(s, pathTok.i)) return false;
+  if (!onlySpaceAnsiLeftBytes(buf, pathTok.i, end)) return false;
 
   out.kind = "http";
   out.method = meth.method;
-  out.path = pathTok.token;
+  out.path = decodeAscii(buf, pathTok.start, pathTok.end);
   out.status = 0;
   out.durationMs = dur.value;
   out.cron = null;
   return true;
 }
 
-function tryCron(s: string, start: number, out: LineScratch): boolean {
-  let i = skipSpaceAnsi(s, start);
-  const tsPart = skipTimestamp(s, i);
-  if (tsPart.ts !== undefined) i = tsPart.i;
+function tryCronBytes(buf: Uint8Array, start: number, end: number, out: LineScratch): boolean {
+  let i = skipSpaceAnsiBytes(buf, start, end);
+  const ts = skipTimestampBytes(buf, i, end);
+  if (ts) i = ts.i;
 
-  const cronIdx = s.indexOf("[cron]", i);
+  const cronIdx = findCronMark(buf, i, end);
   if (cronIdx === -1) return false;
   let k = i;
   while (k < cronIdx) {
-    k = skipAnsi(s, k);
+    k = skipAnsiBytes(buf, k, end);
     if (k >= cronIdx) break;
-    const c = s.charCodeAt(k);
+    const c = buf[k]!;
     if (c === 32 || c === 9) {
       k++;
       continue;
@@ -194,22 +254,44 @@ function tryCron(s: string, start: number, out: LineScratch): boolean {
     return false;
   }
 
-  i = skipSpaceAnsi(s, cronIdx + 6);
+  i = skipSpaceAnsiBytes(buf, cronIdx + 6, end);
 
   let event: "start" | "done" | "fail" | null = null;
-  if (s.startsWith("start", i) && (i + 5 >= s.length || s.charCodeAt(i + 5) === 32)) {
+  if (
+    i + 5 <= end &&
+    buf[i] === 0x73 &&
+    buf[i + 1] === 0x74 &&
+    buf[i + 2] === 0x61 &&
+    buf[i + 3] === 0x72 &&
+    buf[i + 4] === 0x74 &&
+    (i + 5 >= end || buf[i + 5] === 32)
+  ) {
     event = "start";
     i += 5;
-  } else if (s.startsWith("done", i) && (i + 4 >= s.length || s.charCodeAt(i + 4) === 32)) {
+  } else if (
+    i + 4 <= end &&
+    buf[i] === 0x64 &&
+    buf[i + 1] === 0x6f &&
+    buf[i + 2] === 0x6e &&
+    buf[i + 3] === 0x65 &&
+    (i + 4 >= end || buf[i + 4] === 32)
+  ) {
     event = "done";
     i += 4;
-  } else if (s.startsWith("fail", i) && (i + 4 >= s.length || s.charCodeAt(i + 4) === 32)) {
+  } else if (
+    i + 4 <= end &&
+    buf[i] === 0x66 &&
+    buf[i + 1] === 0x61 &&
+    buf[i + 2] === 0x69 &&
+    buf[i + 3] === 0x6c &&
+    (i + 4 >= end || buf[i + 4] === 32)
+  ) {
     event = "fail";
     i += 4;
   } else return false;
 
-  i = skipSpaceAnsi(s, i);
-  let name = stripAnsi(s.slice(i)).trim();
+  i = skipSpaceAnsiBytes(buf, i, end);
+  let name = stripAnsi(decodeAscii(buf, i, end)).trim();
   if (!name) return false;
 
   let durationMs: number | undefined;
@@ -220,20 +302,18 @@ function tryCron(s: string, start: number, out: LineScratch): boolean {
   }
 
   const ev: CronEventCompact = { event, name };
-  if (tsPart.ts) ev.ts = tsPart.ts;
+  if (ts) ev.ts = decodeAscii(buf, ts.tsStart, ts.tsEnd);
   if (durationMs !== undefined) ev.durationMs = durationMs;
   out.kind = "cron";
   out.cron = ev;
   return true;
 }
 
-function hasNonSpace(s: string): boolean {
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
+function hasNonSpaceBytes(buf: Uint8Array, start: number, end: number): boolean {
+  for (let i = start; i < end; i++) {
+    const c = buf[i]!;
     if (c > 32 && c !== 0x1b) return true;
-    if (c === 0x1b) {
-      i = skipAnsi(s, i) - 1;
-    }
+    if (c === 0x1b) i = skipAnsiBytes(buf, i, end) - 1;
   }
   return false;
 }
@@ -259,20 +339,34 @@ export function createLineScratch(): LineScratch {
   };
 }
 
-export function parseLineInto(line: string, out: LineScratch): void {
-  if (!hasNonSpace(line)) {
+/** Hot path: parse one line from raw bytes [start, end). */
+export function parseLineBytes(
+  buf: Uint8Array,
+  start: number,
+  end: number,
+  out: LineScratch,
+): void {
+  // trim trailing CR
+  if (end > start && buf[end - 1] === 0x0d) end--;
+
+  if (!hasNonSpaceBytes(buf, start, end)) {
     out.kind = "empty";
     out.cron = null;
     return;
   }
 
-  if (line.indexOf("[cron]") !== -1 && tryCron(line, 0, out)) return;
-
-  if (tryHttpA(line, 0, out)) return;
-  if (tryHttpB(line, 0, out)) return;
+  if (findCronMark(buf, start, end) !== -1 && tryCronBytes(buf, start, end, out)) return;
+  if (tryHttpABytes(buf, start, end, out)) return;
+  if (tryHttpBBytes(buf, start, end, out)) return;
 
   out.kind = "unmatched";
   out.cron = null;
+}
+
+export function parseLineInto(line: string, out: LineScratch): void {
+  // Encode once for paste / selfcheck path — shards use parseLineBytes directly
+  const enc = new TextEncoder().encode(line);
+  parseLineBytes(enc, 0, enc.length, out);
 }
 
 export function parseLine(line: string): ParsedLine {

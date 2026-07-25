@@ -1,6 +1,5 @@
 /**
- * Web Worker: stream-parse PM2 logs and aggregate off the main thread.
- * Keeps compact typed arrays for fast re-aggregation when filters change.
+ * Coordinator worker: shard File.slice parse across child workers, merge stores, aggregate.
  */
 
 import {
@@ -15,6 +14,9 @@ import {
   type ParseOptions,
   EMPTY_RESULT,
 } from "../parser";
+import type { ShardError, ShardRequest, ShardResult } from "./shardParserWorker";
+// Inline so vite-plugin-singlefile does not leave a separate shard chunk
+import ShardWorkerCtor from "./shardParserWorker.ts?worker&inline";
 
 export type {
   AggregatedEndpoint,
@@ -64,6 +66,8 @@ let cronEvents: CronEventCompact[] = [];
 let methodSeen = new Set<string>();
 let cachedSummary: { summary: LogSummary; methods: string[] } | null = null;
 
+let shardPool: Worker[] = [];
+
 function resetStore() {
   methodCodes = new Uint8Array(0);
   statuses = new Uint16Array(0);
@@ -80,6 +84,11 @@ function resetStore() {
   cachedSummary = null;
 }
 
+function terminateShards() {
+  for (const w of shardPool) w.terminate();
+  shardPool = [];
+}
+
 function ensureCapacity(need: number) {
   if (need <= capacity) return;
   const next = Math.max(capacity * 2 || 65536, need);
@@ -88,23 +97,16 @@ function ensureCapacity(need: number) {
   const du = new Float32Array(next);
   const pi = new Uint32Array(next);
   if (capacity > 0) {
-    mc.set(methodCodes);
-    st.set(statuses);
-    du.set(durations);
-    pi.set(pathIds);
+    mc.set(methodCodes.subarray(0, count));
+    st.set(statuses.subarray(0, count));
+    du.set(durations.subarray(0, count));
+    pi.set(pathIds.subarray(0, count));
   }
   methodCodes = mc;
   statuses = st;
   durations = du;
   pathIds = pi;
   capacity = next;
-}
-
-/** Rough hit estimate from file bytes — avoids repeated typed-array realloc copies. */
-function preallocateForFile(fileSize: number) {
-  // api-out corpus ≈ 150–160 bytes per HTTP hit including non-HTTP lines
-  const estimate = Math.min(8_000_000, Math.max(65536, Math.ceil(fileSize / 140)));
-  ensureCapacity(estimate);
 }
 
 function internPath(path: string): number {
@@ -170,82 +172,157 @@ function makeResult(options: ParseOptions): AggregatedResult {
   return result;
 }
 
-const PROGRESS_INTERVAL_MS = 150;
-
-function postParseProgress(processed: number, total: number, force: boolean, lastAt: { t: number }) {
-  const now = performance.now();
-  if (!force && now - lastAt.t < PROGRESS_INTERVAL_MS) return;
-  lastAt.t = now;
-  self.postMessage({
-    type: "PROGRESS",
-    payload: {
-      stage: "parsing",
-      processed,
-      total,
-      percent: Math.min(force ? 100 : 99, Math.round((processed / total) * 100)),
-    },
-  } satisfies WorkerResponse);
+function shardCountFor(fileSize: number): number {
+  if (fileSize < 8 * 1024 * 1024) return 1;
+  const hc =
+    typeof navigator !== "undefined" && navigator.hardwareConcurrency
+      ? navigator.hardwareConcurrency
+      : 4;
+  return Math.max(2, Math.min(4, hc));
 }
 
-/** Consume complete lines from text; return unfinished trailing fragment. */
-function ingestCompleteLines(text: string): string {
-  let start = 0;
-  for (let i = 0; i < text.length; i++) {
-    if (text.charCodeAt(i) === 10) {
-      let line = text.slice(start, i);
-      if (line.endsWith("\r")) line = line.slice(0, -1);
-      ingestLine(line);
-      start = i + 1;
-    }
+function mergeShard(shard: ShardResult) {
+  const remap = new Uint32Array(shard.pathTable.length);
+  for (let p = 0; p < shard.pathTable.length; p++) {
+    remap[p] = internPath(shard.pathTable[p]!);
   }
-  return start < text.length ? text.slice(start) : "";
+  ensureCapacity(count + shard.count);
+  methodCodes.set(shard.methodCodes, count);
+  statuses.set(shard.statuses, count);
+  durations.set(shard.durations, count);
+  for (let i = 0; i < shard.count; i++) {
+    pathIds[count + i] = remap[shard.pathIds[i]!]!;
+  }
+  count += shard.count;
+  unmatchedCount += shard.unmatchedCount;
+  for (const s of shard.unmatchedSample) {
+    if (unmatchedSample.length >= 40) break;
+    unmatchedSample.push(s);
+  }
+  for (const ev of shard.cronEvents) cronEvents.push(ev);
+  for (const m of shard.methods) methodSeen.add(m);
 }
 
-async function parseFileStream(file: File) {
+function runShard(worker: Worker, req: ShardRequest): Promise<ShardResult> {
+  return new Promise((resolve, reject) => {
+    const onMsg = (e: MessageEvent<ShardResult | ShardError>) => {
+      worker.removeEventListener("message", onMsg);
+      const data = e.data;
+      if (data.type === "SHARD_ERROR") {
+        reject(new Error(data.message));
+        return;
+      }
+      resolve(data);
+    };
+    worker.addEventListener("message", onMsg);
+    worker.postMessage(req);
+  });
+}
+
+async function parseFileSharded(file: File) {
   resetStore();
-  preallocateForFile(file.size);
-  const reader = file.stream().getReader();
-  const decoder = new TextDecoder();
-  let carry = "";
-  let bytesRead = 0;
+  terminateShards();
+  const n = shardCountFor(file.size);
   const total = file.size || 1;
   const lastProgress = { t: 0 };
+  const PROGRESS_MS = 150;
 
-  while (true) {
+  const postProgress = (processed: number, force: boolean) => {
+    const now = performance.now();
+    if (!force && now - lastProgress.t < PROGRESS_MS) return;
+    lastProgress.t = now;
+    self.postMessage({
+      type: "PROGRESS",
+      payload: {
+        stage: "parsing",
+        processed,
+        total,
+        percent: Math.min(force ? 100 : 99, Math.round((processed / total) * 100)),
+      },
+    } satisfies WorkerResponse);
+  };
+
+  if (n === 1) {
+    const worker = new ShardWorkerCtor();
+    shardPool = [worker];
     if (cancelled) throw new Error("Cancelled");
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    bytesRead += value.byteLength;
-    const chunk = decoder.decode(value, { stream: true });
-    if (carry.length === 0) {
-      carry = ingestCompleteLines(chunk);
-    } else {
-      carry = ingestCompleteLines(carry + chunk);
-    }
-    postParseProgress(bytesRead, total, false, lastProgress);
+    const shard = await runShard(worker, {
+      type: "PARSE_SHARD",
+      file,
+      start: 0,
+      end: file.size,
+      shardIndex: 0,
+    });
+    mergeShard(shard);
+    postProgress(total, true);
+    terminateShards();
+    return;
   }
 
-  const tail = decoder.decode();
-  if (tail) {
-    carry = carry.length === 0 ? ingestCompleteLines(tail) : ingestCompleteLines(carry + tail);
+  const chunk = Math.ceil(file.size / n);
+  const ranges: { start: number; end: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const start = i * chunk;
+    const end = i === n - 1 ? file.size : Math.min(file.size, (i + 1) * chunk);
+    if (start >= file.size) break;
+    ranges.push({ start, end });
   }
-  if (carry) ingestLine(carry);
 
-  postParseProgress(total, total, true, lastProgress);
+  shardPool = ranges.map(() => new ShardWorkerCtor());
+
+  let completedBytes = 0;
+  const progressTimer = setInterval(() => {
+    postProgress(Math.min(total - 1, completedBytes), false);
+  }, PROGRESS_MS);
+
+  try {
+    if (cancelled) throw new Error("Cancelled");
+    const results = await Promise.all(
+      ranges.map((r, i) => {
+        const p = runShard(shardPool[i]!, {
+          type: "PARSE_SHARD",
+          file,
+          start: r.start,
+          end: r.end,
+          shardIndex: i,
+        });
+        void p.then(() => {
+          completedBytes += r.end - r.start;
+        });
+        return p;
+      }),
+    );
+    results.sort((a, b) => a.shardIndex - b.shardIndex);
+    for (const shard of results) mergeShard(shard);
+    postProgress(total, true);
+  } finally {
+    clearInterval(progressTimer);
+    terminateShards();
+  }
 }
 
 function parseText(text: string) {
   resetStore();
   const lines = text.split(/\r?\n/);
   const total = lines.length || 1;
-  const lastProgress = { t: 0 };
+  let last = 0;
   for (let i = 0; i < lines.length; i++) {
     if (cancelled) throw new Error("Cancelled");
     ingestLine(lines[i]!);
-    postParseProgress(i + 1, total, false, lastProgress);
+    const now = performance.now();
+    if (now - last > 150) {
+      last = now;
+      self.postMessage({
+        type: "PROGRESS",
+        payload: {
+          stage: "parsing",
+          processed: i + 1,
+          total,
+          percent: Math.round(((i + 1) / total) * 100),
+        },
+      } satisfies WorkerResponse);
+    }
   }
-  postParseProgress(total, total, true, lastProgress);
 }
 
 self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
@@ -253,10 +330,12 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
   try {
     if (msg.type === "CANCEL") {
       cancelled = true;
+      terminateShards();
       return;
     }
     if (msg.type === "CLEAR") {
       resetStore();
+      terminateShards();
       self.postMessage({ type: "DONE" } satisfies WorkerResponse);
       return;
     }
@@ -264,7 +343,8 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
     cancelled = false;
 
     if (msg.type === "PARSE_FILE") {
-      await parseFileStream(msg.payload.file);
+      await parseFileSharded(msg.payload.file);
+      if (cancelled) throw new Error("Cancelled");
       const result = makeResult(msg.payload.options);
       self.postMessage({ type: "RESULT", payload: result } satisfies WorkerResponse);
       self.postMessage({ type: "DONE" } satisfies WorkerResponse);
@@ -289,6 +369,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
       self.postMessage({ type: "DONE" } satisfies WorkerResponse);
     }
   } catch (err) {
+    terminateShards();
     self.postMessage({
       type: "ERROR",
       payload: { message: err instanceof Error ? err.message : String(err) },

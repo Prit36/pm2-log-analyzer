@@ -1,6 +1,6 @@
-import { DDSketch } from "@datadog/sketches-js";
 import { normalizePath } from "./normalize";
 import { percentile, sortAsc } from "./percentiles";
+import { makeRelHist, type RelHist } from "./relHist";
 import type {
   AggregatedEndpoint,
   AggregatedResult,
@@ -12,8 +12,6 @@ import type {
   ParseOptions,
 } from "./types";
 import { METHODS } from "./types";
-
-const SKETCH_OPTS = { relativeAccuracy: 0.01 } as const;
 
 export type ColumnarStore = {
   methodCodes: Uint8Array;
@@ -28,13 +26,9 @@ export type ColumnarStore = {
   methodSeen: Set<string>;
 };
 
-function makeSketch(): DDSketch {
-  return new DDSketch(SKETCH_OPTS);
-}
-
-function sketchQuantile(sketch: DDSketch, q: number, count: number): number {
-  if (count === 0) return 0;
-  return sketch.getValueAtQuantile(q);
+function sketchQuantile(sketch: RelHist, q: number, n: number): number {
+  if (n === 0) return 0;
+  return sketch.quantile(q);
 }
 
 export function aggregateCron(events: CronEventCompact[], options: ParseOptions): CronAggregated[] {
@@ -113,12 +107,25 @@ export function aggregateApiWithSummary(
   options: ParseOptions,
   needSummary: boolean,
 ): { api: AggregatedEndpoint[]; summary: LogSummary | null } {
-  const methodFilter = options.methodFilter ? new Set(options.methodFilter) : null;
+  const methodOk = new Uint8Array(METHODS.length);
+  if (options.methodFilter && options.methodFilter.length > 0) {
+    for (const m of options.methodFilter) {
+      const i = METHODS.indexOf(m as LogMethod);
+      if (i >= 0) methodOk[i] = 1;
+    }
+  } else {
+    methodOk.fill(1);
+  }
+
+  const statusWant = options.statusFamily === "all" ? -1 : Number(options.statusFamily[0]);
+  const minMs = options.minMs;
+  const normalizeMode = options.normalizeMode;
   const normCache = new Map<number, string>();
+
   type Entry = {
     method: LogMethod;
     path: string;
-    sketch: DDSketch;
+    sketch: RelHist;
     count: number;
     sum: number;
     min: number;
@@ -131,11 +138,18 @@ export function aggregateApiWithSummary(
   let sumSum = 0;
   let sumErrors = 0;
   let sumSlow = 0;
-  const sumSketch = needSummary ? makeSketch() : null;
+  const sumSketch = needSummary ? makeRelHist() : null;
 
-  for (let i = 0; i < store.count; i++) {
-    const durationMs = store.durations[i]!;
-    const status = store.statuses[i]!;
+  const durs = store.durations;
+  const sts = store.statuses;
+  const mcodes = store.methodCodes;
+  const pids = store.pathIds;
+  const pathTable = store.pathTable;
+  const n = store.count;
+
+  for (let i = 0; i < n; i++) {
+    const durationMs = durs[i]!;
+    const status = sts[i]!;
 
     if (sumSketch) {
       sumSum += durationMs;
@@ -145,20 +159,18 @@ export function aggregateApiWithSummary(
       if (durationMs >= 3000) sumSlow++;
     }
 
-    if (durationMs < options.minMs) continue;
+    if (durationMs < minMs) continue;
 
-    const method = METHODS[store.methodCodes[i]!]!;
-    if (methodFilter && !methodFilter.has(method)) continue;
+    const methodCode = mcodes[i]!;
+    if (!methodOk[methodCode]) continue;
 
-    if (options.statusFamily !== "all") {
-      const want = Number(options.statusFamily[0]);
-      if (Math.floor(status / 100) !== want) continue;
-    }
+    if (statusWant !== -1 && ((status / 100) | 0) !== statusWant) continue;
 
-    const pathId = store.pathIds[i]!;
+    const method = METHODS[methodCode]!;
+    const pathId = pids[i]!;
     let normPath = normCache.get(pathId);
     if (normPath === undefined) {
-      normPath = normalizePath(store.pathTable[pathId]!, options.normalizeMode);
+      normPath = normalizePath(pathTable[pathId]!, normalizeMode);
       normCache.set(pathId, normPath);
     }
 
@@ -172,7 +184,7 @@ export function aggregateApiWithSummary(
       entry = {
         method,
         path: normPath,
-        sketch: makeSketch(),
+        sketch: makeRelHist(),
         count: 0,
         sum: 0,
         min: Infinity,
@@ -192,19 +204,19 @@ export function aggregateApiWithSummary(
   const api: AggregatedEndpoint[] = [];
   for (const pathMap of byMethod.values()) {
     for (const v of pathMap.values()) {
-      const n = v.count;
+      const c = v.count;
       api.push({
         key: `${v.method} ${v.path}`,
         method: v.method,
         path: v.path,
-        count: n,
-        avgMs: n ? v.sum / n : 0,
-        p50Ms: sketchQuantile(v.sketch, 0.5, n),
-        p90Ms: sketchQuantile(v.sketch, 0.9, n),
-        p95Ms: sketchQuantile(v.sketch, 0.95, n),
-        p99Ms: sketchQuantile(v.sketch, 0.99, n),
-        minMs: n ? v.min : 0,
-        maxMs: n ? v.max : 0,
+        count: c,
+        avgMs: c ? v.sum / c : 0,
+        p50Ms: sketchQuantile(v.sketch, 0.5, c),
+        p90Ms: sketchQuantile(v.sketch, 0.9, c),
+        p95Ms: sketchQuantile(v.sketch, 0.95, c),
+        p99Ms: sketchQuantile(v.sketch, 0.99, c),
+        minMs: c ? v.min : 0,
+        maxMs: c ? v.max : 0,
         errorCount: v.errorCount,
       });
     }
