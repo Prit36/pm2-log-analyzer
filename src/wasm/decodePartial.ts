@@ -117,24 +117,6 @@ export function decodePm2Partial(buf: Uint8Array): {
   return { matched, unmatched, partial: { buckets, summary } };
 }
 
-/** Decode `Pm2Engine.summary_wire()` (filter-independent, built at end_shard). */
-export function decodeSummaryWire(buf: Uint8Array): NonNullable<AggPartial["summary"]> {
-  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-  let o = 0;
-  const sum = f64(view, o);
-  o += 8;
-  const max = f32(view, o);
-  o += 4;
-  const errors = u32(view, o);
-  o += 4;
-  const slow = u32(view, o);
-  o += 4;
-  const skLen = u32(view, o);
-  o += 4;
-  const sketch = decodeSketch(buf.subarray(o, o + skLen));
-  return { sum, max, errors, slow, sketch };
-}
-
 export function decodeCronWire(buf: Uint8Array): CronEventCompact[] {
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let o = 0;

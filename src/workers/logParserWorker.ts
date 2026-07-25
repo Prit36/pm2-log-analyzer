@@ -5,7 +5,6 @@
 import {
   aggregateCron,
   finishApiFromPartials,
-  logSummaryFromSummaryParts,
   type AggregatedResult,
   type AggPartial,
   type CronEventCompact,
@@ -16,7 +15,6 @@ import {
 import {
   decodeCronWire,
   decodePm2Partial,
-  decodeSummaryWire,
   decodeUnmatchedWire,
   methodsFromMask,
   normalizeModeCode,
@@ -266,7 +264,6 @@ function absorbMeta(shards: ShardParsed[]) {
   unmatchedSample = [];
   cronEvents = [];
   let mask = 0;
-  const summaryParts = [];
   for (const s of shards) {
     hitCount += s.hitCount;
     unmatchedCount += s.unmatchedCount;
@@ -276,13 +273,10 @@ function absorbMeta(shards: ShardParsed[]) {
       if (unmatchedSample.length >= 40) break;
       unmatchedSample.push(line);
     }
-    summaryParts.push(decodeSummaryWire(new Uint8Array(s.summaryWire)));
   }
   methods = methodsFromMask(mask);
-  cachedSummary = {
-    summary: logSummaryFromSummaryParts(summaryParts, hitCount, unmatchedCount),
-    methods,
-  };
+  // Summary comes from first reagg (needSummary=true); warm reaggs reuse cache.
+  cachedSummary = null;
 }
 
 function maxTiming(shards: ShardParsed[]): ShardTiming {
@@ -316,7 +310,7 @@ type ReaggTiming = {
 async function reaggregateShards(
   options: ParseOptions,
 ): Promise<{ result: AggregatedResult; timing: ReaggTiming }> {
-  // Summary is filter-independent and cached from summary_wire at parse.
+  // Summary is filter-independent; first reagg builds it, later runs reuse cache.
   const needSummary = !cachedSummary?.summary;
   if (activeShardCount === 0) {
     return {

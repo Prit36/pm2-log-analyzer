@@ -136,12 +136,12 @@ Early post-worker UI still felt heavy on huge files (multi‑second filter reagg
 | hashbrown + foldhash | `hashbrown-foldhash` | **~1.28 s** | **~86 ms** | ~1.15 GiB | Drop ahash (no AES on Wasm) |
 | Modernize (manual) | `rust-modernize-manual` | **~1.19 s** | **~86 ms** | ~1.15 GiB | rapidhash path maps, `entry_ref`, `Cow` normalize, `memmem`, no RelHist clone |
 | Stage breakdown | `stage-breakdown` | ~1.19 s | ~86 ms | ~1.15 GiB | Bench prints parse/reagg stage ms (`feed`, `firstReagg`, …) via `__PM2_BENCH__` |
-| Sub-1s (quiet) | `sub1s-quiet` / `e7dd750` | **~0.99 s** | **~82 ms** | **~1.15 GiB** | Cron/`memchr` gate + method order; overlap `ENSURE_MODE` on early shards; `summary_wire` cache |
+| Sub-1s (quiet) | `rss-restore-quiet` / `e7dd750`+ | **~0.98 s** | **~86 ms** | **~1.15 GiB** | Cron/`memchr` gate + method order; overlap `ENSURE_MODE`; no parse-time `summary_wire` (that path only grew RSS ~20 MB) |
 
 **Net**
 
 - **Usability:** ~50 MB logs went from tab crash / multi‑minute hang → interactive (worker + streaming + virtualization).  
-- **Speed (quiet-shell best vs first instrumented 535 MiB baseline):** parse **~12.2 s → ~0.99 s** (~12×); filter reagg **~3.2 s → ~82 ms** (~39×); peak Chromium RSS **~2.6 GiB → ~1.15 GiB** (~2.3× less).
+- **Speed (quiet-shell best vs first instrumented 535 MiB baseline):** parse **~12.2 s → ~0.98 s** (~12×); filter reagg **~3.2 s → ~86 ms** (~37×); peak Chromium RSS **~2.6 GiB → ~1.15 GiB** (~2.3× less).
 
 Exact result parity held across the timed journey: matched **3,718,450**, unmatched **2,788,590**, endpoints **6,107**, cron **9**.
 
@@ -156,12 +156,13 @@ File drop
        write 8 MiB chunks into Wasm ingest window
        feed / end_shard → columnar hits + path arena + summary
        early shards: ENSURE_MODE(collapseIds) while siblings still feed
-  → absorb summary_wire + cron/unmatched (KPI summary cached)
+  → absorb cron/unmatched meta
   → first / filter reagg → in-shard reaggregate → compact PM2P partials
+       (first reagg carries summary; later runs reuse coordinator cache)
   → coordinator merge → Zustand → UI
 ```
 
-Failed approach (kept as a lesson): copying whole shards into Rust and keeping dual JS/Wasm residency beat reagg slightly but missed parse/RSS gates. Chunked in-place ingest fixed that. Stuffing cold `ensure_mode` only into `end_shard` is a wall wash — overlap it with sibling feeds instead.
+Failed approach (kept as a lesson): copying whole shards into Rust and keeping dual JS/Wasm residency beat reagg slightly but missed parse/RSS gates. Chunked in-place ingest fixed that. Stuffing cold `ensure_mode` only into `end_shard` is a wall wash — overlap it with sibling feeds instead. Shipping RelHist `summary_wire` at parse grew peak RSS ~20 MB with no wall win — leave summary on the first PM2P reagg.
 
 ---
 

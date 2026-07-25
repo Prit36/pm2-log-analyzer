@@ -305,35 +305,6 @@ export function finishApiFromPartials(
   return { api, summary };
 }
 
-/** Merge per-shard summary_wire blobs into a LogSummary (parse-time cache). */
-export function logSummaryFromSummaryParts(
-  parts: NonNullable<AggPartial["summary"]>[],
-  matched: number,
-  unmatched: number,
-): LogSummary {
-  let sumMax = 0;
-  let sumSum = 0;
-  let sumErrors = 0;
-  let sumSlow = 0;
-  const sumSketch = makeRelHist();
-  for (const p of parts) {
-    sumSketch.mergeWire(p.sketch);
-    sumSum += p.sum;
-    if (p.max > sumMax) sumMax = p.max;
-    sumErrors += p.errors;
-    sumSlow += p.slow;
-  }
-  return {
-    matched,
-    unmatched,
-    max: sumMax,
-    avg: matched ? sumSum / matched : 0,
-    p95Ms: sketchQuantile(sumSketch, 0.95, matched),
-    errors: sumErrors,
-    slow: sumSlow,
-  };
-}
-
 export function aggregateCron(events: CronEventCompact[], options: ParseOptions): CronAggregated[] {
   const q = options.cronQuery.trim().toLowerCase();
   const minMs = options.cronMinMs;

@@ -59,7 +59,6 @@ export type ShardParsed = {
   methodsMask: number;
   cronWire: ArrayBuffer;
   unmatchedWire: ArrayBuffer;
-  summaryWire: ArrayBuffer;
   timing: ShardTiming;
 };
 
@@ -151,23 +150,14 @@ async function parseFileRange(file: File, start: number, end: number): Promise<S
   };
 }
 
-function metaBuffers(): {
-  cronWire: ArrayBuffer;
-  unmatchedWire: ArrayBuffer;
-  summaryWire: ArrayBuffer;
-} {
+function metaBuffers(): { cronWire: ArrayBuffer; unmatchedWire: ArrayBuffer } {
   const cron = engine!.cron_wire();
   const unmatched = engine!.unmatched_sample_wire();
-  const summary = engine!.summary_wire();
   return {
     cronWire: cron.buffer.slice(cron.byteOffset, cron.byteOffset + cron.byteLength) as ArrayBuffer,
     unmatchedWire: unmatched.buffer.slice(
       unmatched.byteOffset,
       unmatched.byteOffset + unmatched.byteLength,
-    ) as ArrayBuffer,
-    summaryWire: summary.buffer.slice(
-      summary.byteOffset,
-      summary.byteOffset + summary.byteLength,
     ) as ArrayBuffer,
   };
 }
@@ -200,7 +190,7 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
       engine.clear();
       const timing = await parseFileRange(file, start, end);
       const tMeta = performance.now();
-      const { cronWire, unmatchedWire, summaryWire } = metaBuffers();
+      const { cronWire, unmatchedWire } = metaBuffers();
       timing.metaWireMs = performance.now() - tMeta;
       timing.shardWallMs =
         timing.readMs +
@@ -217,10 +207,9 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         methodsMask: engine.methods_mask(),
         cronWire,
         unmatchedWire,
-        summaryWire,
         timing,
       };
-      self.postMessage(result, [cronWire, unmatchedWire, summaryWire]);
+      self.postMessage(result, [cronWire, unmatchedWire]);
       return;
     }
 
@@ -246,7 +235,7 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
       engine.end_shard();
       const endShardMs = performance.now() - tEnd;
       const tMeta = performance.now();
-      const { cronWire, unmatchedWire, summaryWire } = metaBuffers();
+      const { cronWire, unmatchedWire } = metaBuffers();
       const metaWireMs = performance.now() - tMeta;
       const timing: ShardTiming = {
         readMs: 0,
@@ -265,10 +254,9 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         methodsMask: engine.methods_mask(),
         cronWire,
         unmatchedWire,
-        summaryWire,
         timing,
       };
-      self.postMessage(result, [cronWire, unmatchedWire, summaryWire]);
+      self.postMessage(result, [cronWire, unmatchedWire]);
       return;
     }
 
