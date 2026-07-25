@@ -1,12 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
-  --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   min-height: 100%;
 }
 
@@ -16,17 +18,29 @@ body {
   background-color: #f4f5fa;
   background-image:
     radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.07) 1px, transparent 0),
-    radial-gradient(1100px 520px at 92% -8%, rgba(79, 70, 229, 0.10), transparent 62%),
+    radial-gradient(1100px 520px at 92% -8%, rgba(79, 70, 229, 0.1), transparent 62%),
     radial-gradient(900px 460px at -8% 6%, rgba(16, 185, 129, 0.07), transparent 60%),
     radial-gradient(700px 420px at 50% 120%, rgba(245, 158, 11, 0.06), transparent 60%);
-  background-size: 24px 24px, auto, auto, auto;
+  background-size:
+    24px 24px,
+    auto,
+    auto,
+    auto;
   background-attachment: fixed, fixed, fixed, fixed;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-.font-display { font-family: var(--font-display); letter-spacing: -0.015em; }
-.font-mono-data { font-family: var(--font-mono); font-feature-settings: "tnum" 1, "ss01" 1; }
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.015em;
+}
+.font-mono-data {
+  font-family: var(--font-mono);
+  font-feature-settings:
+    "tnum" 1,
+    "ss01" 1;
+}
 
 /* Editorial section numeral ghost */
 .ghost-num {
@@ -40,25 +54,42 @@ body {
 
 /* Card hover lift */
 .lift {
-  transition: transform 260ms cubic-bezier(.2,.7,.2,1), box-shadow 260ms cubic-bezier(.2,.7,.2,1), border-color 260ms ease;
+  transition:
+    transform 260ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 260ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    border-color 260ms ease;
   will-change: transform;
 }
 .lift:hover {
   transform: translateY(-3px);
-  box-shadow: 0 18px 40px -20px rgba(15, 23, 42, 0.28), 0 2px 8px -2px rgba(15, 23, 42, 0.08);
+  box-shadow:
+    0 18px 40px -20px rgba(15, 23, 42, 0.28),
+    0 2px 8px -2px rgba(15, 23, 42, 0.08);
 }
 
 /* Press feedback */
-.press { transition: transform 120ms ease, background-color 200ms ease, color 200ms ease, box-shadow 200ms ease; }
-.press:active { transform: scale(0.97); }
+.press {
+  transition:
+    transform 120ms ease,
+    background-color 200ms ease,
+    color 200ms ease,
+    box-shadow 200ms ease;
+}
+.press:active {
+  transform: scale(0.97);
+}
 
 /* Row hover accent — applied via first cell only (tr::before renders as a phantom cell in some engines) */
-.row-accent { transition: background-color 180ms ease; }
+.row-accent {
+  transition: background-color 180ms ease;
+}
 .row-accent > td:first-child {
   box-shadow: inset 3px 0 0 0 transparent;
   transition: box-shadow 220ms ease;
 }
-.row-accent:hover { background-color: #f8fafc; }
+.row-accent:hover {
+  background-color: #f8fafc;
+}
 .row-accent:hover > td:first-child {
   box-shadow: inset 3px 0 0 0 #6366f1;
 }
@@ -67,7 +98,9 @@ body {
 .reveal {
   opacity: 0;
   transform: translateY(18px);
-  transition: opacity 700ms cubic-bezier(.2,.7,.2,1), transform 700ms cubic-bezier(.2,.7,.2,1);
+  transition:
+    opacity 700ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 700ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 .reveal.is-visible {
   opacity: 1;
@@ -77,7 +110,7 @@ body {
 /* Ticker marquee */
 .ticker-mask {
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
-          mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
 }
 .ticker-track {
   display: inline-flex;
@@ -86,73 +119,144 @@ body {
   animation: ticker 42s linear infinite;
   padding-right: 0.75rem;
 }
-.ticker-mask:hover .ticker-track { animation-play-state: paused; }
+.ticker-mask:hover .ticker-track {
+  animation-play-state: paused;
+}
 @keyframes ticker {
-  0%   { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
 }
 
 /* Live pulse dot */
 .pulse-dot {
   position: relative;
-  width: 8px; height: 8px; border-radius: 9999px; background: #10b981;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: #10b981;
   box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55);
   animation: pulse 1.8s ease-out infinite;
 }
 @keyframes pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); }
-  70%  { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
 }
 
 /* Mini latency bar (CSS sparkline-ish) */
 .lat-bar {
-  height: 6px; border-radius: 9999px;
+  height: 6px;
+  border-radius: 9999px;
   background: linear-gradient(90deg, #10b981 0%, #f59e0b 60%, #ef4444 100%);
   transform-origin: left;
-  animation: growBar 900ms cubic-bezier(.2,.7,.2,1) both;
+  animation: growBar 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 @keyframes growBar {
-  from { transform: scaleX(0); opacity: 0.2; }
-  to   { transform: scaleX(1); opacity: 1; }
+  from {
+    transform: scaleX(0);
+    opacity: 0.2;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 1;
+  }
 }
 
 /* Header gradient hairline */
 .hairline {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35) 20%, rgba(255,255,255,0.35) 80%, transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.35) 20%,
+    rgba(255, 255, 255, 0.35) 80%,
+    transparent
+  );
 }
 
 /* Custom scrollbar inside tables */
-.nice-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
-.nice-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; border: 2px solid #ffffff; }
-.nice-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-.nice-scroll::-webkit-scrollbar-track { background: transparent; }
+.nice-scroll::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+.nice-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+  border: 2px solid #ffffff;
+}
+.nice-scroll::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+.nice-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
 
 /* Subtle entrance for header content */
 @keyframes riseIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
-.rise { animation: riseIn 700ms cubic-bezier(.2,.7,.2,1) both; }
-.rise-d1 { animation-delay: 80ms; }
-.rise-d2 { animation-delay: 160ms; }
-.rise-d3 { animation-delay: 240ms; }
+.rise {
+  animation: riseIn 700ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.rise-d1 {
+  animation-delay: 80ms;
+}
+.rise-d2 {
+  animation-delay: 160ms;
+}
+.rise-d3 {
+  animation-delay: 240ms;
+}
 
 /* Floating download FAB glow */
-.fab-glow { box-shadow: 0 14px 30px -10px rgba(79, 70, 229, 0.55), 0 4px 10px -4px rgba(79, 70, 229, 0.4); }
+.fab-glow {
+  box-shadow:
+    0 14px 30px -10px rgba(79, 70, 229, 0.55),
+    0 4px 10px -4px rgba(79, 70, 229, 0.4);
+}
 
 /* Focus ring consistency */
-input:focus, select:focus, textarea:focus {
+input:focus,
+select:focus,
+textarea:focus {
   outline: none;
   border-color: #6366f1 !important;
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .reveal { opacity: 1; transform: none; transition: none; }
-  .ticker-track { animation: none; }
-  .pulse-dot { animation: none; }
-  .lat-bar { animation: none; }
-  .rise { animation: none; }
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .ticker-track {
+    animation: none;
+  }
+  .pulse-dot {
+    animation: none;
+  }
+  .lat-bar {
+    animation: none;
+  }
+  .rise {
+    animation: none;
+  }
 }
