@@ -2,7 +2,9 @@
 
 Browser-only ops console for large PM2 HTTP / cron logs. Drop a file (or paste text), get KPI cards, filterable API latency tables, percentile charts, cron summaries, and Excel export — all client-side. No backend.
 
-**Corpus used for numbers below:** `test_data/api-out-500mb.log` (~535 MiB), **3,718,450** matched HTTP lines, **2,788,590** unmatched, **6,107** endpoints, **9** cron jobs. Benches are real Chromium + Vite preview + Web Workers via Playwright (`scripts/bench/bench.mjs`). Full session log: [`scripts/bench/history.json`](scripts/bench/history.json).
+**Corpus used for timed numbers below:** `test_data/api-out-500mb.log` (~535 MiB), **3,718,450** matched HTTP lines, **2,788,590** unmatched, **6,107** endpoints, **9** cron jobs. Benches are real Chromium + Vite preview + Web Workers via Playwright (`scripts/bench/bench.mjs`). Full session log: [`scripts/bench/history.json`](scripts/bench/history.json).
+
+The story starts earlier than that corpus: before [`ef58f1f`](https://github.com/Prit36/pm2-log-analyzer/commit/ef58f1f), even **~50 MB** files could hang or crash the tab (main-thread parse). See [Performance journey](#performance-journey).
 
 ---
 
@@ -102,13 +104,28 @@ Results append to `scripts/bench/history.json`. Prefer a quiet shell (fresh Chro
 
 Numbers move with CPU load and thermal state; treat the table as relative progress on this box.
 
-### Performance journey (same 535 MiB corpus)
+### Performance journey
 
-Early UI work felt like a multi‑minute hang on huge files (main-thread work + multi‑second filter reagg + multi‑GB RSS). Instrumented browser benches start here and track the climb down.
+#### 0. Make it usable at all (`ef58f1f`)
+
+Before any of the timed 535 MiB work, even **~50 MB** logs could lock or crash the tab: parsing ran on the **main thread**, held multi‑MB strings in React state, and rendered huge DOM tables.
+
+**First fix** ([`ef58f1f`](https://github.com/Prit36/pm2-log-analyzer/commit/ef58f1f) — *Optimize large PM2 log analysis for 50MB+ files*):
+
+- Move parse into a **Web Worker** with **streaming** file reads  
+- Keep compact **typed-array** columns instead of per-line objects  
+- **Virtualize** result tables so the UI stays responsive  
+
+That turned “crashes / multi‑minute freezes on modest files” into something you could open and interact with. Everything below is further optimization on a **~535 MiB** stress corpus, with Playwright benches in `scripts/bench/history.json`.
+
+#### 1. Instrumented climb (same 535 MiB corpus)
+
+Early post-worker UI still felt heavy on huge files (multi‑second filter reagg + multi‑GB RSS). Instrumented browser benches start at `864a2f3` and track the climb down.
 
 | Milestone | Note / commit | Parse (avg) | Reagg (avg) | Chromium RSS peak | What changed |
 |-----------|---------------|-------------|-----------------|-------------------|--------------|
-| Baseline (pre-opt) | `864a2f3` | **~12.2 s** | **~3.2 s** | **~2.6 GiB** | Single-path JS parse; filter reagg expensive |
+| First usable (qualitative) | `ef58f1f` | — (not in history.json) | — | — | Worker + streaming + typed arrays + virtualized tables; ~50 MB no longer kills the tab |
+| Instrumented baseline | `864a2f3` | **~12.2 s** | **~3.2 s** | **~2.6 GiB** | Worker path, still single-shard JS; filter reagg expensive |
 | Perf phase A+B | `perf-phase-A+B*` | ~7.6–11 s | ~1.0–1.4 s | ~1.8–2.2 GiB | Scanner / sketch / allocation cuts |
 | Multicore shard parse | `perf-multicore` / `5e86fa5` | **~3.4–3.9 s** | ~0.8–1.0 s | ~1.2 GiB | Shard file across workers; RelHist replaces DDSketch |
 | JS parallel reagg (SAB) | `my-run` / `51e1079` → `0ff459f` | **~2.71 s** | **~326 ms** | **~1.33 GiB** | SharedArrayBuffer columns + parallel reagg workers |
@@ -119,13 +136,12 @@ Early UI work felt like a multi‑minute hang on huge files (main-thread work + 
 | hashbrown + foldhash | `hashbrown-foldhash` | **~1.28 s** | **~86 ms** | ~1.15 GiB | Drop ahash (no AES on Wasm) |
 | Modernize (manual) | `rust-modernize-manual` | **~1.19 s** | **~86 ms** | ~1.15 GiB | rapidhash path maps, `entry_ref`, `Cow` normalize, `memmem`, no RelHist clone |
 
-**Net (quiet-shell best vs first instrumented baseline):**
+**Net**
 
-- Parse: **~12.2 s → ~1.19 s** (~10×)
-- Filter reagg: **~3.2 s → ~86 ms** (~37×)
-- Peak Chromium RSS: **~2.6 GiB → ~1.15 GiB** (~2.3× less)
+- **Usability:** ~50 MB logs went from tab crash / multi‑minute hang → interactive (worker + streaming + virtualization).  
+- **Speed (quiet-shell best vs first instrumented 535 MiB baseline):** parse **~12.2 s → ~1.19 s** (~10×); filter reagg **~3.2 s → ~86 ms** (~37×); peak Chromium RSS **~2.6 GiB → ~1.15 GiB** (~2.3× less).
 
-Exact result parity held across the journey: matched **3,718,450**, unmatched **2,788,590**, endpoints **6,107**, cron **9**.
+Exact result parity held across the timed journey: matched **3,718,450**, unmatched **2,788,590**, endpoints **6,107**, cron **9**.
 
 ### Architecture (current)
 
