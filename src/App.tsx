@@ -112,6 +112,7 @@ export function App() {
   const [methodFilter, setMethodFilter] = React.useState<Set<string> | null>(null);
   const [toast, setToast] = React.useState<string | null>(null);
   const [hasData, setHasData] = React.useState(false);
+  const [parseDurationMs, setParseDurationMs] = React.useState<number | null>(null);
 
   const {
     parseFile,
@@ -343,11 +344,16 @@ export function App() {
     setSourceSize(file.size);
     setMethodFilter(null);
     showToast(`Parsing ${file.name} (${formatBytes(file.size)})…`);
+    const t0 = performance.now();
     try {
       const res = await parseFile(file, buildOptions());
+      const ms = performance.now() - t0;
+      setParseDurationMs(ms);
       setHasData(true);
       setResult(res);
-      showToast(`Ready — ${formatNum(res.summary.matched)} requests in ${file.name}`);
+      showToast(
+        `Ready — ${formatNum(res.summary.matched)} requests in ${file.name} · ${formatMs(ms)}`,
+      );
     } catch (e) {
       if (e instanceof Error && e.message !== "Cancelled") showToast(e.message);
     }
@@ -363,11 +369,14 @@ export function App() {
     setSourceName(sourceName || "pasted logs");
     setSourceSize(new Blob([pasteText]).size);
     setMethodFilter(null);
+    const t0 = performance.now();
     try {
       const res = await parseText(pasteText, buildOptions());
+      const ms = performance.now() - t0;
+      setParseDurationMs(ms);
       setHasData(true);
       setResult(res);
-      showToast(`Ready — ${formatNum(res.summary.matched)} requests parsed`);
+      showToast(`Ready — ${formatNum(res.summary.matched)} requests parsed · ${formatMs(ms)}`);
     } catch (e) {
       if (e instanceof Error && e.message !== "Cancelled") showToast(e.message);
     }
@@ -381,6 +390,7 @@ export function App() {
     setSourceSize(null);
     setLoadedFromFile(false);
     setHasData(false);
+    setParseDurationMs(null);
     setResult(null);
     setMethodFilter(null);
     void deleteSetting(LS.source);
@@ -714,6 +724,7 @@ export function App() {
                 <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-semibold text-slate-200 backdrop-blur">
                   📄 {sourceName}
                   {sourceSize != null ? ` · ${formatBytes(sourceSize)}` : ""}
+                  {parseDurationMs != null ? ` · ${formatMs(parseDurationMs)}` : ""}
                 </span>
               )}
             </div>
@@ -822,6 +833,7 @@ export function App() {
                 </div>
                 <div className="mt-1 text-sm text-slate-600">
                   {sourceSize != null ? formatBytes(sourceSize) : ""} — parsed off the main thread
+                  {parseDurationMs != null ? ` · ${formatMs(parseDurationMs)}` : ""}
                 </div>
                 <p className="mt-3 max-w-md text-xs text-slate-500">
                   The raw file is not loaded into the text box (that was freezing the UI). Clear and
