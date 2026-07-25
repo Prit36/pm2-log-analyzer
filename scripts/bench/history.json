@@ -1,0 +1,4212 @@
+[
+  {
+    "id": "2026-07-25T07:28:54.258Z",
+    "method": "browser-app",
+    "note": null,
+    "git": {
+      "commit": "864a2f3",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1159.10498046875
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 12.155399999999998,
+        "stddev": 0.19384901340992217,
+        "min": 11.934,
+        "max": 12.425
+      },
+      "uploadToReadySec": {
+        "avg": 12.18035724,
+        "stddev": 0.19416849782607518,
+        "min": 11.9576351,
+        "max": 12.4498722
+      },
+      "throughputMBps": {
+        "avg": 44.02755254373187,
+        "stddev": 0.698413508198795,
+        "min": 43.06133838246765,
+        "max": 44.833008999678285
+      },
+      "browserRssPeakMB": {
+        "avg": 2589.63203125,
+        "stddev": 208.6508659719619,
+        "min": 2172.33984375,
+        "max": 2696.26953125
+      },
+      "jsHeapPeakMB": {
+        "avg": 21.714981842041016,
+        "stddev": 3.2587875647864,
+        "min": 18.194843292236328,
+        "max": 25.984882354736328
+      },
+      "reaggAvgMs": {
+        "avg": 3208.6,
+        "stddev": 32.5933871957011,
+        "min": 3174.3333333333335,
+        "max": 3262.3333333333335
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 12.042,
+        "uploadToReadySec": 12.0682036,
+        "throughputMBps": 44.43091923286503,
+        "reaggAvgMs": 3174.3333333333335,
+        "reaggWallMs": [
+          4059,
+          4812,
+          652
+        ],
+        "browserRssPeakMB": 2692.296875,
+        "jsHeapPeakMB": 18.465103149414062,
+        "jsHeapUsedAfterMB": 19.783641815185547
+      },
+      {
+        "run": 2,
+        "parseWallSec": 12.425,
+        "uploadToReadySec": 12.4498722,
+        "throughputMBps": 43.06133838246765,
+        "reaggAvgMs": 3177.6666666666665,
+        "reaggWallMs": [
+          4076,
+          4797,
+          660
+        ],
+        "browserRssPeakMB": 2692.72265625,
+        "jsHeapPeakMB": 18.194843292236328,
+        "jsHeapUsedAfterMB": 19.05252456665039
+      },
+      {
+        "run": 3,
+        "parseWallSec": 11.934,
+        "uploadToReadySec": 11.9576351,
+        "throughputMBps": 44.833008999678285,
+        "reaggAvgMs": 3203.6666666666665,
+        "reaggWallMs": [
+          4096,
+          4852,
+          663
+        ],
+        "browserRssPeakMB": 2696.26953125,
+        "jsHeapPeakMB": 25.061233520507812,
+        "jsHeapUsedAfterMB": 12.558509826660156
+      },
+      {
+        "run": 4,
+        "parseWallSec": 12.028,
+        "uploadToReadySec": 12.0524931,
+        "throughputMBps": 44.48263463602932,
+        "reaggAvgMs": 3225,
+        "reaggWallMs": [
+          4081,
+          4939,
+          655
+        ],
+        "browserRssPeakMB": 2172.33984375,
+        "jsHeapPeakMB": 20.868846893310547,
+        "jsHeapUsedAfterMB": 14.100215911865234
+      },
+      {
+        "run": 5,
+        "parseWallSec": 12.348,
+        "uploadToReadySec": 12.373582200000001,
+        "throughputMBps": 43.3298614676191,
+        "reaggAvgMs": 3262.3333333333335,
+        "reaggWallMs": [
+          4234,
+          4896,
+          657
+        ],
+        "browserRssPeakMB": 2694.53125,
+        "jsHeapPeakMB": 25.984882354736328,
+        "jsHeapUsedAfterMB": 12.893798828125
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T07:41:23.215Z",
+    "method": "browser-app",
+    "note": "perf-phase-A+B",
+    "git": {
+      "commit": "5272efc",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.0720547569208
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 11.044799999999999,
+        "stddev": 0.14344532059290016,
+        "min": 10.89,
+        "max": 11.274
+      },
+      "uploadToReadySec": {
+        "avg": 11.06669272,
+        "stddev": 0.14311109822488807,
+        "min": 10.9117011,
+        "max": 11.2948956
+      },
+      "throughputMBps": {
+        "avg": 48.45058239074515,
+        "stddev": 0.6264979253572995,
+        "min": 47.4576130390421,
+        "max": 49.131049531878844
+      },
+      "browserRssPeakMB": {
+        "avg": 1965.99453125,
+        "stddev": 226.20118949435724,
+        "min": 1750.84765625,
+        "max": 2392.5078125
+      },
+      "jsHeapPeakMB": {
+        "avg": 18.762638092041016,
+        "stddev": 0.7715276426468375,
+        "min": 17.246131896972656,
+        "max": 19.261688232421875
+      },
+      "reaggAvgMs": {
+        "avg": 1201.4666666666667,
+        "stddev": 11.795667754636739,
+        "min": 1184.6666666666667,
+        "max": 1219.3333333333333
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 10.895,
+        "uploadToReadySec": 10.9173264,
+        "throughputMBps": 49.10850201029469,
+        "reaggAvgMs": 1207.6666666666667,
+        "reaggWallMs": [
+          1592,
+          1814,
+          217
+        ],
+        "browserRssPeakMB": 2392.5078125,
+        "jsHeapPeakMB": 19.17259979248047,
+        "jsHeapUsedAfterMB": 13.542034149169922
+      },
+      {
+        "run": 2,
+        "parseWallSec": 11.106,
+        "uploadToReadySec": 11.128167699999999,
+        "throughputMBps": 48.17550237728801,
+        "reaggAvgMs": 1201.6666666666667,
+        "reaggWallMs": [
+          1603,
+          1791,
+          211
+        ],
+        "browserRssPeakMB": 1887.26953125,
+        "jsHeapPeakMB": 19.25982666015625,
+        "jsHeapUsedAfterMB": 13.538440704345703
+      },
+      {
+        "run": 3,
+        "parseWallSec": 10.89,
+        "uploadToReadySec": 10.9117011,
+        "throughputMBps": 49.131049531878844,
+        "reaggAvgMs": 1219.3333333333333,
+        "reaggWallMs": [
+          1591,
+          1856,
+          211
+        ],
+        "browserRssPeakMB": 1820.1796875,
+        "jsHeapPeakMB": 18.872943878173828,
+        "jsHeapUsedAfterMB": 13.543292999267578
+      },
+      {
+        "run": 4,
+        "parseWallSec": 11.059,
+        "uploadToReadySec": 11.081372799999999,
+        "throughputMBps": 48.38024499522205,
+        "reaggAvgMs": 1194,
+        "reaggWallMs": [
+          1606,
+          1741,
+          235
+        ],
+        "browserRssPeakMB": 1979.16796875,
+        "jsHeapPeakMB": 19.261688232421875,
+        "jsHeapUsedAfterMB": 13.176753997802734
+      },
+      {
+        "run": 5,
+        "parseWallSec": 11.274,
+        "uploadToReadySec": 11.2948956,
+        "throughputMBps": 47.4576130390421,
+        "reaggAvgMs": 1184.6666666666667,
+        "reaggWallMs": [
+          1595,
+          1760,
+          199
+        ],
+        "browserRssPeakMB": 1750.84765625,
+        "jsHeapPeakMB": 17.246131896972656,
+        "jsHeapUsedAfterMB": 13.547508239746094
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T07:43:45.934Z",
+    "method": "browser-app",
+    "note": "perf-phase-A+B-v2",
+    "git": {
+      "commit": "5272efc",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.0720547569208
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 8.588,
+        "stddev": 0.08058039463790193,
+        "min": 8.51,
+        "max": 8.691
+      },
+      "uploadToReadySec": {
+        "avg": 8.61020492,
+        "stddev": 0.08098748936235542,
+        "min": 8.530976299999999,
+        "max": 8.714802099999998
+      },
+      "throughputMBps": {
+        "avg": 62.306016806309664,
+        "stddev": 0.5825615983787571,
+        "min": 61.562205661277254,
+        "max": 62.87157807310936
+      },
+      "browserRssPeakMB": {
+        "avg": 2187.61640625,
+        "stddev": 187.41290354074937,
+        "min": 2026.5625,
+        "max": 2548.7734375
+      },
+      "jsHeapPeakMB": {
+        "avg": 21.16018142700195,
+        "stddev": 2.793256438141908,
+        "min": 15.612419128417969,
+        "max": 22.93981170654297
+      },
+      "reaggAvgMs": {
+        "avg": 1371.4666666666667,
+        "stddev": 24.858354285386202,
+        "min": 1347,
+        "max": 1412
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 8.691,
+        "uploadToReadySec": 8.714802099999998,
+        "throughputMBps": 61.562205661277254,
+        "reaggAvgMs": 1347,
+        "reaggWallMs": [
+          1800,
+          2013,
+          228
+        ],
+        "browserRssPeakMB": 2183.4140625,
+        "jsHeapPeakMB": 22.18370819091797,
+        "jsHeapUsedAfterMB": 13.695343017578125
+      },
+      {
+        "run": 2,
+        "parseWallSec": 8.51,
+        "uploadToReadySec": 8.530976299999999,
+        "throughputMBps": 62.87157807310936,
+        "reaggAvgMs": 1387,
+        "reaggWallMs": [
+          1826,
+          2102,
+          233
+        ],
+        "browserRssPeakMB": 2026.5625,
+        "jsHeapPeakMB": 15.612419128417969,
+        "jsHeapUsedAfterMB": 17.80691146850586
+      },
+      {
+        "run": 3,
+        "parseWallSec": 8.681,
+        "uploadToReadySec": 8.702377100000001,
+        "throughputMBps": 61.63312169129832,
+        "reaggAvgMs": 1412,
+        "reaggWallMs": [
+          1906,
+          2093,
+          237
+        ],
+        "browserRssPeakMB": 2548.7734375,
+        "jsHeapPeakMB": 22.88788604736328,
+        "jsHeapUsedAfterMB": 15.561382293701172
+      },
+      {
+        "run": 4,
+        "parseWallSec": 8.538,
+        "uploadToReadySec": 8.5607485,
+        "throughputMBps": 62.665393464764655,
+        "reaggAvgMs": 1363,
+        "reaggWallMs": [
+          1797,
+          2063,
+          229
+        ],
+        "browserRssPeakMB": 2094.08203125,
+        "jsHeapPeakMB": 22.177082061767578,
+        "jsHeapUsedAfterMB": 14.096153259277344
+      },
+      {
+        "run": 5,
+        "parseWallSec": 8.52,
+        "uploadToReadySec": 8.542120599999999,
+        "throughputMBps": 62.79778514109867,
+        "reaggAvgMs": 1348.3333333333333,
+        "reaggWallMs": [
+          1795,
+          2018,
+          232
+        ],
+        "browserRssPeakMB": 2085.25,
+        "jsHeapPeakMB": 22.93981170654297,
+        "jsHeapUsedAfterMB": 14.430747985839844
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T07:46:27.880Z",
+    "method": "browser-app",
+    "note": "perf-phase-A+B-v3",
+    "git": {
+      "commit": "5272efc",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.0720547569208
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 7.6335999999999995,
+        "stddev": 0.03910294106585836,
+        "min": 7.59,
+        "max": 7.699
+      },
+      "uploadToReadySec": {
+        "avg": 7.8569965999999996,
+        "stddev": 0.021076494372926028,
+        "min": 7.8333624,
+        "max": 7.894426199999999
+      },
+      "throughputMBps": {
+        "avg": 70.09158563071635,
+        "stddev": 0.3579982941805862,
+        "min": 69.49436672323168,
+        "max": 70.49237541530444
+      },
+      "browserRssPeakMB": {
+        "avg": 1837.91640625,
+        "stddev": 81.48129134865101,
+        "min": 1704.65625,
+        "max": 1925.421875
+      },
+      "jsHeapPeakMB": {
+        "avg": 23.97904739379883,
+        "stddev": 1.6401863129003507,
+        "min": 21.129104614257812,
+        "max": 25.53771209716797
+      },
+      "reaggAvgMs": {
+        "avg": 993.8666666666668,
+        "stddev": 11.365835746755396,
+        "min": 973.6666666666666,
+        "max": 1006.3333333333334
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 7.602,
+        "uploadToReadySec": 7.8443246,
+        "throughputMBps": 70.3811009474034,
+        "reaggAvgMs": 1000,
+        "reaggWallMs": [
+          1332,
+          1457,
+          211
+        ],
+        "browserRssPeakMB": 1896.96484375,
+        "jsHeapPeakMB": 23.170677185058594,
+        "jsHeapUsedAfterMB": 10.750930786132812
+      },
+      {
+        "run": 2,
+        "parseWallSec": 7.624,
+        "uploadToReadySec": 7.894426199999999,
+        "throughputMBps": 70.17800752913965,
+        "reaggAvgMs": 1006.3333333333334,
+        "reaggWallMs": [
+          1325,
+          1520,
+          174
+        ],
+        "browserRssPeakMB": 1925.421875,
+        "jsHeapPeakMB": 21.129104614257812,
+        "jsHeapUsedAfterMB": 11.492023468017578
+      },
+      {
+        "run": 3,
+        "parseWallSec": 7.699,
+        "uploadToReadySec": 7.8333624,
+        "throughputMBps": 69.49436672323168,
+        "reaggAvgMs": 973.6666666666666,
+        "reaggWallMs": [
+          1296,
+          1456,
+          169
+        ],
+        "browserRssPeakMB": 1785.4140625,
+        "jsHeapPeakMB": 25.17330551147461,
+        "jsHeapUsedAfterMB": 21.559532165527344
+      },
+      {
+        "run": 4,
+        "parseWallSec": 7.59,
+        "uploadToReadySec": 7.8635177,
+        "throughputMBps": 70.49237541530444,
+        "reaggAvgMs": 999.3333333333334,
+        "reaggWallMs": [
+          1321,
+          1460,
+          217
+        ],
+        "browserRssPeakMB": 1877.125,
+        "jsHeapPeakMB": 24.884437561035156,
+        "jsHeapUsedAfterMB": 12.554656982421875
+      },
+      {
+        "run": 5,
+        "parseWallSec": 7.653,
+        "uploadToReadySec": 7.849352099999999,
+        "throughputMBps": 69.91207753850263,
+        "reaggAvgMs": 990,
+        "reaggWallMs": [
+          1327,
+          1471,
+          172
+        ],
+        "browserRssPeakMB": 1704.65625,
+        "jsHeapPeakMB": 25.53771209716797,
+        "jsHeapUsedAfterMB": 21.515220642089844
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T07:49:01.979Z",
+    "method": "browser-app",
+    "note": "perf-phase-A+B",
+    "git": {
+      "commit": "5272efc",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.0720547569208
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 8.0024,
+        "stddev": 0.05205228141013631,
+        "min": 7.93,
+        "max": 8.069
+      },
+      "uploadToReadySec": {
+        "avg": 8.02454282,
+        "stddev": 0.051837249225451916,
+        "min": 7.952903700000001,
+        "max": 8.091005500000001
+      },
+      "throughputMBps": {
+        "avg": 66.86241136430742,
+        "stddev": 0.4347848723832289,
+        "min": 66.30773694412697,
+        "max": 67.47000370771256
+      },
+      "browserRssPeakMB": {
+        "avg": 1845.8640625,
+        "stddev": 79.84195743920993,
+        "min": 1729.0625,
+        "max": 1962.9609375
+      },
+      "jsHeapPeakMB": {
+        "avg": 25.79371871948242,
+        "stddev": 0.2571358136745339,
+        "min": 25.321720123291016,
+        "max": 26.094104766845703
+      },
+      "reaggAvgMs": {
+        "avg": 986.2666666666668,
+        "stddev": 4.725345372445158,
+        "min": 980.3333333333334,
+        "max": 992
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 7.93,
+        "uploadToReadySec": 7.952903700000001,
+        "throughputMBps": 67.47000370771256,
+        "reaggAvgMs": 986.3333333333334,
+        "reaggWallMs": [
+          1333,
+          1460,
+          166
+        ],
+        "browserRssPeakMB": 1900.2109375,
+        "jsHeapPeakMB": 25.91474151611328,
+        "jsHeapUsedAfterMB": 21.724884033203125
+      },
+      {
+        "run": 2,
+        "parseWallSec": 8.055,
+        "uploadToReadySec": 8.077025200000001,
+        "throughputMBps": 66.4229831660038,
+        "reaggAvgMs": 992,
+        "reaggWallMs": [
+          1330,
+          1470,
+          176
+        ],
+        "browserRssPeakMB": 1824.58203125,
+        "jsHeapPeakMB": 25.790260314941406,
+        "jsHeapUsedAfterMB": 20.605159759521484
+      },
+      {
+        "run": 3,
+        "parseWallSec": 8.069,
+        "uploadToReadySec": 8.091005500000001,
+        "throughputMBps": 66.30773694412697,
+        "reaggAvgMs": 991,
+        "reaggWallMs": [
+          1336,
+          1466,
+          171
+        ],
+        "browserRssPeakMB": 1962.9609375,
+        "jsHeapPeakMB": 25.321720123291016,
+        "jsHeapUsedAfterMB": 11.6837158203125
+      },
+      {
+        "run": 4,
+        "parseWallSec": 7.981,
+        "uploadToReadySec": 8.003412200000001,
+        "throughputMBps": 67.03885846412237,
+        "reaggAvgMs": 980.3333333333334,
+        "reaggWallMs": [
+          1315,
+          1450,
+          176
+        ],
+        "browserRssPeakMB": 1812.50390625,
+        "jsHeapPeakMB": 26.094104766845703,
+        "jsHeapUsedAfterMB": 20.641395568847656
+      },
+      {
+        "run": 5,
+        "parseWallSec": 7.977,
+        "uploadToReadySec": 7.9983675000000005,
+        "throughputMBps": 67.07247453957135,
+        "reaggAvgMs": 981.6666666666666,
+        "reaggWallMs": [
+          1296,
+          1483,
+          166
+        ],
+        "browserRssPeakMB": 1729.0625,
+        "jsHeapPeakMB": 25.847766876220703,
+        "jsHeapUsedAfterMB": 21.626853942871094
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T07:52:07.129Z",
+    "method": "browser-app",
+    "note": "perf-phase-A+B",
+    "git": {
+      "commit": "5272efc",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.0720547569208
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 9.044799999999999,
+        "stddev": 0.019873600579663423,
+        "min": 9.01,
+        "max": 9.068
+      },
+      "uploadToReadySec": {
+        "avg": 9.283437500000002,
+        "stddev": 0.125761951907053,
+        "min": 9.0319818,
+        "max": 9.3494857
+      },
+      "throughputMBps": {
+        "avg": 59.15439993056729,
+        "stddev": 0.1301774599846707,
+        "min": 59.0027712177063,
+        "max": 59.38258927881916
+      },
+      "browserRssPeakMB": {
+        "avg": 2186.74921875,
+        "stddev": 50.18814384608026,
+        "min": 2088.1171875,
+        "max": 2220.7890625
+      },
+      "jsHeapPeakMB": {
+        "avg": 19.824749755859376,
+        "stddev": 1.1911385540984631,
+        "min": 18.868988037109375,
+        "max": 22.11007308959961
+      },
+      "reaggAvgMs": {
+        "avg": 1010.4,
+        "stddev": 8.827734074432096,
+        "min": 1001.6666666666666,
+        "max": 1026.6666666666667
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 9.049,
+        "uploadToReadySec": 9.3493678,
+        "throughputMBps": 59.12665812820872,
+        "reaggAvgMs": 1001.6666666666666,
+        "reaggWallMs": [
+          1360,
+          1480,
+          165
+        ],
+        "browserRssPeakMB": 2220.7890625,
+        "jsHeapPeakMB": 19.345176696777344,
+        "jsHeapUsedAfterMB": 16.9725341796875
+      },
+      {
+        "run": 2,
+        "parseWallSec": 9.01,
+        "uploadToReadySec": 9.0319818,
+        "throughputMBps": 59.38258927881916,
+        "reaggAvgMs": 1005.3333333333334,
+        "reaggWallMs": [
+          1362,
+          1482,
+          172
+        ],
+        "browserRssPeakMB": 2088.1171875,
+        "jsHeapPeakMB": 19.82791519165039,
+        "jsHeapUsedAfterMB": 14.615047454833984
+      },
+      {
+        "run": 3,
+        "parseWallSec": 9.068,
+        "uploadToReadySec": 9.341796999999998,
+        "throughputMBps": 59.0027712177063,
+        "reaggAvgMs": 1026.6666666666667,
+        "reaggWallMs": [
+          1377,
+          1533,
+          170
+        ],
+        "browserRssPeakMB": 2194.75,
+        "jsHeapPeakMB": 18.971595764160156,
+        "jsHeapUsedAfterMB": 16.203147888183594
+      },
+      {
+        "run": 4,
+        "parseWallSec": 9.039,
+        "uploadToReadySec": 9.3445552,
+        "throughputMBps": 59.192070959415936,
+        "reaggAvgMs": 1012.3333333333334,
+        "reaggWallMs": [
+          1368,
+          1496,
+          173
+        ],
+        "browserRssPeakMB": 2219.625,
+        "jsHeapPeakMB": 18.868988037109375,
+        "jsHeapUsedAfterMB": 21.989566802978516
+      },
+      {
+        "run": 5,
+        "parseWallSec": 9.058,
+        "uploadToReadySec": 9.3494857,
+        "throughputMBps": 59.06791006868632,
+        "reaggAvgMs": 1006,
+        "reaggWallMs": [
+          1366,
+          1484,
+          168
+        ],
+        "browserRssPeakMB": 2210.46484375,
+        "jsHeapPeakMB": 22.11007308959961,
+        "jsHeapUsedAfterMB": 14.16866683959961
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T07:54:58.826Z",
+    "method": "browser-app",
+    "note": "perf-phase-A+B",
+    "git": {
+      "commit": "5272efc",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.0720547569208
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 8.0078,
+        "stddev": 0.0576832731387534,
+        "min": 7.964,
+        "max": 8.117
+      },
+      "uploadToReadySec": {
+        "avg": 8.02956632,
+        "stddev": 0.057954248713908404,
+        "min": 7.9852416999999996,
+        "max": 8.1389617
+      },
+      "throughputMBps": {
+        "avg": 66.81793537409256,
+        "stddev": 0.4773261650355366,
+        "min": 65.91562515734392,
+        "max": 67.18195999524869
+      },
+      "browserRssPeakMB": {
+        "avg": 1822.85390625,
+        "stddev": 54.420844404180855,
+        "min": 1757.796875,
+        "max": 1888.9921875
+      },
+      "jsHeapPeakMB": {
+        "avg": 25.713677978515626,
+        "stddev": 0.23742317132766172,
+        "min": 25.324886322021484,
+        "max": 26.07314682006836
+      },
+      "reaggAvgMs": {
+        "avg": 998.4666666666666,
+        "stddev": 18.706623901115258,
+        "min": 982,
+        "max": 1031.3333333333333
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 7.968,
+        "uploadToReadySec": 7.989466900000001,
+        "throughputMBps": 67.14823411171695,
+        "reaggAvgMs": 985.3333333333334,
+        "reaggWallMs": [
+          1318,
+          1457,
+          181
+        ],
+        "browserRssPeakMB": 1858.515625,
+        "jsHeapPeakMB": 25.726821899414062,
+        "jsHeapUsedAfterMB": 21.277637481689453
+      },
+      {
+        "run": 2,
+        "parseWallSec": 8.117,
+        "uploadToReadySec": 8.1389617,
+        "throughputMBps": 65.91562515734392,
+        "reaggAvgMs": 1031.3333333333333,
+        "reaggWallMs": [
+          1353,
+          1571,
+          170
+        ],
+        "browserRssPeakMB": 1850.60546875,
+        "jsHeapPeakMB": 25.69759750366211,
+        "jsHeapUsedAfterMB": 20.890892028808594
+      },
+      {
+        "run": 3,
+        "parseWallSec": 7.964,
+        "uploadToReadySec": 7.9852416999999996,
+        "throughputMBps": 67.18195999524869,
+        "reaggAvgMs": 1007.3333333333334,
+        "reaggWallMs": [
+          1317,
+          1533,
+          172
+        ],
+        "browserRssPeakMB": 1758.359375,
+        "jsHeapPeakMB": 25.74593734741211,
+        "jsHeapUsedAfterMB": 11.725841522216797
+      },
+      {
+        "run": 4,
+        "parseWallSec": 7.974,
+        "uploadToReadySec": 7.995381500000001,
+        "throughputMBps": 67.09770872863815,
+        "reaggAvgMs": 982,
+        "reaggWallMs": [
+          1306,
+          1470,
+          170
+        ],
+        "browserRssPeakMB": 1757.796875,
+        "jsHeapPeakMB": 26.07314682006836,
+        "jsHeapUsedAfterMB": 20.933135986328125
+      },
+      {
+        "run": 5,
+        "parseWallSec": 8.016,
+        "uploadToReadySec": 8.038779799999999,
+        "throughputMBps": 66.74614887751505,
+        "reaggAvgMs": 986.3333333333334,
+        "reaggWallMs": [
+          1319,
+          1465,
+          175
+        ],
+        "browserRssPeakMB": 1888.9921875,
+        "jsHeapPeakMB": 25.324886322021484,
+        "jsHeapUsedAfterMB": 21.530536651611328
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T08:09:52.108Z",
+    "method": "browser-app",
+    "note": "perf-multicore",
+    "git": {
+      "commit": "5e86fa5",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 3.9228,
+        "stddev": 0.025615620234536642,
+        "min": 3.895,
+        "max": 3.966
+      },
+      "uploadToReadySec": {
+        "avg": 3.94539056,
+        "stddev": 0.025539941267168128,
+        "min": 3.9162817000000003,
+        "max": 3.9884472
+      },
+      "throughputMBps": {
+        "avg": 136.3974322000823,
+        "stddev": 0.886876277403257,
+        "min": 134.9059832078065,
+        "max": 137.3651166629424
+      },
+      "browserRssPeakMB": {
+        "avg": 1155.04375,
+        "stddev": 50.88692018819998,
+        "min": 1101.65625,
+        "max": 1225.7109375
+      },
+      "jsHeapPeakMB": {
+        "avg": 18.084269714355468,
+        "stddev": 2.071791282577868,
+        "min": 15.328041076660156,
+        "max": 20.018356323242188
+      },
+      "reaggAvgMs": {
+        "avg": 1040.8666666666668,
+        "stddev": 24.342555330120952,
+        "min": 1015,
+        "max": 1085
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 3.966,
+        "uploadToReadySec": 3.9884472,
+        "throughputMBps": 134.9059832078065,
+        "reaggAvgMs": 1015,
+        "reaggWallMs": [
+          1359,
+          1511,
+          175
+        ],
+        "browserRssPeakMB": 1206.81640625,
+        "jsHeapPeakMB": 19.67300796508789,
+        "jsHeapUsedAfterMB": 19.634349822998047
+      },
+      {
+        "run": 2,
+        "parseWallSec": 3.895,
+        "uploadToReadySec": 3.9162817000000003,
+        "throughputMBps": 137.3651166629424,
+        "reaggAvgMs": 1034.6666666666667,
+        "reaggWallMs": [
+          1374,
+          1547,
+          183
+        ],
+        "browserRssPeakMB": 1116.11328125,
+        "jsHeapPeakMB": 19.61227798461914,
+        "jsHeapUsedAfterMB": 19.603145599365234
+      },
+      {
+        "run": 3,
+        "parseWallSec": 3.907,
+        "uploadToReadySec": 3.9315198999999996,
+        "throughputMBps": 136.94321203024333,
+        "reaggAvgMs": 1085,
+        "reaggWallMs": [
+          1483,
+          1584,
+          188
+        ],
+        "browserRssPeakMB": 1101.65625,
+        "jsHeapPeakMB": 15.789665222167969,
+        "jsHeapUsedAfterMB": 19.1436767578125
+      },
+      {
+        "run": 4,
+        "parseWallSec": 3.937,
+        "uploadToReadySec": 3.9589138,
+        "throughputMBps": 135.89970266755415,
+        "reaggAvgMs": 1024,
+        "reaggWallMs": [
+          1358,
+          1534,
+          180
+        ],
+        "browserRssPeakMB": 1225.7109375,
+        "jsHeapPeakMB": 15.328041076660156,
+        "jsHeapUsedAfterMB": 19.95477294921875
+      },
+      {
+        "run": 5,
+        "parseWallSec": 3.909,
+        "uploadToReadySec": 3.9317902,
+        "throughputMBps": 136.8731464318651,
+        "reaggAvgMs": 1045.6666666666667,
+        "reaggWallMs": [
+          1359,
+          1597,
+          181
+        ],
+        "browserRssPeakMB": 1124.921875,
+        "jsHeapPeakMB": 20.018356323242188,
+        "jsHeapUsedAfterMB": 18.876972198486328
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T08:12:30.076Z",
+    "method": "browser-app",
+    "note": "perf-multicore",
+    "git": {
+      "commit": "5e86fa5",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 3,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 5.609666666666667,
+        "stddev": 0.09370995441016676,
+        "min": 5.488,
+        "max": 5.716
+      },
+      "uploadToReadySec": {
+        "avg": 5.632094299999999,
+        "stddev": 0.0935369762250561,
+        "min": 5.510753299999999,
+        "max": 5.738383
+      },
+      "throughputMBps": {
+        "avg": 95.4044389387508,
+        "stddev": 1.6004781779127204,
+        "min": 93.603416620392,
+        "max": 97.49218830214296
+      },
+      "browserRssPeakMB": {
+        "avg": 4078.98828125,
+        "stddev": 75.44027476460597,
+        "min": 3972.3046875,
+        "max": 4133.23046875
+      },
+      "jsHeapPeakMB": {
+        "avg": 17.232519785563152,
+        "stddev": 2.881035644466875,
+        "min": 14.96480941772461,
+        "max": 21.297870635986328
+      },
+      "reaggAvgMs": {
+        "avg": 2791.1111111111113,
+        "stddev": 122.0996354935357,
+        "min": 2688.3333333333335,
+        "max": 2962.6666666666665
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 5.716,
+        "uploadToReadySec": 5.738383,
+        "throughputMBps": 93.603416620392,
+        "reaggAvgMs": 2722.3333333333335,
+        "reaggWallMs": [
+          3759,
+          4120,
+          288
+        ],
+        "browserRssPeakMB": 4133.23046875,
+        "jsHeapPeakMB": 14.96480941772461,
+        "jsHeapUsedAfterMB": 20.359134674072266
+      },
+      {
+        "run": 2,
+        "parseWallSec": 5.625,
+        "uploadToReadySec": 5.6471466,
+        "throughputMBps": 95.11771189371744,
+        "reaggAvgMs": 2962.6666666666665,
+        "reaggWallMs": [
+          3790,
+          4048,
+          1050
+        ],
+        "browserRssPeakMB": 3972.3046875,
+        "jsHeapPeakMB": 21.297870635986328,
+        "jsHeapUsedAfterMB": 14.153007507324219
+      },
+      {
+        "run": 3,
+        "parseWallSec": 5.488,
+        "uploadToReadySec": 5.510753299999999,
+        "throughputMBps": 97.49218830214296,
+        "reaggAvgMs": 2688.3333333333335,
+        "reaggWallMs": [
+          3751,
+          4024,
+          290
+        ],
+        "browserRssPeakMB": 4131.4296875,
+        "jsHeapPeakMB": 15.434879302978516,
+        "jsHeapUsedAfterMB": 21.388336181640625
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T08:13:46.169Z",
+    "method": "browser-app",
+    "note": "perf-multicore",
+    "git": {
+      "commit": "5e86fa5",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 3.8342,
+        "stddev": 0.02646053665366602,
+        "min": 3.79,
+        "max": 3.862
+      },
+      "uploadToReadySec": {
+        "avg": 3.8561188399999997,
+        "stddev": 0.026311622156803487,
+        "min": 3.8123449000000003,
+        "max": 3.8839571999999998
+      },
+      "throughputMBps": {
+        "avg": 139.55002372027832,
+        "stddev": 0.9664208699961508,
+        "min": 138.53887348580028,
+        "max": 141.1707465441057
+      },
+      "browserRssPeakMB": {
+        "avg": 1171.23203125,
+        "stddev": 40.252571021947816,
+        "min": 1103.75,
+        "max": 1225.00390625
+      },
+      "jsHeapPeakMB": {
+        "avg": 21.210667419433594,
+        "stddev": 1.9813637614233135,
+        "min": 19.657119750976562,
+        "max": 24.993183135986328
+      },
+      "reaggAvgMs": {
+        "avg": 975.0666666666666,
+        "stddev": 7.322416116131214,
+        "min": 964.6666666666666,
+        "max": 983.3333333333334
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 3.861,
+        "uploadToReadySec": 3.8828088,
+        "throughputMBps": 138.5747550899147,
+        "reaggAvgMs": 968.6666666666666,
+        "reaggWallMs": [
+          1289,
+          1441,
+          176
+        ],
+        "browserRssPeakMB": 1155.97265625,
+        "jsHeapPeakMB": 24.993183135986328,
+        "jsHeapUsedAfterMB": 16.152687072753906
+      },
+      {
+        "run": 2,
+        "parseWallSec": 3.828,
+        "uploadToReadySec": 3.8510522,
+        "throughputMBps": 139.76936504758638,
+        "reaggAvgMs": 982,
+        "reaggWallMs": [
+          1337,
+          1437,
+          172
+        ],
+        "browserRssPeakMB": 1187.06640625,
+        "jsHeapPeakMB": 19.657119750976562,
+        "jsHeapUsedAfterMB": 18.89925765991211
+      },
+      {
+        "run": 3,
+        "parseWallSec": 3.79,
+        "uploadToReadySec": 3.8123449000000003,
+        "throughputMBps": 141.1707465441057,
+        "reaggAvgMs": 964.6666666666666,
+        "reaggWallMs": [
+          1289,
+          1427,
+          178
+        ],
+        "browserRssPeakMB": 1225.00390625,
+        "jsHeapPeakMB": 21.379135131835938,
+        "jsHeapUsedAfterMB": 27.23794174194336
+      },
+      {
+        "run": 4,
+        "parseWallSec": 3.862,
+        "uploadToReadySec": 3.8839571999999998,
+        "throughputMBps": 138.53887348580028,
+        "reaggAvgMs": 976.6666666666666,
+        "reaggWallMs": [
+          1310,
+          1436,
+          184
+        ],
+        "browserRssPeakMB": 1103.75,
+        "jsHeapPeakMB": 19.9578857421875,
+        "jsHeapUsedAfterMB": 18.85824203491211
+      },
+      {
+        "run": 5,
+        "parseWallSec": 3.83,
+        "uploadToReadySec": 3.8504310999999998,
+        "throughputMBps": 139.6963784339845,
+        "reaggAvgMs": 983.3333333333334,
+        "reaggWallMs": [
+          1292,
+          1488,
+          170
+        ],
+        "browserRssPeakMB": 1184.3671875,
+        "jsHeapPeakMB": 20.06601333618164,
+        "jsHeapUsedAfterMB": 18.858821868896484
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T08:16:44.229Z",
+    "method": "browser-app",
+    "note": null,
+    "git": {
+      "commit": "5e86fa5",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 3.3968000000000003,
+        "stddev": 0.026164097538420826,
+        "min": 3.369,
+        "max": 3.443
+      },
+      "uploadToReadySec": {
+        "avg": 3.41667438,
+        "stddev": 0.026474380874830748,
+        "min": 3.3889168,
+        "max": 3.463198
+      },
+      "throughputMBps": {
+        "avg": 157.52139792207126,
+        "stddev": 1.20606701888367,
+        "min": 155.39852727335483,
+        "max": 158.81185200420322
+      },
+      "browserRssPeakMB": {
+        "avg": 1314.4546875,
+        "stddev": 12.791070493707709,
+        "min": 1292.55859375,
+        "max": 1332.16015625
+      },
+      "jsHeapPeakMB": {
+        "avg": 20.945301818847657,
+        "stddev": 2.0287688270999777,
+        "min": 19.913944244384766,
+        "max": 25.002700805664062
+      },
+      "reaggAvgMs": {
+        "avg": 821.4,
+        "stddev": 2.0044395171164053,
+        "min": 818.6666666666666,
+        "max": 824
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 3.378,
+        "uploadToReadySec": 3.3968610999999997,
+        "throughputMBps": 158.3887298407817,
+        "reaggAvgMs": 818.6666666666666,
+        "reaggWallMs": [
+          1083,
+          1210,
+          163
+        ],
+        "browserRssPeakMB": 1312.33203125,
+        "jsHeapPeakMB": 25.002700805664062,
+        "jsHeapUsedAfterMB": 15.806610107421875
+      },
+      {
+        "run": 2,
+        "parseWallSec": 3.369,
+        "uploadToReadySec": 3.3889168,
+        "throughputMBps": 158.81185200420322,
+        "reaggAvgMs": 824,
+        "reaggWallMs": [
+          1085,
+          1224,
+          163
+        ],
+        "browserRssPeakMB": 1332.16015625,
+        "jsHeapPeakMB": 19.96048355102539,
+        "jsHeapUsedAfterMB": 25.494693756103516
+      },
+      {
+        "run": 3,
+        "parseWallSec": 3.388,
+        "uploadToReadySec": 3.407806,
+        "throughputMBps": 157.921230638182,
+        "reaggAvgMs": 821,
+        "reaggWallMs": [
+          1094,
+          1207,
+          162
+        ],
+        "browserRssPeakMB": 1317.01953125,
+        "jsHeapPeakMB": 19.913944244384766,
+        "jsHeapUsedAfterMB": 25.088863372802734
+      },
+      {
+        "run": 4,
+        "parseWallSec": 3.406,
+        "uploadToReadySec": 3.4265899999999996,
+        "throughputMBps": 157.0866498538346,
+        "reaggAvgMs": 820,
+        "reaggWallMs": [
+          1101,
+          1201,
+          158
+        ],
+        "browserRssPeakMB": 1292.55859375,
+        "jsHeapPeakMB": 19.915557861328125,
+        "jsHeapUsedAfterMB": 25.092636108398438
+      },
+      {
+        "run": 5,
+        "parseWallSec": 3.443,
+        "uploadToReadySec": 3.463198,
+        "throughputMBps": 155.39852727335483,
+        "reaggAvgMs": 823.3333333333334,
+        "reaggWallMs": [
+          1098,
+          1216,
+          156
+        ],
+        "browserRssPeakMB": 1318.203125,
+        "jsHeapPeakMB": 19.933822631835938,
+        "jsHeapUsedAfterMB": 25.472721099853516
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T08:21:12.112Z",
+    "method": "browser-app",
+    "note": "perf-parallel-reagg",
+    "git": {
+      "commit": "51e1079",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 1,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 4.291,
+        "stddev": 0,
+        "min": 4.291,
+        "max": 4.291
+      },
+      "uploadToReadySec": {
+        "avg": 4.3127469000000005,
+        "stddev": 0,
+        "min": 4.3127469000000005,
+        "max": 4.3127469000000005
+      },
+      "throughputMBps": {
+        "avg": 124.68821472900504,
+        "stddev": 0,
+        "min": 124.68821472900504,
+        "max": 124.68821472900504
+      },
+      "browserRssPeakMB": {
+        "avg": 1554.3359375,
+        "stddev": 0,
+        "min": 1554.3359375,
+        "max": 1554.3359375
+      },
+      "jsHeapPeakMB": {
+        "avg": 20.390079498291016,
+        "stddev": 0,
+        "min": 20.390079498291016,
+        "max": 20.390079498291016
+      },
+      "reaggAvgMs": {
+        "avg": 1358.3333333333333,
+        "stddev": 0,
+        "min": 1358.3333333333333,
+        "max": 1358.3333333333333
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 4.291,
+        "uploadToReadySec": 4.3127469000000005,
+        "throughputMBps": 124.68821472900504,
+        "reaggAvgMs": 1358.3333333333333,
+        "reaggWallMs": [
+          1740,
+          2114,
+          221
+        ],
+        "browserRssPeakMB": 1554.3359375,
+        "jsHeapPeakMB": 20.390079498291016,
+        "jsHeapUsedAfterMB": 20.693710327148438
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T08:23:01.360Z",
+    "method": "browser-app",
+    "note": "perf-parallel-reagg-norm",
+    "git": {
+      "commit": "51e1079",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 1,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 3.907,
+        "stddev": 0,
+        "min": 3.907,
+        "max": 3.907
+      },
+      "uploadToReadySec": {
+        "avg": 3.9299331999999993,
+        "stddev": 0,
+        "min": 3.9299331999999993,
+        "max": 3.9299331999999993
+      },
+      "throughputMBps": {
+        "avg": 136.94321203024333,
+        "stddev": 0,
+        "min": 136.94321203024333,
+        "max": 136.94321203024333
+      },
+      "browserRssPeakMB": {
+        "avg": 1195.53125,
+        "stddev": 0,
+        "min": 1195.53125,
+        "max": 1195.53125
+      },
+      "jsHeapPeakMB": {
+        "avg": 15.337760925292969,
+        "stddev": 0,
+        "min": 15.337760925292969,
+        "max": 15.337760925292969
+      },
+      "reaggAvgMs": {
+        "avg": 954.3333333333334,
+        "stddev": 0,
+        "min": 954.3333333333334,
+        "max": 954.3333333333334
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 3.907,
+        "uploadToReadySec": 3.9299331999999993,
+        "throughputMBps": 136.94321203024333,
+        "reaggAvgMs": 954.3333333333334,
+        "reaggWallMs": [
+          1184,
+          1465,
+          214
+        ],
+        "browserRssPeakMB": 1195.53125,
+        "jsHeapPeakMB": 15.337760925292969,
+        "jsHeapUsedAfterMB": 19.977397918701172
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T08:24:44.325Z",
+    "method": "browser-app",
+    "note": "perf-parallel-reagg-sab",
+    "git": {
+      "commit": "51e1079",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 1,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 3.013,
+        "stddev": 0,
+        "min": 3.013,
+        "max": 3.013
+      },
+      "uploadToReadySec": {
+        "avg": 3.3216693,
+        "stddev": 0,
+        "min": 3.3216693,
+        "max": 3.3216693
+      },
+      "throughputMBps": {
+        "avg": 177.57621287824782,
+        "stddev": 0,
+        "min": 177.57621287824782,
+        "max": 177.57621287824782
+      },
+      "browserRssPeakMB": {
+        "avg": 1319.52734375,
+        "stddev": 0,
+        "min": 1319.52734375,
+        "max": 1319.52734375
+      },
+      "jsHeapPeakMB": {
+        "avg": 22.968257904052734,
+        "stddev": 0,
+        "min": 22.968257904052734,
+        "max": 22.968257904052734
+      },
+      "reaggAvgMs": {
+        "avg": 365,
+        "stddev": 0,
+        "min": 365,
+        "max": 365
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 3.013,
+        "uploadToReadySec": 3.3216693,
+        "throughputMBps": 177.57621287824782,
+        "reaggAvgMs": 365,
+        "reaggWallMs": [
+          477,
+          535,
+          83
+        ],
+        "browserRssPeakMB": 1319.52734375,
+        "jsHeapPeakMB": 22.968257904052734,
+        "jsHeapUsedAfterMB": 19.030506134033203
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T08:25:12.103Z",
+    "method": "browser-app",
+    "note": "perf-parallel-reagg-sab-x3",
+    "git": {
+      "commit": "51e1079",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 3,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 2.9883333333333333,
+        "stddev": 0.035122009560324824,
+        "min": 2.963,
+        "max": 3.038
+      },
+      "uploadToReadySec": {
+        "avg": 3.0990609,
+        "stddev": 0.16214642497822743,
+        "min": 2.9840996,
+        "max": 3.3283702999999996
+      },
+      "throughputMBps": {
+        "avg": 179.06651561414856,
+        "stddev": 2.0872408925363537,
+        "min": 176.1149208038712,
+        "max": 180.57277401355404
+      },
+      "browserRssPeakMB": {
+        "avg": 1324.7408854166667,
+        "stddev": 3.7089788325137047,
+        "min": 1319.77734375,
+        "max": 1328.69140625
+      },
+      "jsHeapPeakMB": {
+        "avg": 21.151448567708332,
+        "stddev": 0.7647283727822106,
+        "min": 20.504833221435547,
+        "max": 22.225509643554688
+      },
+      "reaggAvgMs": {
+        "avg": 360.6666666666667,
+        "stddev": 3.7810443393719,
+        "min": 357.6666666666667,
+        "max": 366
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 2.964,
+        "uploadToReadySec": 2.9847128,
+        "throughputMBps": 180.51185202502046,
+        "reaggAvgMs": 358.3333333333333,
+        "reaggWallMs": [
+          482,
+          515,
+          78
+        ],
+        "browserRssPeakMB": 1319.77734375,
+        "jsHeapPeakMB": 22.225509643554688,
+        "jsHeapUsedAfterMB": 16.815635681152344
+      },
+      {
+        "run": 2,
+        "parseWallSec": 2.963,
+        "uploadToReadySec": 2.9840996,
+        "throughputMBps": 180.57277401355404,
+        "reaggAvgMs": 366,
+        "reaggWallMs": [
+          480,
+          528,
+          90
+        ],
+        "browserRssPeakMB": 1325.75390625,
+        "jsHeapPeakMB": 20.724002838134766,
+        "jsHeapUsedAfterMB": 26.266674041748047
+      },
+      {
+        "run": 3,
+        "parseWallSec": 3.038,
+        "uploadToReadySec": 3.3283702999999996,
+        "throughputMBps": 176.1149208038712,
+        "reaggAvgMs": 357.6666666666667,
+        "reaggWallMs": [
+          477,
+          517,
+          79
+        ],
+        "browserRssPeakMB": 1328.69140625,
+        "jsHeapPeakMB": 20.504833221435547,
+        "jsHeapUsedAfterMB": 25.862655639648438
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T08:30:03.552Z",
+    "method": "browser-app",
+    "note": "my-run",
+    "git": {
+      "commit": "51e1079",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 2.7085999999999997,
+        "stddev": 0.01848891559827132,
+        "min": 2.685,
+        "max": 2.737
+      },
+      "uploadToReadySec": {
+        "avg": 2.72837776,
+        "stddev": 0.018217021043914056,
+        "min": 2.7034638999999996,
+        "max": 2.7562298000000003
+      },
+      "throughputMBps": {
+        "avg": 197.54190495484178,
+        "stddev": 1.3453851501303813,
+        "min": 195.48305787437363,
+        "max": 199.2689494980114
+      },
+      "browserRssPeakMB": {
+        "avg": 1325.575,
+        "stddev": 5.348892696266385,
+        "min": 1320.67578125,
+        "max": 1335.81640625
+      },
+      "jsHeapPeakMB": {
+        "avg": 19.26570281982422,
+        "stddev": 0.4383452011712965,
+        "min": 18.578197479248047,
+        "max": 19.753223419189453
+      },
+      "reaggAvgMs": {
+        "avg": 325.5333333333333,
+        "stddev": 6.137679619458094,
+        "min": 319.3333333333333,
+        "max": 336.6666666666667
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 2.699,
+        "uploadToReadySec": 2.7204979,
+        "throughputMBps": 198.235320267566,
+        "reaggAvgMs": 322,
+        "reaggWallMs": [
+          428,
+          462,
+          76
+        ],
+        "browserRssPeakMB": 1325.5078125,
+        "jsHeapPeakMB": 18.98577880859375,
+        "jsHeapUsedAfterMB": 23.987926483154297
+      },
+      {
+        "run": 2,
+        "parseWallSec": 2.685,
+        "uploadToReadySec": 2.7034638999999996,
+        "throughputMBps": 199.2689494980114,
+        "reaggAvgMs": 319.3333333333333,
+        "reaggWallMs": [
+          429,
+          458,
+          71
+        ],
+        "browserRssPeakMB": 1335.81640625,
+        "jsHeapPeakMB": 19.337017059326172,
+        "jsHeapUsedAfterMB": 24.50843048095703
+      },
+      {
+        "run": 3,
+        "parseWallSec": 2.737,
+        "uploadToReadySec": 2.7562298000000003,
+        "throughputMBps": 195.48305787437363,
+        "reaggAvgMs": 327.3333333333333,
+        "reaggWallMs": [
+          432,
+          477,
+          73
+        ],
+        "browserRssPeakMB": 1320.67578125,
+        "jsHeapPeakMB": 19.753223419189453,
+        "jsHeapUsedAfterMB": 24.932186126708984
+      },
+      {
+        "run": 4,
+        "parseWallSec": 2.722,
+        "uploadToReadySec": 2.7405584,
+        "throughputMBps": 196.5602973556799,
+        "reaggAvgMs": 336.6666666666667,
+        "reaggWallMs": [
+          455,
+          482,
+          73
+        ],
+        "browserRssPeakMB": 1323.2890625,
+        "jsHeapPeakMB": 18.578197479248047,
+        "jsHeapUsedAfterMB": 23.621929168701172
+      },
+      {
+        "run": 5,
+        "parseWallSec": 2.7,
+        "uploadToReadySec": 2.7211388,
+        "throughputMBps": 198.161899778578,
+        "reaggAvgMs": 322.3333333333333,
+        "reaggWallMs": [
+          428,
+          463,
+          76
+        ],
+        "browserRssPeakMB": 1322.5859375,
+        "jsHeapPeakMB": 19.674297332763672,
+        "jsHeapUsedAfterMB": 24.76861572265625
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T08:53:31.715Z",
+    "method": "browser-app",
+    "note": "js-baseline-stages",
+    "git": {
+      "commit": "0ff459f",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 1,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 3.715,
+        "stddev": 0,
+        "min": 3.715,
+        "max": 3.715
+      },
+      "uploadToReadySec": {
+        "avg": 3.7405447999999994,
+        "stddev": 0,
+        "min": 3.7405447999999994,
+        "max": 3.7405447999999994
+      },
+      "throughputMBps": {
+        "avg": 144.02076161565563,
+        "stddev": 0,
+        "min": 144.02076161565563,
+        "max": 144.02076161565563
+      },
+      "browserRssPeakMB": {
+        "avg": 1321.21484375,
+        "stddev": 0,
+        "min": 1321.21484375,
+        "max": 1321.21484375
+      },
+      "jsHeapPeakMB": {
+        "avg": 20.953876495361328,
+        "stddev": 0,
+        "min": 20.953876495361328,
+        "max": 20.953876495361328
+      },
+      "reaggAvgMs": {
+        "avg": 381,
+        "stddev": 0,
+        "min": 381,
+        "max": 381
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 3.715,
+        "uploadToReadySec": 3.7405447999999994,
+        "throughputMBps": 144.02076161565563,
+        "reaggAvgMs": 381,
+        "reaggWallMs": [
+          477,
+          585,
+          81
+        ],
+        "browserRssPeakMB": 1321.21484375,
+        "jsHeapPeakMB": 20.953876495361328,
+        "jsHeapUsedAfterMB": 27.590118408203125
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:03:04.536Z",
+    "method": "browser-app",
+    "note": "rust-wasm-smoke",
+    "git": {
+      "commit": "0ff459f",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 1,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 3.606,
+        "stddev": 0,
+        "min": 3.606,
+        "max": 3.606
+      },
+      "uploadToReadySec": {
+        "avg": 3.6286052000000004,
+        "stddev": 0,
+        "min": 3.6286052000000004,
+        "max": 3.6286052000000004
+      },
+      "throughputMBps": {
+        "avg": 148.37413460958422,
+        "stddev": 0,
+        "min": 148.37413460958422,
+        "max": 148.37413460958422
+      },
+      "browserRssPeakMB": {
+        "avg": 1660.43359375,
+        "stddev": 0,
+        "min": 1660.43359375,
+        "max": 1660.43359375
+      },
+      "jsHeapPeakMB": {
+        "avg": 19.089813232421875,
+        "stddev": 0,
+        "min": 19.089813232421875,
+        "max": 19.089813232421875
+      },
+      "reaggAvgMs": {
+        "avg": 132.66666666666666,
+        "stddev": 0,
+        "min": 132.66666666666666,
+        "max": 132.66666666666666
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 3.606,
+        "uploadToReadySec": 3.6286052000000004,
+        "throughputMBps": 148.37413460958422,
+        "reaggAvgMs": 132.66666666666666,
+        "reaggWallMs": [
+          163,
+          187,
+          48
+        ],
+        "browserRssPeakMB": 1660.43359375,
+        "jsHeapPeakMB": 19.089813232421875,
+        "jsHeapUsedAfterMB": 24.990509033203125
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:03:54.977Z",
+    "method": "browser-app",
+    "note": "rust-wasm-gate",
+    "git": {
+      "commit": "0ff459f",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 3.5629999999999997,
+        "stddev": 0.11627037455861236,
+        "min": 3.367,
+        "max": 3.709
+      },
+      "uploadToReadySec": {
+        "avg": 3.58595196,
+        "stddev": 0.11630850111916316,
+        "min": 3.3908994000000003,
+        "max": 3.7317103
+      },
+      "throughputMBps": {
+        "avg": 150.32760990275665,
+        "stddev": 4.992110669661299,
+        "min": 144.2537420873984,
+        "max": 158.90618633862806
+      },
+      "browserRssPeakMB": {
+        "avg": 1661.696875,
+        "stddev": 0.7360378448044469,
+        "min": 1660.2734375,
+        "max": 1662.3515625
+      },
+      "jsHeapPeakMB": {
+        "avg": 20.087669372558594,
+        "stddev": 0.4299224834330712,
+        "min": 19.50466537475586,
+        "max": 20.814876556396484
+      },
+      "reaggAvgMs": {
+        "avg": 131.66666666666669,
+        "stddev": 2.6076809620810613,
+        "min": 128.33333333333334,
+        "max": 136.33333333333334
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 3.709,
+        "uploadToReadySec": 3.7317103,
+        "throughputMBps": 144.2537420873984,
+        "reaggAvgMs": 136.33333333333334,
+        "reaggWallMs": [
+          174,
+          189,
+          46
+        ],
+        "browserRssPeakMB": 1661.98828125,
+        "jsHeapPeakMB": 20.20532989501953,
+        "jsHeapUsedAfterMB": 26.470638275146484
+      },
+      {
+        "run": 2,
+        "parseWallSec": 3.549,
+        "uploadToReadySec": 3.5702478,
+        "throughputMBps": 150.75715114177532,
+        "reaggAvgMs": 131.33333333333334,
+        "reaggWallMs": [
+          172,
+          179,
+          43
+        ],
+        "browserRssPeakMB": 1661.76953125,
+        "jsHeapPeakMB": 20.01720428466797,
+        "jsHeapUsedAfterMB": 25.917282104492188
+      },
+      {
+        "run": 3,
+        "parseWallSec": 3.367,
+        "uploadToReadySec": 3.3908994000000003,
+        "throughputMBps": 158.90618633862806,
+        "reaggAvgMs": 131.66666666666666,
+        "reaggWallMs": [
+          168,
+          183,
+          44
+        ],
+        "browserRssPeakMB": 1662.1015625,
+        "jsHeapPeakMB": 20.814876556396484,
+        "jsHeapUsedAfterMB": 26.71660614013672
+      },
+      {
+        "run": 4,
+        "parseWallSec": 3.648,
+        "uploadToReadySec": 3.6731701,
+        "throughputMBps": 146.66587977032913,
+        "reaggAvgMs": 128.33333333333334,
+        "reaggWallMs": [
+          167,
+          174,
+          44
+        ],
+        "browserRssPeakMB": 1660.2734375,
+        "jsHeapPeakMB": 19.896270751953125,
+        "jsHeapUsedAfterMB": 25.798423767089844
+      },
+      {
+        "run": 5,
+        "parseWallSec": 3.542,
+        "uploadToReadySec": 3.5637322,
+        "throughputMBps": 151.05509017565237,
+        "reaggAvgMs": 130.66666666666666,
+        "reaggWallMs": [
+          163,
+          185,
+          44
+        ],
+        "browserRssPeakMB": 1662.3515625,
+        "jsHeapPeakMB": 19.50466537475586,
+        "jsHeapUsedAfterMB": 25.407108306884766
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:04:28.347Z",
+    "method": "browser-app",
+    "note": "js-restored-after-rust-gate",
+    "git": {
+      "commit": "0ff459f",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 1,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 3.091,
+        "stddev": 0,
+        "min": 3.091,
+        "max": 3.091
+      },
+      "uploadToReadySec": {
+        "avg": 3.3434781999999994,
+        "stddev": 0,
+        "min": 3.3434781999999994,
+        "max": 3.3434781999999994
+      },
+      "throughputMBps": {
+        "avg": 173.09515671373686,
+        "stddev": 0,
+        "min": 173.09515671373686,
+        "max": 173.09515671373686
+      },
+      "browserRssPeakMB": {
+        "avg": 1322.09765625,
+        "stddev": 0,
+        "min": 1322.09765625,
+        "max": 1322.09765625
+      },
+      "jsHeapPeakMB": {
+        "avg": 20.442302703857422,
+        "stddev": 0,
+        "min": 20.442302703857422,
+        "max": 20.442302703857422
+      },
+      "reaggAvgMs": {
+        "avg": 359.3333333333333,
+        "stddev": 0,
+        "min": 359.3333333333333,
+        "max": 359.3333333333333
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 3.091,
+        "uploadToReadySec": 3.3434781999999994,
+        "throughputMBps": 173.09515671373686,
+        "reaggAvgMs": 359.3333333333333,
+        "reaggWallMs": [
+          475,
+          523,
+          80
+        ],
+        "browserRssPeakMB": 1322.09765625,
+        "jsHeapPeakMB": 20.442302703857422,
+        "jsHeapUsedAfterMB": 25.83687973022461
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:11:13.024Z",
+    "method": "browser-app",
+    "note": "wasm-chunked-smoke",
+    "git": {
+      "commit": "0ff459f",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 1,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 1.492,
+        "stddev": 0,
+        "min": 1.492,
+        "max": 1.492
+      },
+      "uploadToReadySec": {
+        "avg": 1.5145886,
+        "stddev": 0,
+        "min": 1.5145886,
+        "max": 1.5145886
+      },
+      "throughputMBps": {
+        "avg": 358.6039741301345,
+        "stddev": 0,
+        "min": 358.6039741301345,
+        "max": 358.6039741301345
+      },
+      "browserRssPeakMB": {
+        "avg": 1154.6015625,
+        "stddev": 0,
+        "min": 1154.6015625,
+        "max": 1154.6015625
+      },
+      "jsHeapPeakMB": {
+        "avg": 21.39676284790039,
+        "stddev": 0,
+        "min": 21.39676284790039,
+        "max": 21.39676284790039
+      },
+      "reaggAvgMs": {
+        "avg": 134,
+        "stddev": 0,
+        "min": 134,
+        "max": 134
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 1.492,
+        "uploadToReadySec": 1.5145886,
+        "throughputMBps": 358.6039741301345,
+        "reaggAvgMs": 134,
+        "reaggWallMs": [
+          164,
+          187,
+          51
+        ],
+        "browserRssPeakMB": 1154.6015625,
+        "jsHeapPeakMB": 21.39676284790039,
+        "jsHeapUsedAfterMB": 17.07520294189453
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:12:52.928Z",
+    "method": "browser-app",
+    "note": "wasm-dense-reagg",
+    "git": {
+      "commit": "0ff459f",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 1.4026,
+        "stddev": 0.02393825390457704,
+        "min": 1.364,
+        "max": 1.432
+      },
+      "uploadToReadySec": {
+        "avg": 1.42490492,
+        "stddev": 0.023395126852778465,
+        "min": 1.3865832,
+        "max": 1.4530873999999998
+      },
+      "throughputMBps": {
+        "avg": 381.57280464255564,
+        "stddev": 6.5545554130720785,
+        "min": 373.6292803087714,
+        "max": 392.2559599722585
+      },
+      "browserRssPeakMB": {
+        "avg": 1155.00546875,
+        "stddev": 0.6102237678712621,
+        "min": 1154.12890625,
+        "max": 1156.0390625
+      },
+      "jsHeapPeakMB": {
+        "avg": 20.855052185058593,
+        "stddev": 0.15026736296561577,
+        "min": 20.55677032470703,
+        "max": 20.9622802734375
+      },
+      "reaggAvgMs": {
+        "avg": 127.26666666666665,
+        "stddev": 2.2050447211388313,
+        "min": 124.33333333333333,
+        "max": 130
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 1.393,
+        "uploadToReadySec": 1.4164046000000003,
+        "throughputMBps": 384.08982728080446,
+        "reaggAvgMs": 130,
+        "reaggWallMs": [
+          161,
+          185,
+          44
+        ],
+        "browserRssPeakMB": 1154.9296875,
+        "jsHeapPeakMB": 20.93191146850586,
+        "jsHeapUsedAfterMB": 26.833282470703125
+      },
+      {
+        "run": 2,
+        "parseWallSec": 1.401,
+        "uploadToReadySec": 1.4235503999999997,
+        "throughputMBps": 381.8965948623559,
+        "reaggAvgMs": 124.33333333333333,
+        "reaggWallMs": [
+          162,
+          167,
+          44
+        ],
+        "browserRssPeakMB": 1154.12890625,
+        "jsHeapPeakMB": 20.913551330566406,
+        "jsHeapUsedAfterMB": 26.450702667236328
+      },
+      {
+        "run": 3,
+        "parseWallSec": 1.423,
+        "uploadToReadySec": 1.444899,
+        "throughputMBps": 375.9923607885879,
+        "reaggAvgMs": 128.33333333333334,
+        "reaggWallMs": [
+          165,
+          178,
+          42
+        ],
+        "browserRssPeakMB": 1154.875,
+        "jsHeapPeakMB": 20.910747528076172,
+        "jsHeapUsedAfterMB": 26.448631286621094
+      },
+      {
+        "run": 4,
+        "parseWallSec": 1.364,
+        "uploadToReadySec": 1.3865832,
+        "throughputMBps": 392.2559599722585,
+        "reaggAvgMs": 125,
+        "reaggWallMs": [
+          159,
+          173,
+          43
+        ],
+        "browserRssPeakMB": 1156.0390625,
+        "jsHeapPeakMB": 20.9622802734375,
+        "jsHeapUsedAfterMB": 26.499107360839844
+      },
+      {
+        "run": 5,
+        "parseWallSec": 1.432,
+        "uploadToReadySec": 1.4530873999999998,
+        "throughputMBps": 373.6292803087714,
+        "reaggAvgMs": 128.66666666666666,
+        "reaggWallMs": [
+          168,
+          174,
+          44
+        ],
+        "browserRssPeakMB": 1155.0546875,
+        "jsHeapPeakMB": 20.55677032470703,
+        "jsHeapUsedAfterMB": 26.09444808959961
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:14:10.124Z",
+    "method": "browser-app",
+    "note": "wasm-ship-gate",
+    "git": {
+      "commit": "0ff459f",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 1.3742,
+        "stddev": 0.01648514482799591,
+        "min": 1.349,
+        "max": 1.401
+      },
+      "uploadToReadySec": {
+        "avg": 1.3958359800000002,
+        "stddev": 0.016423262172589118,
+        "min": 1.3704695000000002,
+        "max": 1.4221489999999999
+      },
+      "throughputMBps": {
+        "avg": 389.40039276605023,
+        "stddev": 4.664713356441705,
+        "min": 381.8965948623559,
+        "max": 396.6175903648337
+      },
+      "browserRssPeakMB": {
+        "avg": 1158.8625,
+        "stddev": 3.034662423629789,
+        "min": 1153.9140625,
+        "max": 1163.28515625
+      },
+      "jsHeapPeakMB": {
+        "avg": 19.511387634277344,
+        "stddev": 0.6331793874511208,
+        "min": 18.883853912353516,
+        "max": 20.627735137939453
+      },
+      "reaggAvgMs": {
+        "avg": 107.73333333333332,
+        "stddev": 6.26240990176927,
+        "min": 103.33333333333333,
+        "max": 120
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 1.372,
+        "uploadToReadySec": 1.3928321000000001,
+        "throughputMBps": 389.96875320857185,
+        "reaggAvgMs": 120,
+        "reaggWallMs": [
+          183,
+          139,
+          38
+        ],
+        "browserRssPeakMB": 1158.35546875,
+        "jsHeapPeakMB": 20.627735137939453,
+        "jsHeapUsedAfterMB": 26.163761138916016
+      },
+      {
+        "run": 2,
+        "parseWallSec": 1.349,
+        "uploadToReadySec": 1.3704695000000002,
+        "throughputMBps": 396.6175903648337,
+        "reaggAvgMs": 106.66666666666667,
+        "reaggWallMs": [
+          138,
+          143,
+          39
+        ],
+        "browserRssPeakMB": 1158.6015625,
+        "jsHeapPeakMB": 19.576828002929688,
+        "jsHeapUsedAfterMB": 25.113971710205078
+      },
+      {
+        "run": 3,
+        "parseWallSec": 1.401,
+        "uploadToReadySec": 1.4221489999999999,
+        "throughputMBps": 381.8965948623559,
+        "reaggAvgMs": 105.33333333333333,
+        "reaggWallMs": [
+          132,
+          143,
+          41
+        ],
+        "browserRssPeakMB": 1163.28515625,
+        "jsHeapPeakMB": 19.55571746826172,
+        "jsHeapUsedAfterMB": 25.46062469482422
+      },
+      {
+        "run": 4,
+        "parseWallSec": 1.374,
+        "uploadToReadySec": 1.3959578000000001,
+        "throughputMBps": 389.40111310200916,
+        "reaggAvgMs": 103.33333333333333,
+        "reaggWallMs": [
+          133,
+          135,
+          42
+        ],
+        "browserRssPeakMB": 1153.9140625,
+        "jsHeapPeakMB": 18.912803649902344,
+        "jsHeapUsedAfterMB": 24.818992614746094
+      },
+      {
+        "run": 5,
+        "parseWallSec": 1.375,
+        "uploadToReadySec": 1.3977715000000004,
+        "throughputMBps": 389.11791229248047,
+        "reaggAvgMs": 103.33333333333333,
+        "reaggWallMs": [
+          136,
+          136,
+          38
+        ],
+        "browserRssPeakMB": 1160.15625,
+        "jsHeapPeakMB": 18.883853912353516,
+        "jsHeapUsedAfterMB": 24.425880432128906
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:25:48.247Z",
+    "method": "browser-app",
+    "note": "rust-opt-pass",
+    "git": {
+      "commit": "7d95a46",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 1.5496,
+        "stddev": 0.05659893991940134,
+        "min": 1.49,
+        "max": 1.626
+      },
+      "uploadToReadySec": {
+        "avg": 1.7705023199999999,
+        "stddev": 0.12930137056033697,
+        "min": 1.5122194000000002,
+        "max": 1.8454488999999998
+      },
+      "throughputMBps": {
+        "avg": 345.7294190260039,
+        "stddev": 12.460198177853638,
+        "min": 329.05112509357974,
+        "max": 359.0853217464165
+      },
+      "browserRssPeakMB": {
+        "avg": 1138.065625,
+        "stddev": 2.1912738095005664,
+        "min": 1133.7734375,
+        "max": 1139.59765625
+      },
+      "jsHeapPeakMB": {
+        "avg": 20.784181213378908,
+        "stddev": 0.7574808575713324,
+        "min": 19.41054916381836,
+        "max": 21.53917694091797
+      },
+      "reaggAvgMs": {
+        "avg": 105.73333333333335,
+        "stddev": 1.569146972791978,
+        "min": 104,
+        "max": 108.66666666666667
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 1.626,
+        "uploadToReadySec": 1.8454488999999998,
+        "throughputMBps": 329.05112509357974,
+        "reaggAvgMs": 104,
+        "reaggWallMs": [
+          131,
+          141,
+          40
+        ],
+        "browserRssPeakMB": 1138.33984375,
+        "jsHeapPeakMB": 21.189430236816406,
+        "jsHeapUsedAfterMB": 16.16439437866211
+      },
+      {
+        "run": 2,
+        "parseWallSec": 1.49,
+        "uploadToReadySec": 1.5122194000000002,
+        "throughputMBps": 359.0853217464165,
+        "reaggAvgMs": 105.66666666666667,
+        "reaggWallMs": [
+          138,
+          138,
+          41
+        ],
+        "browserRssPeakMB": 1139.5,
+        "jsHeapPeakMB": 20.555458068847656,
+        "jsHeapUsedAfterMB": 26.457801818847656
+      },
+      {
+        "run": 3,
+        "parseWallSec": 1.61,
+        "uploadToReadySec": 1.8292971999999998,
+        "throughputMBps": 332.3211983864352,
+        "reaggAvgMs": 108.66666666666667,
+        "reaggWallMs": [
+          142,
+          144,
+          40
+        ],
+        "browserRssPeakMB": 1133.7734375,
+        "jsHeapPeakMB": 21.53917694091797,
+        "jsHeapUsedAfterMB": 16.54131317138672
+      },
+      {
+        "run": 4,
+        "parseWallSec": 1.511,
+        "uploadToReadySec": 1.8380190000000003,
+        "throughputMBps": 354.094724951794,
+        "reaggAvgMs": 105.33333333333333,
+        "reaggWallMs": [
+          136,
+          139,
+          41
+        ],
+        "browserRssPeakMB": 1139.59765625,
+        "jsHeapPeakMB": 21.22629165649414,
+        "jsHeapUsedAfterMB": 16.18755340576172
+      },
+      {
+        "run": 5,
+        "parseWallSec": 1.511,
+        "uploadToReadySec": 1.8275270999999997,
+        "throughputMBps": 354.094724951794,
+        "reaggAvgMs": 105,
+        "reaggWallMs": [
+          139,
+          139,
+          37
+        ],
+        "browserRssPeakMB": 1139.1171875,
+        "jsHeapPeakMB": 19.41054916381836,
+        "jsHeapUsedAfterMB": 24.28671646118164
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:26:38.864Z",
+    "method": "browser-app",
+    "note": "rust-opt-pass-v2",
+    "git": {
+      "commit": "7d95a46",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 1.5253999999999999,
+        "stddev": 0.023516802503741857,
+        "min": 1.494,
+        "max": 1.567
+      },
+      "uploadToReadySec": {
+        "avg": 1.7834004,
+        "stddev": 0.133944768539977,
+        "min": 1.5171820999999999,
+        "max": 1.8774796
+      },
+      "throughputMBps": {
+        "avg": 350.83462928254073,
+        "stddev": 5.359243818897833,
+        "min": 341.4404144238422,
+        "max": 358.1239152624904
+      },
+      "browserRssPeakMB": {
+        "avg": 1135.64921875,
+        "stddev": 1.4585968883870897,
+        "min": 1133.41015625,
+        "max": 1137.80859375
+      },
+      "jsHeapPeakMB": {
+        "avg": 21.141368865966797,
+        "stddev": 0.39346669416711966,
+        "min": 20.51700210571289,
+        "max": 21.549549102783203
+      },
+      "reaggAvgMs": {
+        "avg": 106.13333333333335,
+        "stddev": 1.3097921802925665,
+        "min": 104,
+        "max": 107.66666666666667
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 1.525,
+        "uploadToReadySec": 1.8472849,
+        "throughputMBps": 350.8440192801054,
+        "reaggAvgMs": 107.66666666666667,
+        "reaggWallMs": [
+          128,
+          154,
+          41
+        ],
+        "browserRssPeakMB": 1135.11328125,
+        "jsHeapPeakMB": 20.898357391357422,
+        "jsHeapUsedAfterMB": 16.556133270263672
+      },
+      {
+        "run": 2,
+        "parseWallSec": 1.52,
+        "uploadToReadySec": 1.8421194,
+        "throughputMBps": 351.99811144878987,
+        "reaggAvgMs": 106,
+        "reaggWallMs": [
+          137,
+          141,
+          40
+        ],
+        "browserRssPeakMB": 1136.44921875,
+        "jsHeapPeakMB": 21.207950592041016,
+        "jsHeapUsedAfterMB": 16.170860290527344
+      },
+      {
+        "run": 3,
+        "parseWallSec": 1.521,
+        "uploadToReadySec": 1.8329359999999997,
+        "throughputMBps": 351.7666859974758,
+        "reaggAvgMs": 105.66666666666667,
+        "reaggWallMs": [
+          132,
+          147,
+          38
+        ],
+        "browserRssPeakMB": 1135.46484375,
+        "jsHeapPeakMB": 21.549549102783203,
+        "jsHeapUsedAfterMB": 16.537216186523438
+      },
+      {
+        "run": 4,
+        "parseWallSec": 1.567,
+        "uploadToReadySec": 1.8774796,
+        "throughputMBps": 341.4404144238422,
+        "reaggAvgMs": 104,
+        "reaggWallMs": [
+          131,
+          140,
+          41
+        ],
+        "browserRssPeakMB": 1133.41015625,
+        "jsHeapPeakMB": 21.533985137939453,
+        "jsHeapUsedAfterMB": 16.92837905883789
+      },
+      {
+        "run": 5,
+        "parseWallSec": 1.494,
+        "uploadToReadySec": 1.5171820999999999,
+        "throughputMBps": 358.1239152624904,
+        "reaggAvgMs": 107.33333333333333,
+        "reaggWallMs": [
+          143,
+          140,
+          39
+        ],
+        "browserRssPeakMB": 1137.80859375,
+        "jsHeapPeakMB": 20.51700210571289,
+        "jsHeapUsedAfterMB": 26.418621063232422
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:27:33.824Z",
+    "method": "browser-app",
+    "note": "rust-opt-pass-v3",
+    "git": {
+      "commit": "7d95a46",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 1.4969999999999999,
+        "stddev": 0.0139283882771841,
+        "min": 1.484,
+        "max": 1.522
+      },
+      "uploadToReadySec": {
+        "avg": 1.640372,
+        "stddev": 0.15843230230236507,
+        "min": 1.5059106999999998,
+        "max": 1.8369094
+      },
+      "throughputMBps": {
+        "avg": 357.43692895036855,
+        "stddev": 3.299334219021703,
+        "min": 351.5355646531936,
+        "max": 360.5371491928306
+      },
+      "browserRssPeakMB": {
+        "avg": 1155.76484375,
+        "stddev": 2.151504061479434,
+        "min": 1152.9140625,
+        "max": 1159.03125
+      },
+      "jsHeapPeakMB": {
+        "avg": 20.936459350585938,
+        "stddev": 0.6457971888988031,
+        "min": 20.17572021484375,
+        "max": 21.695903778076172
+      },
+      "reaggAvgMs": {
+        "avg": 108.33333333333333,
+        "stddev": 2.10818510677892,
+        "min": 105.66666666666667,
+        "max": 111.66666666666667
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 1.485,
+        "uploadToReadySec": 1.5102534000000003,
+        "throughputMBps": 360.2943632337782,
+        "reaggAvgMs": 107.66666666666667,
+        "reaggWallMs": [
+          137,
+          147,
+          39
+        ],
+        "browserRssPeakMB": 1155.4765625,
+        "jsHeapPeakMB": 20.186141967773438,
+        "jsHeapUsedAfterMB": 26.088150024414062
+      },
+      {
+        "run": 2,
+        "parseWallSec": 1.522,
+        "uploadToReadySec": 1.8317963,
+        "throughputMBps": 351.5355646531936,
+        "reaggAvgMs": 111.66666666666667,
+        "reaggWallMs": [
+          132,
+          157,
+          46
+        ],
+        "browserRssPeakMB": 1157.16015625,
+        "jsHeapPeakMB": 21.106895446777344,
+        "jsHeapUsedAfterMB": 16.602920532226562
+      },
+      {
+        "run": 3,
+        "parseWallSec": 1.493,
+        "uploadToReadySec": 1.5169901999999997,
+        "throughputMBps": 358.3637839264304,
+        "reaggAvgMs": 109.66666666666667,
+        "reaggWallMs": [
+          148,
+          142,
+          39
+        ],
+        "browserRssPeakMB": 1154.2421875,
+        "jsHeapPeakMB": 21.695903778076172,
+        "jsHeapUsedAfterMB": 16.334983825683594
+      },
+      {
+        "run": 4,
+        "parseWallSec": 1.484,
+        "uploadToReadySec": 1.5059106999999998,
+        "throughputMBps": 360.5371491928306,
+        "reaggAvgMs": 107,
+        "reaggWallMs": [
+          138,
+          143,
+          40
+        ],
+        "browserRssPeakMB": 1159.03125,
+        "jsHeapPeakMB": 20.17572021484375,
+        "jsHeapUsedAfterMB": 26.445205688476562
+      },
+      {
+        "run": 5,
+        "parseWallSec": 1.501,
+        "uploadToReadySec": 1.8369094,
+        "throughputMBps": 356.45378374561005,
+        "reaggAvgMs": 105.66666666666667,
+        "reaggWallMs": [
+          135,
+          143,
+          39
+        ],
+        "browserRssPeakMB": 1152.9140625,
+        "jsHeapPeakMB": 21.517635345458984,
+        "jsHeapUsedAfterMB": 16.563526153564453
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:28:36.131Z",
+    "method": "browser-app",
+    "note": "rust-opt-memchr-wasmopt",
+    "git": {
+      "commit": "7d95a46",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 1.4674,
+        "stddev": 0.022041778512633725,
+        "min": 1.44,
+        "max": 1.493
+      },
+      "uploadToReadySec": {
+        "avg": 1.4905762799999998,
+        "stddev": 0.022304295697053434,
+        "min": 1.4622779000000001,
+        "max": 1.5159605999999999
+      },
+      "throughputMBps": {
+        "avg": 364.69826911124835,
+        "stddev": 5.494737844826526,
+        "min": 358.3637839264304,
+        "max": 371.5535620848338
+      },
+      "browserRssPeakMB": {
+        "avg": 1157.13203125,
+        "stddev": 1.058380109899676,
+        "min": 1155.625,
+        "max": 1158.6953125
+      },
+      "jsHeapPeakMB": {
+        "avg": 20.445804595947266,
+        "stddev": 0.4100554466978494,
+        "min": 19.66869354248047,
+        "max": 20.8792724609375
+      },
+      "reaggAvgMs": {
+        "avg": 105.8,
+        "stddev": 2.621280433511668,
+        "min": 101,
+        "max": 108.66666666666667
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 1.443,
+        "uploadToReadySec": 1.466643,
+        "throughputMBps": 370.78110145679875,
+        "reaggAvgMs": 107,
+        "reaggWallMs": [
+          144,
+          141,
+          36
+        ],
+        "browserRssPeakMB": 1156.609375,
+        "jsHeapPeakMB": 20.63373565673828,
+        "jsHeapUsedAfterMB": 26.536571502685547
+      },
+      {
+        "run": 2,
+        "parseWallSec": 1.474,
+        "uploadToReadySec": 1.4966157000000002,
+        "throughputMBps": 362.9831271385079,
+        "reaggAvgMs": 107,
+        "reaggWallMs": [
+          139,
+          145,
+          37
+        ],
+        "browserRssPeakMB": 1158.6953125,
+        "jsHeapPeakMB": 20.49636459350586,
+        "jsHeapUsedAfterMB": 26.410480499267578
+      },
+      {
+        "run": 3,
+        "parseWallSec": 1.487,
+        "uploadToReadySec": 1.5113841999999997,
+        "throughputMBps": 359.8097709496709,
+        "reaggAvgMs": 101,
+        "reaggWallMs": [
+          135,
+          130,
+          38
+        ],
+        "browserRssPeakMB": 1156.86328125,
+        "jsHeapPeakMB": 19.66869354248047,
+        "jsHeapUsedAfterMB": 25.57105255126953
+      },
+      {
+        "run": 4,
+        "parseWallSec": 1.44,
+        "uploadToReadySec": 1.4622779000000001,
+        "throughputMBps": 371.5535620848338,
+        "reaggAvgMs": 108.66666666666667,
+        "reaggWallMs": [
+          141,
+          146,
+          39
+        ],
+        "browserRssPeakMB": 1157.8671875,
+        "jsHeapPeakMB": 20.8792724609375,
+        "jsHeapUsedAfterMB": 26.78238296508789
+      },
+      {
+        "run": 5,
+        "parseWallSec": 1.493,
+        "uploadToReadySec": 1.5159605999999999,
+        "throughputMBps": 358.3637839264304,
+        "reaggAvgMs": 105.33333333333333,
+        "reaggWallMs": [
+          135,
+          143,
+          38
+        ],
+        "browserRssPeakMB": 1155.625,
+        "jsHeapPeakMB": 20.55095672607422,
+        "jsHeapUsedAfterMB": 26.45482635498047
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:29:17.955Z",
+    "method": "browser-app",
+    "note": "memchr-no-wasmopt",
+    "git": {
+      "commit": "7d95a46",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 1.4760000000000002,
+        "stddev": 0.010770329614269035,
+        "min": 1.463,
+        "max": 1.493
+      },
+      "uploadToReadySec": {
+        "avg": 1.4991330400000002,
+        "stddev": 0.009942501909398849,
+        "min": 1.4870942,
+        "max": 1.5152087
+      },
+      "throughputMBps": {
+        "avg": 362.51052620357683,
+        "stddev": 2.637591337327717,
+        "min": 358.3637839264304,
+        "max": 365.7123235831583
+      },
+      "browserRssPeakMB": {
+        "avg": 1158.44375,
+        "stddev": 1.534894021814902,
+        "min": 1156.125,
+        "max": 1160.1640625
+      },
+      "jsHeapPeakMB": {
+        "avg": 20.29487762451172,
+        "stddev": 0.7113840311096484,
+        "min": 19.255088806152344,
+        "max": 21.320022583007812
+      },
+      "reaggAvgMs": {
+        "avg": 110,
+        "stddev": 6.366579406033771,
+        "min": 104.33333333333333,
+        "max": 122.33333333333333
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 1.483,
+        "uploadToReadySec": 1.504726,
+        "throughputMBps": 360.78026257731665,
+        "reaggAvgMs": 107,
+        "reaggWallMs": [
+          141,
+          141,
+          39
+        ],
+        "browserRssPeakMB": 1158.55859375,
+        "jsHeapPeakMB": 19.255088806152344,
+        "jsHeapUsedAfterMB": 25.170948028564453
+      },
+      {
+        "run": 2,
+        "parseWallSec": 1.463,
+        "uploadToReadySec": 1.4870942,
+        "throughputMBps": 365.7123235831583,
+        "reaggAvgMs": 109.33333333333333,
+        "reaggWallMs": [
+          140,
+          146,
+          42
+        ],
+        "browserRssPeakMB": 1157.3984375,
+        "jsHeapPeakMB": 20.574642181396484,
+        "jsHeapUsedAfterMB": 26.4771728515625
+      },
+      {
+        "run": 3,
+        "parseWallSec": 1.473,
+        "uploadToReadySec": 1.4968928999999997,
+        "throughputMBps": 363.22955152896174,
+        "reaggAvgMs": 122.33333333333333,
+        "reaggWallMs": [
+          133,
+          195,
+          39
+        ],
+        "browserRssPeakMB": 1160.1640625,
+        "jsHeapPeakMB": 21.320022583007812,
+        "jsHeapUsedAfterMB": 27.221202850341797
+      },
+      {
+        "run": 4,
+        "parseWallSec": 1.468,
+        "uploadToReadySec": 1.4917434000000003,
+        "throughputMBps": 364.4667094020168,
+        "reaggAvgMs": 107,
+        "reaggWallMs": [
+          142,
+          137,
+          42
+        ],
+        "browserRssPeakMB": 1159.97265625,
+        "jsHeapPeakMB": 20.539703369140625,
+        "jsHeapUsedAfterMB": 26.123703002929688
+      },
+      {
+        "run": 5,
+        "parseWallSec": 1.493,
+        "uploadToReadySec": 1.5152087,
+        "throughputMBps": 358.3637839264304,
+        "reaggAvgMs": 104.33333333333333,
+        "reaggWallMs": [
+          138,
+          136,
+          39
+        ],
+        "browserRssPeakMB": 1156.125,
+        "jsHeapPeakMB": 19.784931182861328,
+        "jsHeapUsedAfterMB": 26.054000854492188
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:30:04.197Z",
+    "method": "browser-app",
+    "note": "ship-store-no-wasmopt",
+    "git": {
+      "commit": "7d95a46",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 1.4722,
+        "stddev": 0.025126878039263067,
+        "min": 1.43,
+        "max": 1.498
+      },
+      "uploadToReadySec": {
+        "avg": 1.49601198,
+        "stddev": 0.02426336097735838,
+        "min": 1.4549175,
+        "max": 1.5207947
+      },
+      "throughputMBps": {
+        "avg": 363.53398658888693,
+        "stddev": 6.272905899169202,
+        "min": 357.1676431256079,
+        "max": 374.1518387427697
+      },
+      "browserRssPeakMB": {
+        "avg": 1155.30625,
+        "stddev": 1.2594699871126347,
+        "min": 1153.34765625,
+        "max": 1156.86328125
+      },
+      "jsHeapPeakMB": {
+        "avg": 20.774477386474608,
+        "stddev": 0.5054150956723349,
+        "min": 20.164051055908203,
+        "max": 21.66394805908203
+      },
+      "reaggAvgMs": {
+        "avg": 108.6,
+        "stddev": 2.9544693074880457,
+        "min": 105.33333333333333,
+        "max": 114
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 1.48,
+        "uploadToReadySec": 1.5035838999999998,
+        "throughputMBps": 361.5115739203788,
+        "reaggAvgMs": 108.33333333333333,
+        "reaggWallMs": [
+          145,
+          140,
+          40
+        ],
+        "browserRssPeakMB": 1156.86328125,
+        "jsHeapPeakMB": 21.66394805908203,
+        "jsHeapUsedAfterMB": 16.300052642822266
+      },
+      {
+        "run": 2,
+        "parseWallSec": 1.494,
+        "uploadToReadySec": 1.5168907999999999,
+        "throughputMBps": 358.1239152624904,
+        "reaggAvgMs": 114,
+        "reaggWallMs": [
+          148,
+          154,
+          40
+        ],
+        "browserRssPeakMB": 1153.34765625,
+        "jsHeapPeakMB": 20.922954559326172,
+        "jsHeapUsedAfterMB": 27.189708709716797
+      },
+      {
+        "run": 3,
+        "parseWallSec": 1.43,
+        "uploadToReadySec": 1.4549175,
+        "throughputMBps": 374.1518387427697,
+        "reaggAvgMs": 106.66666666666667,
+        "reaggWallMs": [
+          140,
+          139,
+          41
+        ],
+        "browserRssPeakMB": 1154.4296875,
+        "jsHeapPeakMB": 20.164051055908203,
+        "jsHeapUsedAfterMB": 26.066619873046875
+      },
+      {
+        "run": 4,
+        "parseWallSec": 1.459,
+        "uploadToReadySec": 1.4838729999999998,
+        "throughputMBps": 366.71496189318754,
+        "reaggAvgMs": 105.33333333333333,
+        "reaggWallMs": [
+          139,
+          140,
+          37
+        ],
+        "browserRssPeakMB": 1156.15234375,
+        "jsHeapPeakMB": 20.563053131103516,
+        "jsHeapUsedAfterMB": 27.564945220947266
+      },
+      {
+        "run": 5,
+        "parseWallSec": 1.498,
+        "uploadToReadySec": 1.5207947,
+        "throughputMBps": 357.1676431256079,
+        "reaggAvgMs": 108.66666666666667,
+        "reaggWallMs": [
+          142,
+          147,
+          37
+        ],
+        "browserRssPeakMB": 1155.73828125,
+        "jsHeapPeakMB": 20.558380126953125,
+        "jsHeapUsedAfterMB": 26.094173431396484
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:31:10.173Z",
+    "method": "browser-app",
+    "note": "rust-opt-final",
+    "git": {
+      "commit": "7d95a46",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 1.481,
+        "stddev": 0.01929766825292627,
+        "min": 1.461,
+        "max": 1.515
+      },
+      "uploadToReadySec": {
+        "avg": 1.5607007400000001,
+        "stddev": 0.13224212835614227,
+        "min": 1.4817835000000001,
+        "max": 1.8243905
+      },
+      "throughputMBps": {
+        "avg": 361.3282470189632,
+        "stddev": 4.664296343910047,
+        "min": 353.1598213875648,
+        "max": 366.2129564696514
+      },
+      "browserRssPeakMB": {
+        "avg": 1157.92890625,
+        "stddev": 0.9156116679916765,
+        "min": 1156.15234375,
+        "max": 1158.546875
+      },
+      "jsHeapPeakMB": {
+        "avg": 20.43284912109375,
+        "stddev": 0.46286252799777905,
+        "min": 19.6705322265625,
+        "max": 20.909210205078125
+      },
+      "reaggAvgMs": {
+        "avg": 108.8,
+        "stddev": 2.6882460204874588,
+        "min": 104,
+        "max": 111.33333333333333
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 1.464,
+        "uploadToReadySec": 1.4852437999999997,
+        "throughputMBps": 365.46252008344305,
+        "reaggAvgMs": 111.33333333333333,
+        "reaggWallMs": [
+          151,
+          143,
+          40
+        ],
+        "browserRssPeakMB": 1157.9453125,
+        "jsHeapPeakMB": 20.544052124023438,
+        "jsHeapUsedAfterMB": 26.446941375732422
+      },
+      {
+        "run": 2,
+        "parseWallSec": 1.485,
+        "uploadToReadySec": 1.5083865,
+        "throughputMBps": 360.2943632337782,
+        "reaggAvgMs": 108.33333333333333,
+        "reaggWallMs": [
+          139,
+          145,
+          41
+        ],
+        "browserRssPeakMB": 1158.546875,
+        "jsHeapPeakMB": 20.863391876220703,
+        "jsHeapUsedAfterMB": 27.13155746459961
+      },
+      {
+        "run": 3,
+        "parseWallSec": 1.461,
+        "uploadToReadySec": 1.4817835000000001,
+        "throughputMBps": 366.2129564696514,
+        "reaggAvgMs": 104,
+        "reaggWallMs": [
+          136,
+          138,
+          38
+        ],
+        "browserRssPeakMB": 1156.15234375,
+        "jsHeapPeakMB": 20.177059173583984,
+        "jsHeapUsedAfterMB": 26.079700469970703
+      },
+      {
+        "run": 4,
+        "parseWallSec": 1.48,
+        "uploadToReadySec": 1.5036994,
+        "throughputMBps": 361.5115739203788,
+        "reaggAvgMs": 111.33333333333333,
+        "reaggWallMs": [
+          148,
+          145,
+          41
+        ],
+        "browserRssPeakMB": 1158.5234375,
+        "jsHeapPeakMB": 20.909210205078125,
+        "jsHeapUsedAfterMB": 27.178131103515625
+      },
+      {
+        "run": 5,
+        "parseWallSec": 1.515,
+        "uploadToReadySec": 1.8243905,
+        "throughputMBps": 353.1598213875648,
+        "reaggAvgMs": 109,
+        "reaggWallMs": [
+          141,
+          148,
+          38
+        ],
+        "browserRssPeakMB": 1158.4765625,
+        "jsHeapPeakMB": 19.6705322265625,
+        "jsHeapUsedAfterMB": 25.303207397460938
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:34:19.005Z",
+    "method": "browser-app",
+    "note": null,
+    "git": {
+      "commit": "7d95a46",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 1.3252,
+        "stddev": 0.030015995735607377,
+        "min": 1.294,
+        "max": 1.375
+      },
+      "uploadToReadySec": {
+        "avg": 1.3466728399999996,
+        "stddev": 0.030968557059611337,
+        "min": 1.3136609999999997,
+        "max": 1.3973824
+      },
+      "throughputMBps": {
+        "avg": 403.94566673263927,
+        "stddev": 9.05240569504378,
+        "min": 389.11791229248047,
+        "max": 413.4753704808042
+      },
+      "browserRssPeakMB": {
+        "avg": 1154.459375,
+        "stddev": 1.6130014512208677,
+        "min": 1151.640625,
+        "max": 1156.484375
+      },
+      "jsHeapPeakMB": {
+        "avg": 24.515164947509767,
+        "stddev": 3.7595838068331253,
+        "min": 19.80618667602539,
+        "max": 27.776939392089844
+      },
+      "reaggAvgMs": {
+        "avg": 96.93333333333335,
+        "stddev": 2.2548712700383695,
+        "min": 94.66666666666667,
+        "max": 99.66666666666667
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 1.375,
+        "uploadToReadySec": 1.3973824,
+        "throughputMBps": 389.11791229248047,
+        "reaggAvgMs": 95,
+        "reaggWallMs": [
+          123,
+          123,
+          39
+        ],
+        "browserRssPeakMB": 1151.640625,
+        "jsHeapPeakMB": 27.776939392089844,
+        "jsHeapUsedAfterMB": 20.973499298095703
+      },
+      {
+        "run": 2,
+        "parseWallSec": 1.325,
+        "uploadToReadySec": 1.3458419,
+        "throughputMBps": 403.8016070959703,
+        "reaggAvgMs": 99.66666666666667,
+        "reaggWallMs": [
+          127,
+          132,
+          40
+        ],
+        "browserRssPeakMB": 1154.015625,
+        "jsHeapPeakMB": 20.020259857177734,
+        "jsHeapUsedAfterMB": 25.22891616821289
+      },
+      {
+        "run": 3,
+        "parseWallSec": 1.295,
+        "uploadToReadySec": 1.3159786999999998,
+        "throughputMBps": 413.156084480433,
+        "reaggAvgMs": 99.66666666666667,
+        "reaggWallMs": [
+          132,
+          130,
+          37
+        ],
+        "browserRssPeakMB": 1156.484375,
+        "jsHeapPeakMB": 19.80618667602539,
+        "jsHeapUsedAfterMB": 25.00503921508789
+      },
+      {
+        "run": 4,
+        "parseWallSec": 1.337,
+        "uploadToReadySec": 1.3605002,
+        "throughputMBps": 400.17735931350836,
+        "reaggAvgMs": 94.66666666666667,
+        "reaggWallMs": [
+          119,
+          129,
+          36
+        ],
+        "browserRssPeakMB": 1155.08984375,
+        "jsHeapPeakMB": 27.496273040771484,
+        "jsHeapUsedAfterMB": 20.943462371826172
+      },
+      {
+        "run": 5,
+        "parseWallSec": 1.294,
+        "uploadToReadySec": 1.3136609999999997,
+        "throughputMBps": 413.4753704808042,
+        "reaggAvgMs": 95.66666666666667,
+        "reaggWallMs": [
+          124,
+          127,
+          36
+        ],
+        "browserRssPeakMB": 1155.06640625,
+        "jsHeapPeakMB": 27.476165771484375,
+        "jsHeapUsedAfterMB": 20.572776794433594
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:41:39.679Z",
+    "method": "browser-app",
+    "note": "hashbrown-foldhash",
+    "git": {
+      "commit": "7d95a46",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 1.2752,
+        "stddev": 0.04615798955760528,
+        "min": 1.225,
+        "max": 1.346
+      },
+      "uploadToReadySec": {
+        "avg": 1.2967744199999998,
+        "stddev": 0.04718612883301186,
+        "min": 1.2453561,
+        "max": 1.3699951999999997
+      },
+      "throughputMBps": {
+        "avg": 420.11737941724925,
+        "stddev": 15.096585962079711,
+        "min": 397.5015820224076,
+        "max": 436.7650035936005
+      },
+      "browserRssPeakMB": {
+        "avg": 1154.046875,
+        "stddev": 3.042508890958661,
+        "min": 1150.3671875,
+        "max": 1159.15625
+      },
+      "jsHeapPeakMB": {
+        "avg": 27.433045196533204,
+        "stddev": 0.24343238412491824,
+        "min": 27.218650817871094,
+        "max": 27.81768798828125
+      },
+      "reaggAvgMs": {
+        "avg": 85.66666666666667,
+        "stddev": 2.6331223544175333,
+        "min": 82,
+        "max": 90
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 1.346,
+        "uploadToReadySec": 1.3699951999999997,
+        "throughputMBps": 397.5015820224076,
+        "reaggAvgMs": 90,
+        "reaggWallMs": [
+          114,
+          121,
+          35
+        ],
+        "browserRssPeakMB": 1159.15625,
+        "jsHeapPeakMB": 27.81768798828125,
+        "jsHeapUsedAfterMB": 20.971988677978516
+      },
+      {
+        "run": 2,
+        "parseWallSec": 1.299,
+        "uploadToReadySec": 1.3206136,
+        "throughputMBps": 411.8838563527026,
+        "reaggAvgMs": 84.66666666666667,
+        "reaggWallMs": [
+          107,
+          111,
+          36
+        ],
+        "browserRssPeakMB": 1155.484375,
+        "jsHeapPeakMB": 27.256423950195312,
+        "jsHeapUsedAfterMB": 20.90576934814453
+      },
+      {
+        "run": 3,
+        "parseWallSec": 1.281,
+        "uploadToReadySec": 1.3015003,
+        "throughputMBps": 417.67145152393493,
+        "reaggAvgMs": 86.66666666666667,
+        "reaggWallMs": [
+          104,
+          121,
+          35
+        ],
+        "browserRssPeakMB": 1153.09375,
+        "jsHeapPeakMB": 27.624866485595703,
+        "jsHeapUsedAfterMB": 20.942188262939453
+      },
+      {
+        "run": 4,
+        "parseWallSec": 1.225,
+        "uploadToReadySec": 1.2453561,
+        "throughputMBps": 436.7650035936005,
+        "reaggAvgMs": 82,
+        "reaggWallMs": [
+          107,
+          106,
+          33
+        ],
+        "browserRssPeakMB": 1152.1328125,
+        "jsHeapPeakMB": 27.247596740722656,
+        "jsHeapUsedAfterMB": 20.94001007080078
+      },
+      {
+        "run": 5,
+        "parseWallSec": 1.225,
+        "uploadToReadySec": 1.2464069,
+        "throughputMBps": 436.7650035936005,
+        "reaggAvgMs": 85,
+        "reaggWallMs": [
+          109,
+          111,
+          35
+        ],
+        "browserRssPeakMB": 1150.3671875,
+        "jsHeapPeakMB": 27.218650817871094,
+        "jsHeapUsedAfterMB": 20.916095733642578
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:47:51.408Z",
+    "method": "browser-app",
+    "note": "rust-modernize",
+    "git": {
+      "commit": "7d95a46",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 1.2850000000000001,
+        "stddev": 0.03907428822128433,
+        "min": 1.243,
+        "max": 1.344
+      },
+      "uploadToReadySec": {
+        "avg": 1.30669424,
+        "stddev": 0.03903388409659487,
+        "min": 1.2650858,
+        "max": 1.3661691
+      },
+      "throughputMBps": {
+        "avg": 416.75400714234763,
+        "stddev": 12.588609061656845,
+        "min": 398.09310223375047,
+        "max": 430.44016846513324
+      },
+      "browserRssPeakMB": {
+        "avg": 1156.51484375,
+        "stddev": 1.5992120710046167,
+        "min": 1153.58203125,
+        "max": 1158.30859375
+      },
+      "jsHeapPeakMB": {
+        "avg": 18.37309036254883,
+        "stddev": 0.9618108577042445,
+        "min": 16.888412475585938,
+        "max": 19.82232666015625
+      },
+      "reaggAvgMs": {
+        "avg": 92,
+        "stddev": 1.5347819244295133,
+        "min": 89.33333333333333,
+        "max": 93.66666666666667
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 1.344,
+        "uploadToReadySec": 1.3661691,
+        "throughputMBps": 398.09310223375047,
+        "reaggAvgMs": 93.33333333333333,
+        "reaggWallMs": [
+          121,
+          123,
+          36
+        ],
+        "browserRssPeakMB": 1156.37109375,
+        "jsHeapPeakMB": 19.82232666015625,
+        "jsHeapUsedAfterMB": 25.46561050415039
+      },
+      {
+        "run": 2,
+        "parseWallSec": 1.285,
+        "uploadToReadySec": 1.3054758999999998,
+        "throughputMBps": 416.3713069277515,
+        "reaggAvgMs": 93.66666666666667,
+        "reaggWallMs": [
+          118,
+          126,
+          37
+        ],
+        "browserRssPeakMB": 1157.40625,
+        "jsHeapPeakMB": 18.361324310302734,
+        "jsHeapUsedAfterMB": 23.901321411132812
+      },
+      {
+        "run": 3,
+        "parseWallSec": 1.31,
+        "uploadToReadySec": 1.3316089999999998,
+        "throughputMBps": 408.42528961996993,
+        "reaggAvgMs": 91.66666666666667,
+        "reaggWallMs": [
+          118,
+          121,
+          36
+        ],
+        "browserRssPeakMB": 1153.58203125,
+        "jsHeapPeakMB": 18.79644012451172,
+        "jsHeapUsedAfterMB": 24.336627960205078
+      },
+      {
+        "run": 4,
+        "parseWallSec": 1.243,
+        "uploadToReadySec": 1.2651313999999998,
+        "throughputMBps": 430.44016846513324,
+        "reaggAvgMs": 92,
+        "reaggWallMs": [
+          120,
+          122,
+          34
+        ],
+        "browserRssPeakMB": 1156.90625,
+        "jsHeapPeakMB": 16.888412475585938,
+        "jsHeapUsedAfterMB": 21.341251373291016
+      },
+      {
+        "run": 5,
+        "parseWallSec": 1.243,
+        "uploadToReadySec": 1.2650858,
+        "throughputMBps": 430.44016846513324,
+        "reaggAvgMs": 89.33333333333333,
+        "reaggWallMs": [
+          115,
+          117,
+          36
+        ],
+        "browserRssPeakMB": 1158.30859375,
+        "jsHeapPeakMB": 17.9969482421875,
+        "jsHeapUsedAfterMB": 23.538162231445312
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:48:50.021Z",
+    "method": "browser-app",
+    "note": "rust-modernize-manual",
+    "git": {
+      "commit": "7d95a46",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 1.1896,
+        "stddev": 0.03196623218335248,
+        "min": 1.131,
+        "max": 1.216
+      },
+      "uploadToReadySec": {
+        "avg": 1.2103036,
+        "stddev": 0.03224387610099007,
+        "min": 1.1513285,
+        "max": 1.2373102999999999
+      },
+      "throughputMBps": {
+        "avg": 450.0963708268115,
+        "stddev": 12.437313984904403,
+        "min": 439.9976393109874,
+        "max": 473.0655432379846
+      },
+      "browserRssPeakMB": {
+        "avg": 1154.2203125,
+        "stddev": 0.6818688058265865,
+        "min": 1153.28515625,
+        "max": 1155.17578125
+      },
+      "jsHeapPeakMB": {
+        "avg": 22.37141647338867,
+        "stddev": 4.298447878721532,
+        "min": 16.86163330078125,
+        "max": 27.597511291503906
+      },
+      "reaggAvgMs": {
+        "avg": 86.33333333333333,
+        "stddev": 3.211091887677947,
+        "min": 82,
+        "max": 90.66666666666667
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 1.208,
+        "uploadToReadySec": 1.2280102000000002,
+        "throughputMBps": 442.9115309620535,
+        "reaggAvgMs": 88.33333333333333,
+        "reaggWallMs": [
+          124,
+          109,
+          32
+        ],
+        "browserRssPeakMB": 1155.17578125,
+        "jsHeapPeakMB": 27.258811950683594,
+        "jsHeapUsedAfterMB": 20.911460876464844
+      },
+      {
+        "run": 2,
+        "parseWallSec": 1.18,
+        "uploadToReadySec": 1.2004685,
+        "throughputMBps": 453.421296103526,
+        "reaggAvgMs": 82,
+        "reaggWallMs": [
+          108,
+          107,
+          31
+        ],
+        "browserRssPeakMB": 1154.46875,
+        "jsHeapPeakMB": 19.730594635009766,
+        "jsHeapUsedAfterMB": 21.30341339111328
+      },
+      {
+        "run": 3,
+        "parseWallSec": 1.131,
+        "uploadToReadySec": 1.1513285,
+        "throughputMBps": 473.0655432379846,
+        "reaggAvgMs": 90.66666666666667,
+        "reaggWallMs": [
+          119,
+          117,
+          36
+        ],
+        "browserRssPeakMB": 1154.5546875,
+        "jsHeapPeakMB": 16.86163330078125,
+        "jsHeapUsedAfterMB": 21.050556182861328
+      },
+      {
+        "run": 4,
+        "parseWallSec": 1.213,
+        "uploadToReadySec": 1.2344004999999998,
+        "throughputMBps": 441.0858445195059,
+        "reaggAvgMs": 83.33333333333333,
+        "reaggWallMs": [
+          107,
+          107,
+          36
+        ],
+        "browserRssPeakMB": 1153.28515625,
+        "jsHeapPeakMB": 27.597511291503906,
+        "jsHeapUsedAfterMB": 20.812305450439453
+      },
+      {
+        "run": 5,
+        "parseWallSec": 1.216,
+        "uploadToReadySec": 1.2373102999999999,
+        "throughputMBps": 439.9976393109874,
+        "reaggAvgMs": 87.33333333333333,
+        "reaggWallMs": [
+          108,
+          122,
+          32
+        ],
+        "browserRssPeakMB": 1153.6171875,
+        "jsHeapPeakMB": 20.408531188964844,
+        "jsHeapUsedAfterMB": 25.615306854248047
+      }
+    ]
+  },
+  {
+    "id": "2026-07-25T09:52:13.508Z",
+    "method": "browser-app",
+    "note": null,
+    "git": {
+      "commit": "7d95a46",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-500mb.log",
+    "fileMB": 535.0371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 3718450,
+      "unmatched": 2788590,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 1.1896,
+        "stddev": 0.025302964253225386,
+        "min": 1.14,
+        "max": 1.21
+      },
+      "uploadToReadySec": {
+        "avg": 1.2103462600000001,
+        "stddev": 0.02589952904665252,
+        "min": 1.1595948,
+        "max": 1.2314805999999998
+      },
+      "throughputMBps": {
+        "avg": 449.9718424487357,
+        "stddev": 9.856050239972898,
+        "min": 442.17944578690964,
+        "max": 469.3308152650532
+      },
+      "browserRssPeakMB": {
+        "avg": 1155.47578125,
+        "stddev": 2.7980830578859033,
+        "min": 1151.37109375,
+        "max": 1159.21484375
+      },
+      "jsHeapPeakMB": {
+        "avg": 22.99101867675781,
+        "stddev": 3.9524218828235766,
+        "min": 18.381595611572266,
+        "max": 27.654979705810547
+      },
+      "reaggAvgMs": {
+        "avg": 86.46666666666667,
+        "stddev": 1.8330302779823378,
+        "min": 84,
+        "max": 89.66666666666667
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 1.14,
+        "uploadToReadySec": 1.1595948,
+        "throughputMBps": 469.3308152650532,
+        "reaggAvgMs": 86,
+        "reaggWallMs": [
+          111,
+          112,
+          35
+        ],
+        "browserRssPeakMB": 1156.59375,
+        "jsHeapPeakMB": 18.381595611572266,
+        "jsHeapUsedAfterMB": 23.215267181396484
+      },
+      {
+        "run": 2,
+        "parseWallSec": 1.21,
+        "uploadToReadySec": 1.2314805999999998,
+        "throughputMBps": 442.17944578690964,
+        "reaggAvgMs": 86.66666666666667,
+        "reaggWallMs": [
+          112,
+          113,
+          35
+        ],
+        "browserRssPeakMB": 1151.37109375,
+        "jsHeapPeakMB": 27.654979705810547,
+        "jsHeapUsedAfterMB": 20.55461883544922
+      },
+      {
+        "run": 3,
+        "parseWallSec": 1.195,
+        "uploadToReadySec": 1.2153036000000002,
+        "throughputMBps": 447.7298153992976,
+        "reaggAvgMs": 89.66666666666667,
+        "reaggWallMs": [
+          105,
+          129,
+          35
+        ],
+        "browserRssPeakMB": 1159.21484375,
+        "jsHeapPeakMB": 21.96099090576172,
+        "jsHeapUsedAfterMB": 27.138076782226562
+      },
+      {
+        "run": 4,
+        "parseWallSec": 1.199,
+        "uploadToReadySec": 1.2214659,
+        "throughputMBps": 446.23613795009226,
+        "reaggAvgMs": 86,
+        "reaggWallMs": [
+          109,
+          112,
+          37
+        ],
+        "browserRssPeakMB": 1153.2578125,
+        "jsHeapPeakMB": 19.381683349609375,
+        "jsHeapUsedAfterMB": 22.819843292236328
+      },
+      {
+        "run": 5,
+        "parseWallSec": 1.204,
+        "uploadToReadySec": 1.2238863999999998,
+        "throughputMBps": 444.3829978423261,
+        "reaggAvgMs": 84,
+        "reaggWallMs": [
+          112,
+          110,
+          30
+        ],
+        "browserRssPeakMB": 1156.94140625,
+        "jsHeapPeakMB": 27.575843811035156,
+        "jsHeapUsedAfterMB": 21.269088745117188
+      }
+    ]
+  }
+]
