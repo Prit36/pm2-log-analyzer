@@ -322,7 +322,7 @@ async function __wbg_init(module_or_path) {
     }
 
     if (module_or_path === undefined) {
-        throw new Error('pm2_core: pass WebAssembly.Module or bytes (single-file embed)');
+        throw new Error('pm2_core: pass WebAssembly.Module or bytes (embedded wasm)');
     }
     const imports = __wbg_get_imports();
 

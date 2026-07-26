@@ -16,7 +16,6 @@ The story starts earlier than that corpus: before [`ef58f1f`](https://github.com
 - Filter by method, status family, min duration, path normalize mode (exact / strip query / collapse IDs)
 - Virtualized API table, RelHist-based latency chart, cron table
 - Export filtered API + cron sheets to Excel
-- Single-file HTML production build (`vite-plugin-singlefile`) for easy sharing
 
 ---
 
@@ -25,7 +24,7 @@ The story starts earlier than that corpus: before [`ef58f1f`](https://github.com
 | Layer | Choice |
 |-------|--------|
 | UI | React 19, Tailwind CSS 4, Zustand, Recharts, react-window |
-| App shell | TypeScript 7 (strict), Vite 8, `vite-plugin-singlefile` |
+| App shell | TypeScript 7 (strict), Vite 8 |
 | Tooling | pnpm, oxlint, oxfmt, Playwright (browser benches) |
 | Parse / reagg | Rust → Wasm (`wasm/pm2-core`), `wasm-bindgen` 0.2.126, Binaryen `wasm-opt -O3` |
 | Hot crates | `hashbrown` 0.17 (foldhash for RelHist), `rapidhash` 4 (path maps), `memchr` 2.8 (SIMD newlines / `memmem`) |
@@ -170,7 +169,7 @@ Failed approach (kept as a lesson): copying whole shards into Rust and keeping d
 
 ```text
 src/                 React app, workers, Wasm glue
-src/wasm/pkg/        Generated wasm-bindgen JS + .wasm (embedded for single-file)
+src/wasm/pkg/        Generated wasm-bindgen JS + .wasm (bytes also embedded in pm2CoreBytes.ts)
 wasm/pm2-core/       Rust crate (parse, normalize, RelHist, Engine)
 scripts/bench/       Playwright browser bench + history.json
 scripts/wasm-build.mjs

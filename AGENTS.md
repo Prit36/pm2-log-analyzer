@@ -152,9 +152,9 @@ Boris Cherny (creator of Claude Code) keeps his team's file around 100 lines. Un
 
 ### Stack
 - Language and version: TypeScript 7.0.2 (strict), target ESNext
-- Framework(s): React 19.2.8, Vite 8.1.5, Tailwind CSS 4.3.3 (`@tailwindcss/vite`), `vite-plugin-singlefile`
+- Framework(s): React 19.2.8, Vite 8.1.5, Tailwind CSS 4.3.3 (`@tailwindcss/vite`)
 - Package manager: pnpm (lockfile: `pnpm-lock.yaml`)
-- Runtime / deployment target: Browser SPA; build emits a single-file HTML bundle via `vite-plugin-singlefile`
+- Runtime / deployment target: Browser SPA (Vite multi-asset build)
 
 ### Commands
 - Install: `pnpm install`

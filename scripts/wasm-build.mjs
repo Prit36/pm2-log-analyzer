@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Rebuild pm2-core Wasm and embed bytes for the single-file Vite bundle.
+ * Rebuild pm2-core Wasm and embed bytes for the Vite app (no URL fetch).
  * Requires: rustc/cargo (wasm32-unknown-unknown), wasm-bindgen CLI matching Cargo.toml,
  * and wasm-opt (Binaryen) on PATH — install from https://github.com/WebAssembly/binaryen/releases
  */
@@ -77,7 +77,7 @@ if (!urlDefault.test(js)) {
 js = js.replace(
   urlDefault,
   `if (module_or_path === undefined) {
-        throw new Error('pm2_core: pass WebAssembly.Module or bytes (single-file embed)');
+        throw new Error('pm2_core: pass WebAssembly.Module or bytes (embedded wasm)');
     }`,
 );
 fs.writeFileSync(jsPath, js);
