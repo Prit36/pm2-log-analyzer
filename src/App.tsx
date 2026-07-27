@@ -16,22 +16,28 @@ export function App() {
   const showToast = useAnalysisStore((s) => s.showToast);
   const apiRows = useFilteredApiRows();
   const cronRows = useFilteredCronRows();
+  const apiSortKey = useAnalysisStore((s) => s.filters.sortKey);
+  const cronSortKey = useAnalysisStore((s) => s.filters.cronSortKey);
   const hasCron = useAnalysisStore((s) => {
     const c = s.result?.cronSummary;
     return !!c && c.starts + c.dones + c.fails > 0;
   });
 
-  const onExport = () => {
+  const onExport = async () => {
     if (apiRows.length === 0 && cronRows.length === 0) {
       showToast("Nothing to export yet");
       return;
     }
-    downloadExcel(apiRows, cronRows);
-    showToast(
-      cronRows.length > 0
-        ? "Excel downloaded — API + Cron sheets"
-        : "Excel downloaded — API sheet",
-    );
+    try {
+      await downloadExcel(apiRows, cronRows, { api: apiSortKey, cron: cronSortKey });
+      showToast(
+        cronRows.length > 0
+          ? "Excel downloaded — API + Cron sheets"
+          : "Excel downloaded — API sheet",
+      );
+    } catch {
+      showToast("Excel export failed");
+    }
   };
 
   return (

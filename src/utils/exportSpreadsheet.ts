@@ -1,36 +1,225 @@
 import type { AggregatedEndpoint, CronAggregated } from "../parser";
+import type { ApiSortKey, CronSortKey } from "../store/analysisStore";
 import { formatMs, formatNum } from "./format";
+import type ExcelJS from "exceljs";
 
-function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+const MS_FMT = '#,##0.0" ms"';
+const TABLE_HEADER_ROW = 4; // title, meta, spacer, then header
+
+const API_SORT_LABEL: Record<ApiSortKey, string> = {
+  p95Ms: "p95",
+  p99Ms: "p99",
+  avgMs: "avg",
+  maxMs: "max",
+  count: "count",
+  errorCount: "errors",
+};
+
+const CRON_SORT_LABEL: Record<CronSortKey, string> = {
+  p95Ms: "p95",
+  p99Ms: "p99",
+  avgMs: "avg",
+  maxMs: "max",
+  runs: "runs",
+  fails: "fails",
+};
+
+const METHOD_FILL: Record<string, { argb: string; text: string }> = {
+  GET: { argb: "FFDBEAFE", text: "FF1E40AF" },
+  POST: { argb: "FFD1FAE5", text: "FF065F46" },
+};
+
+const METHOD_OTHER = { argb: "FFFEF3C7", text: "FF92400E" };
+
+function methodFill(method: string) {
+  return METHOD_FILL[method] ?? METHOD_OTHER;
 }
 
-function methodStyle(method: string): string {
-  if (method === "GET") return "sMethodGet";
-  if (method === "POST") return "sMethodPost";
-  return "sMethodOther";
+function styleTitleMeta(ws: ExcelJS.Worksheet, lastCol: number, title: string, meta: string) {
+  ws.mergeCells(1, 1, 1, lastCol);
+  const titleCell = ws.getCell(1, 1);
+  titleCell.value = title;
+  titleCell.font = { name: "Calibri", size: 16, bold: true, color: { argb: "FF0F172A" } };
+  titleCell.alignment = { horizontal: "left", vertical: "middle" };
+  ws.getRow(1).height = 28;
+
+  ws.mergeCells(2, 1, 2, lastCol);
+  const metaCell = ws.getCell(2, 1);
+  metaCell.value = meta;
+  metaCell.font = { name: "Calibri", size: 11, color: { argb: "FF475569" } };
+  metaCell.alignment = { horizontal: "left", vertical: "middle" };
+  ws.getRow(2).height = 18;
+  ws.getRow(3).height = 8;
 }
 
-const STYLES = `
-    <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="14"/></Style>
-    <Style ss:ID="sTitle"><Alignment ss:Horizontal="Left" ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="20" ss:Bold="1" ss:Color="#0F172A"/></Style>
-    <Style ss:ID="sMeta"><Alignment ss:Horizontal="Left" ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="12" ss:Color="#475569"/></Style>
-    <Style ss:ID="sSpacer"><Font ss:Size="6"/></Style>
-    <Style ss:ID="sHeader"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="15" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#2563EB" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#1D4ED8"/><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#1D4ED8"/><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#1D4ED8"/><Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#1D4ED8"/></Borders></Style>
-    <Style ss:ID="sDataCell"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="14"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
-    <Style ss:ID="sEndpointCell"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:FontName="Consolas" ss:Size="14"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
-    <Style ss:ID="sP95Cell"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="14" ss:Bold="1" ss:Color="#2563EB"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
-    <Style ss:ID="sMaxCell"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="14" ss:Bold="1" ss:Color="#D97706"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
-    <Style ss:ID="sMinCell"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="14" ss:Color="#64748B"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
-    <Style ss:ID="sErrorCell"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="14" ss:Bold="1" ss:Color="#DC2626"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
-    <Style ss:ID="sMethodGet"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="14" ss:Bold="1" ss:Color="#1E40AF"/><Interior ss:Color="#DBEAFE" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
-    <Style ss:ID="sMethodPost"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="14" ss:Bold="1" ss:Color="#065F46"/><Interior ss:Color="#D1FAE5" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
-    <Style ss:ID="sMethodOther"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="14" ss:Bold="1" ss:Color="#92400E"/><Interior ss:Color="#FEF3C7" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>`;
+function applyMethodBadges(ws: ExcelJS.Worksheet, rowCount: number, col = 1) {
+  for (let i = 0; i < rowCount; i++) {
+    const cell = ws.getCell(TABLE_HEADER_ROW + 1 + i, col);
+    const method = String(cell.value ?? "");
+    const fill = methodFill(method);
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill.argb } };
+    cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: fill.text } };
+    cell.alignment = { horizontal: "center", vertical: "middle" };
+  }
+}
+
+function highlightErrors(ws: ExcelJS.Worksheet, colLetter: string, rowCount: number) {
+  if (rowCount === 0) return;
+  const start = TABLE_HEADER_ROW + 1;
+  const end = TABLE_HEADER_ROW + rowCount;
+  ws.addConditionalFormatting({
+    ref: `${colLetter}${start}:${colLetter}${end}`,
+    rules: [
+      {
+        type: "cellIs",
+        operator: "greaterThan",
+        formulae: [0],
+        priority: 1,
+        style: {
+          font: { bold: true, color: { argb: "FFDC2626" } },
+        },
+      },
+    ],
+  });
+}
+
+function applyMsFmt(ws: ExcelJS.Worksheet, cols: number[], rowCount: number) {
+  for (let i = 0; i < rowCount; i++) {
+    const row = TABLE_HEADER_ROW + 1 + i;
+    for (const col of cols) {
+      ws.getCell(row, col).numFmt = MS_FMT;
+    }
+  }
+}
+
+function buildApiSheet(wb: ExcelJS.Workbook, rows: AggregatedEndpoint[], sortKey: ApiSortKey) {
+  const ws = wb.addWorksheet("API Endpoints", {
+    views: [{ state: "frozen", ySplit: TABLE_HEADER_ROW }],
+  });
+
+  ws.columns = [
+    { width: 10 },
+    { width: 48 },
+    { width: 10 },
+    { width: 12 },
+    { width: 12 },
+    { width: 12 },
+    { width: 12 },
+    { width: 12 },
+    { width: 10 },
+  ];
+
+  const generated = new Date().toLocaleString();
+  styleTitleMeta(
+    ws,
+    9,
+    "PM2 Log Analyzer — API Endpoints",
+    `Generated: ${generated}  |  Endpoints: ${rows.length}  |  Sorted by: ${API_SORT_LABEL[sortKey]} (desc)`,
+  );
+
+  const tableRows = rows.map((r) => [
+    r.method,
+    r.path,
+    r.count,
+    r.avgMs,
+    r.p95Ms,
+    r.p99Ms,
+    r.maxMs,
+    r.minMs,
+    r.errorCount,
+  ]);
+
+  ws.addTable({
+    name: "ApiEndpoints",
+    ref: `A${TABLE_HEADER_ROW}`,
+    headerRow: true,
+    totalsRow: true,
+    style: { theme: "TableStyleMedium2", showRowStripes: true },
+    columns: [
+      { name: "Method", filterButton: true, totalsRowLabel: "Total" },
+      { name: "Endpoint", filterButton: true },
+      { name: "Count", filterButton: true, totalsRowFunction: "sum" },
+      { name: "Avg", filterButton: true },
+      { name: "p95", filterButton: true },
+      { name: "p99", filterButton: true },
+      { name: "Max", filterButton: true },
+      { name: "Min", filterButton: true },
+      { name: "Errors", filterButton: true, totalsRowFunction: "sum" },
+    ],
+    rows: tableRows,
+  });
+
+  applyMethodBadges(ws, rows.length);
+  applyMsFmt(ws, [4, 5, 6, 7, 8], rows.length);
+  highlightErrors(ws, "I", rows.length);
+}
+
+function buildCronSheet(wb: ExcelJS.Workbook, rows: CronAggregated[], sortKey: CronSortKey) {
+  const ws = wb.addWorksheet("Cron Jobs", {
+    views: [{ state: "frozen", ySplit: TABLE_HEADER_ROW }],
+  });
+
+  ws.columns = [
+    { width: 40 },
+    { width: 10 },
+    { width: 10 },
+    { width: 10 },
+    { width: 12 },
+    { width: 12 },
+    { width: 12 },
+    { width: 12 },
+    { width: 12 },
+    { width: 22 },
+    { width: 14 },
+  ];
+
+  const generated = new Date().toLocaleString();
+  styleTitleMeta(
+    ws,
+    11,
+    "PM2 Log Analyzer — Cron Jobs",
+    `Generated: ${generated}  |  Jobs: ${rows.length}  |  Sorted by: ${CRON_SORT_LABEL[sortKey]} (desc)`,
+  );
+
+  const tableRows = rows.map((r) => [
+    r.name,
+    r.runs,
+    r.starts,
+    r.fails,
+    r.avgMs,
+    r.p95Ms,
+    r.p99Ms,
+    r.maxMs,
+    r.minMs,
+    r.lastRunTs ?? "-",
+    r.lastDurationMs ?? null,
+  ]);
+
+  ws.addTable({
+    name: "CronJobs",
+    ref: `A${TABLE_HEADER_ROW}`,
+    headerRow: true,
+    totalsRow: true,
+    style: { theme: "TableStyleMedium2", showRowStripes: true },
+    columns: [
+      { name: "Cron Job", filterButton: true, totalsRowLabel: "Total" },
+      { name: "Runs", filterButton: true, totalsRowFunction: "sum" },
+      { name: "Starts", filterButton: true, totalsRowFunction: "sum" },
+      { name: "Fails", filterButton: true, totalsRowFunction: "sum" },
+      { name: "Avg", filterButton: true },
+      { name: "p95", filterButton: true },
+      { name: "p99", filterButton: true },
+      { name: "Max", filterButton: true },
+      { name: "Min", filterButton: true },
+      { name: "Last Run", filterButton: true },
+      { name: "Last Duration", filterButton: true },
+    ],
+    rows: tableRows,
+  });
+
+  applyMsFmt(ws, [5, 6, 7, 8, 9, 11], rows.length);
+  highlightErrors(ws, "D", rows.length);
+}
 
 export function buildApiTsv(rows: AggregatedEndpoint[]): string {
   const h = ["Method", "Endpoint", "Count", "Avg", "p95", "p99", "Max", "Min", "Errors"];
@@ -86,108 +275,29 @@ export function buildCronTsv(rows: CronAggregated[]): string {
   ].join("\r\n");
 }
 
-export function downloadExcel(apiRows: AggregatedEndpoint[], cronRows: CronAggregated[]): void {
-  const generated = new Date().toLocaleString();
+export async function downloadExcel(
+  apiRows: AggregatedEndpoint[],
+  cronRows: CronAggregated[],
+  sort: { api: ApiSortKey; cron: CronSortKey },
+): Promise<void> {
+  const ExcelJS = (await import("exceljs")).default;
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "PM2 Log Analyzer";
+  wb.created = new Date();
+  wb.title = "PM2 Log Analyzer Report";
+
+  buildApiSheet(wb, apiRows, sort.api);
+  if (cronRows.length > 0) buildCronSheet(wb, cronRows, sort.cron);
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
   const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-
-  const apiHeaders = ["Method", "Endpoint", "Count", "Avg", "p95", "p99", "Max", "Min", "Errors"];
-  const apiHeaderRow = `<Row ss:StyleID="sHeader">${apiHeaders.map((h) => `<Cell><Data ss:Type="String">${esc(h)}</Data></Cell>`).join("")}</Row>`;
-  const apiBodyRows = apiRows
-    .map((r) => {
-      const ms = methodStyle(r.method);
-      const es = r.errorCount > 0 ? "sErrorCell" : "sDataCell";
-      return `<Row>
-        <Cell ss:StyleID="${ms}"><Data ss:Type="String">${esc(r.method)}</Data></Cell>
-        <Cell ss:StyleID="sEndpointCell"><Data ss:Type="String">${esc(r.path)}</Data></Cell>
-        <Cell ss:StyleID="sDataCell"><Data ss:Type="String">${esc(formatNum(r.count))}</Data></Cell>
-        <Cell ss:StyleID="sDataCell"><Data ss:Type="String">${esc(formatMs(r.avgMs))}</Data></Cell>
-        <Cell ss:StyleID="sP95Cell"><Data ss:Type="String">${esc(formatMs(r.p95Ms))}</Data></Cell>
-        <Cell ss:StyleID="sDataCell"><Data ss:Type="String">${esc(formatMs(r.p99Ms))}</Data></Cell>
-        <Cell ss:StyleID="sMaxCell"><Data ss:Type="String">${esc(formatMs(r.maxMs))}</Data></Cell>
-        <Cell ss:StyleID="sMinCell"><Data ss:Type="String">${esc(formatMs(r.minMs))}</Data></Cell>
-        <Cell ss:StyleID="${es}"><Data ss:Type="String">${esc(formatNum(r.errorCount))}</Data></Cell>
-      </Row>`;
-    })
-    .join("");
-
-  let cronSheet = "";
-  if (cronRows.length > 0) {
-    const cronHeaders = [
-      "Cron Job",
-      "Runs",
-      "Starts",
-      "Fails",
-      "Avg",
-      "p95",
-      "p99",
-      "Max",
-      "Min",
-      "Last Run",
-      "Last Duration",
-    ];
-    const cronHeaderRow = `<Row ss:StyleID="sHeader">${cronHeaders.map((h) => `<Cell><Data ss:Type="String">${esc(h)}</Data></Cell>`).join("")}</Row>`;
-    const cronBodyRows = cronRows
-      .map((r) => {
-        const fs = r.fails > 0 ? "sErrorCell" : "sDataCell";
-        return `<Row>
-        <Cell ss:StyleID="sEndpointCell"><Data ss:Type="String">${esc(r.name)}</Data></Cell>
-        <Cell ss:StyleID="sDataCell"><Data ss:Type="String">${esc(formatNum(r.runs))}</Data></Cell>
-        <Cell ss:StyleID="sDataCell"><Data ss:Type="String">${esc(formatNum(r.starts))}</Data></Cell>
-        <Cell ss:StyleID="${fs}"><Data ss:Type="String">${esc(formatNum(r.fails))}</Data></Cell>
-        <Cell ss:StyleID="sDataCell"><Data ss:Type="String">${esc(formatMs(r.avgMs))}</Data></Cell>
-        <Cell ss:StyleID="sP95Cell"><Data ss:Type="String">${esc(formatMs(r.p95Ms))}</Data></Cell>
-        <Cell ss:StyleID="sDataCell"><Data ss:Type="String">${esc(formatMs(r.p99Ms))}</Data></Cell>
-        <Cell ss:StyleID="sMaxCell"><Data ss:Type="String">${esc(formatMs(r.maxMs))}</Data></Cell>
-        <Cell ss:StyleID="sMinCell"><Data ss:Type="String">${esc(formatMs(r.minMs))}</Data></Cell>
-        <Cell ss:StyleID="sDataCell"><Data ss:Type="String">${esc(r.lastRunTs ?? "-")}</Data></Cell>
-        <Cell ss:StyleID="sDataCell"><Data ss:Type="String">${esc(r.lastDurationMs !== undefined ? formatMs(r.lastDurationMs) : "-")}</Data></Cell>
-      </Row>`;
-      })
-      .join("");
-    cronSheet = `
-  <Worksheet ss:Name="Cron Jobs">
-    <Table>
-      <Column ss:Width="340"/><Column ss:Width="72"/><Column ss:Width="72"/><Column ss:Width="72"/>
-      <Column ss:Width="92"/><Column ss:Width="92"/><Column ss:Width="92"/><Column ss:Width="92"/><Column ss:Width="92"/>
-      <Column ss:Width="170"/><Column ss:Width="120"/>
-      <Row ss:Height="32"><Cell ss:StyleID="sTitle" ss:MergeAcross="10"><Data ss:Type="String">PM2 Log Analyzer — Cron Jobs</Data></Cell></Row>
-      <Row ss:Height="20"><Cell ss:StyleID="sMeta" ss:MergeAcross="10"><Data ss:Type="String">${esc(`Generated: ${generated}  |  Jobs: ${cronRows.length}`)}</Data></Cell></Row>
-      <Row ss:Height="8"><Cell ss:StyleID="sSpacer"/></Row>
-      ${cronHeaderRow}
-      ${cronBodyRows}
-    </Table>
-  </Worksheet>`;
-  }
-
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
-  xmlns:o="urn:schemas-microsoft-com:office:office"
-  xmlns:x="urn:schemas-microsoft-com:office:excel"
-  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
-  xmlns:html="http://www.w3.org/TR/REC-html40">
-  <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
-    <Title>PM2 Log Analyzer Report</Title><Created>${new Date().toISOString()}</Created>
-  </DocumentProperties>
-  <Styles>${STYLES}</Styles>
-  <Worksheet ss:Name="API Endpoints">
-    <Table>
-      <Column ss:Width="80"/><Column ss:Width="420"/><Column ss:Width="72"/><Column ss:Width="82"/>
-      <Column ss:Width="82"/><Column ss:Width="82"/><Column ss:Width="82"/><Column ss:Width="82"/><Column ss:Width="72"/>
-      <Row ss:Height="32"><Cell ss:StyleID="sTitle" ss:MergeAcross="8"><Data ss:Type="String">PM2 Log Analyzer — API Endpoints</Data></Cell></Row>
-      <Row ss:Height="20"><Cell ss:StyleID="sMeta" ss:MergeAcross="8"><Data ss:Type="String">${esc(`Generated: ${generated}  |  Endpoints: ${apiRows.length}`)}</Data></Cell></Row>
-      <Row ss:Height="8"><Cell ss:StyleID="sSpacer"/></Row>
-      ${apiHeaderRow}
-      ${apiBodyRows}
-    </Table>
-  </Worksheet>${cronSheet}
-</Workbook>`;
-
-  const blob = new Blob([xml], { type: "application/vnd.ms-excel;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `pm2-analyzer-report-${ts}.xls`;
+  a.download = `pm2-analyzer-report-${ts}.xlsx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
