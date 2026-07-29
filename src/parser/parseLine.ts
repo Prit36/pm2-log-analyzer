@@ -165,8 +165,7 @@ function findCronMark(buf: Uint8Array, from: number, end: number): number {
 function tryHttpABytes(buf: Uint8Array, start: number, end: number, out: LineScratch): boolean {
   let i = skipSpaceAnsiBytes(buf, start, end);
   const ts = skipTimestampBytes(buf, i, end);
-  if (!ts || ts.i === i) return false;
-  i = ts.i;
+  if (ts && ts.i !== i) i = ts.i;
 
   const meth = parseMethodBytes(buf, i, end);
   if (!meth) return false;

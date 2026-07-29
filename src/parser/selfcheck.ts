@@ -65,12 +65,25 @@ if (httpA.kind === "http") {
   approx(httpA.hit.durationMs, 12.5);
 }
 
+// --- HTTP pattern A without PM2 timestamp (Server B) ---
+const httpANoTs = parseLine(
+  "\u001b[0mPOST /api/admin/dashboard/dashboarddata \u001b[32m200\u001b[0m 71.197 ms - 223\u001b[0m",
+);
+assert(httpANoTs.kind === "http", "pattern A no-ts kind");
+if (httpANoTs.kind === "http") {
+  assert(httpANoTs.hit.method === "POST", "no-ts method");
+  assert(httpANoTs.hit.path === "/api/admin/dashboard/dashboarddata", "no-ts path");
+  assert(httpANoTs.hit.status === 200, "no-ts status");
+  approx(httpANoTs.hit.durationMs, 71.197);
+}
+
 // --- bytes parity with string parser ---
 {
   const enc = new TextEncoder();
   const samples = [
     "2026-07-24T00:00:10: GET /api/health 200 12.5 ms - 42",
     "2026-07-24T00:00:10: \u001b[0mPOST /api/x \u001b[32m201\u001b[0m 3.1 ms - -\u001b[0m",
+    "\u001b[0mPOST /api/admin/dashboard/dashboarddata \u001b[32m200\u001b[0m 71.197 ms - 223\u001b[0m",
     "68064.174ms\tPOST /api/admin/user/getuserbyrole",
     "2026-07-24T09:15:38: [cron] done export-motor-policy-csv 179ms",
     "socket connected",

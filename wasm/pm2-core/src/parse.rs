@@ -260,11 +260,11 @@ fn strip_ansi_bytes(buf: &[u8]) -> Vec<u8> {
 
 fn try_http_a(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
     let mut i = skip_space_ansi(buf, start, end);
-    let ts = skip_timestamp(buf, i, end)?;
-    if ts.0 == i {
-        return None;
+    if let Some((ni, _, _)) = skip_timestamp(buf, i, end) {
+        if ni != i {
+            i = ni;
+        }
     }
-    i = ts.0;
     let (method, ni) = parse_method(buf, i, end)?;
     i = ni;
     let (ps, pe, ni) = read_token(buf, i, end)?;
@@ -472,6 +472,26 @@ mod tests {
                 assert_eq!(&s[path_start..path_end], b"/api/health");
                 assert_eq!(status, 200);
                 assert!((duration_ms - 12.5).abs() < 0.01);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn http_a_no_timestamp() {
+        let s = b"\x1b[0mPOST /api/admin/dashboard/dashboarddata \x1b[32m200\x1b[0m 71.197 ms - 223\x1b[0m";
+        match parse_line_bytes(s, 0, s.len()) {
+            LineKind::Http {
+                method,
+                path_start,
+                path_end,
+                status,
+                duration_ms,
+            } => {
+                assert_eq!(method, Method::Post);
+                assert_eq!(&s[path_start..path_end], b"/api/admin/dashboard/dashboarddata");
+                assert_eq!(status, 200);
+                assert!((duration_ms - 71.197).abs() < 0.01);
             }
             other => panic!("unexpected {other:?}"),
         }
