@@ -10,7 +10,7 @@ import { basename, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 
 const baseUrl = process.argv[2] ?? "http://127.0.0.1:4173";
-const filePath = resolve(process.argv[3] ?? "test_data/api-out-500mb.log");
+const filePath = resolve(process.argv[3] ?? "test_data/api-out-5gb.log");
 const fileBytes = statSync(filePath).size;
 
 function log(...args) {

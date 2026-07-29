@@ -1,7 +1,7 @@
 /**
  * Benchmark the REAL browser app (Chromium + Vite preview + Web Worker).
  *
- * Defaults: test_data/api-out-500mb.log × 5 runs
+ * Defaults: test_data/api-out-5gb.log × 5 runs
  *
  * Usage:
  *   pnpm bench
@@ -21,7 +21,7 @@ const PORT = 4173;
 const BASE = `http://127.0.0.1:${PORT}`;
 
 function parseArgs(argv) {
-  const args = { file: "test_data/api-out-500mb.log", runs: 5, note: "", skipBuild: false };
+  const args = { file: "test_data/api-out-5gb.log", runs: 5, note: "", skipBuild: false };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];

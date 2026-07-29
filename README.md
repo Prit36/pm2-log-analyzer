@@ -2,9 +2,9 @@
 
 Browser-only ops console for large PM2 HTTP / cron logs. Drop a file (or paste text), get KPI cards, filterable API latency tables, percentile charts, cron summaries, and Excel export — all client-side. No backend.
 
-**Corpus used for timed numbers below:** `test_data/api-out-500mb.log` (~535 MiB), **3,718,450** matched HTTP lines, **2,788,590** unmatched, **6,107** endpoints, **9** cron jobs. Benches are real Chromium + Vite preview + Web Workers via Playwright (`scripts/bench/bench.mjs`). Full session log: [`scripts/bench/history.json`](scripts/bench/history.json).
+**Default stress corpus:** `test_data/api-out-5gb.log` (~5.22 GiB) — **36,572,842** matched HTTP lines, **27,427,800** unmatched, **6,107** endpoints, **9** cron jobs (10× concat of the older 535 MiB file). The climb in [Performance journey](#performance-journey) §1 was timed on `api-out-500mb.log`; §2 is the current 5 GiB gate. Benches are real Chromium + Vite preview + Web Workers via Playwright (`scripts/bench/bench.mjs`). Full session log: [`scripts/bench/history.json`](scripts/bench/history.json).
 
-The story starts earlier than that corpus: before [`ef58f1f`](https://github.com/Prit36/pm2-log-analyzer/commit/ef58f1f), even **~50 MB** files could hang or crash the tab (main-thread parse). See [Performance journey](#performance-journey).
+The story starts earlier than either corpus: before [`ef58f1f`](https://github.com/Prit36/pm2-log-analyzer/commit/ef58f1f), even **~50 MB** files could hang or crash the tab (main-thread parse). See [Performance journey](#performance-journey).
 
 ---
 
@@ -85,6 +85,8 @@ On Windows, if `cargo install wasm-bindgen-cli` fails (e.g. missing `dlltool`), 
 ```bash
 pnpm build
 node scripts/bench/bench.mjs --runs 5 --note "my-note"
+# defaults to test_data/api-out-5gb.log (~5.22 GiB); pass a path to override:
+# node scripts/bench/bench.mjs test_data/api-out-500mb.log --runs 5 --note "500mb"
 # or skip Vite rebuild:
 node scripts/bench/bench.mjs --runs 5 --note "my-note" --skip-build
 ```
@@ -115,7 +117,7 @@ Before any of the timed 535 MiB work, even **~50 MB** logs could lock or cra
 - Keep compact **typed-array** columns instead of per-line objects  
 - **Virtualize** result tables so the UI stays responsive  
 
-That turned “crashes / multi‑minute freezes on modest files” into something you could open and interact with. Everything below is further optimization on a **~535 MiB** stress corpus, with Playwright benches in `scripts/bench/history.json`.
+That turned “crashes / multi‑minute freezes on modest files” into something you could open and interact with. Section 1 below is further optimization on the **~535 MiB** stress corpus; section 2 is the later **~5.22 GiB** default. Playwright benches live in `scripts/bench/history.json`.
 
 #### 1. Instrumented climb (same 535 MiB corpus)
 
@@ -145,6 +147,24 @@ Early post-worker UI still felt heavy on huge files (multi‑second filter reagg
 Exact result parity held across the timed journey: matched **3,718,450**, unmatched **2,788,590**, endpoints **6,107**, cron **9**.
 
 Quiet stage map at the sub-1s point (avg ms): `feed≈524` (still the largest slice), `firstReagg≈159` (was ~414 before `ENSURE_MODE` overlap), warm reagg `shard≈32` / `decode≈10` / `finish≈24`.
+
+#### 2. Scale-up: 5 GiB default corpus (`5gb default`)
+
+Default bench file switched to `test_data/api-out-5gb.log` (~5.22 GiB / ~5350 MiB) — same line mix as the 535 MiB corpus, repeated 10×. Session **47** in `history.json` (`5gb default`, 5 runs):
+
+| Metric | Avg (±stddev) |
+|--------|----------------|
+| Parse wall | **8.39 s ± 0.09** |
+| Upload → KPI ready | **8.41 s ± 0.10** |
+| Throughput | **638 MB/s** |
+| Chromium RSS peak | **~3.93 GiB** |
+| Reagg avg | **322 ms** |
+
+Result parity: matched **36,572,842**, unmatched **27,427,800**, endpoints **6,107**, cron **9**.
+
+Stages (avg ms): `read≈1386`, `feed≈5456`, `endShard≈310`, `firstReagg≈919` (`shard≈838` / `decode≈39` / `finish≈42`); warm reagg `shard≈267` / `decode≈13` / `finish≈25`.
+
+Rough scale check vs quiet 535 MiB (~0.98 s parse / ~86 ms reagg / ~1.15 GiB RSS): ~10× bytes → ~8.6× parse wall, ~3.7× reagg, ~3.4× RSS peak — feed still dominates; first reagg and RSS grow sub-linearly with the repeated corpus (same endpoint cardinality).
 
 ### Architecture (current)
 
