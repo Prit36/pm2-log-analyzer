@@ -118,6 +118,61 @@ async function parseFileRange(file: File, start: number, end: number): Promise<S
   const readEnd = Math.min(file.size, end + LINE_EXTEND);
   let off = start;
 
+  // Try ReadableStream BYOB zero-copy reader directly into Wasm ingest_ptr
+  let byobReader: ReadableStreamBYOBReader | null = null;
+  try {
+    const slice = file.slice(start, readEnd);
+    const stream = slice.stream();
+    if (typeof stream.getReader === "function") {
+      byobReader = stream.getReader({ mode: "byob" }) as ReadableStreamBYOBReader;
+    }
+  } catch {
+    byobReader = null;
+  }
+
+  if (byobReader) {
+    try {
+      while (off < readEnd) {
+        const take = Math.min(CHUNK, readEnd - off);
+        const ptr = engine!.ingest_ptr(take);
+        const destView = new Uint8Array(wasmMemory!.buffer, ptr, take);
+
+        const t0 = performance.now();
+        const { value, done } = await byobReader.read(destView);
+        readMs += performance.now() - t0;
+
+        if (done || !value || value.byteLength === 0) break;
+
+        const tFeed = performance.now();
+        engine!.feed(value.byteLength, off);
+        feedMs += performance.now() - tFeed;
+
+        off += value.byteLength;
+        if (off >= end + LINE_EXTEND) break;
+      }
+
+      const tEnd = performance.now();
+      engine!.end_shard();
+      const endShardMs = performance.now() - tEnd;
+
+      return {
+        readMs,
+        copyIngestMs: 0,
+        feedMs,
+        endShardMs,
+        metaWireMs: 0,
+        shardWallMs: readMs + feedMs + endShardMs,
+      };
+    } catch {
+      // Fallback if browser stream fails or BYOB detaches
+    } finally {
+      try {
+        byobReader.releaseLock();
+      } catch {}
+    }
+  }
+
+  // Fallback: Slice reading into Wasm ingest window
   while (off < readEnd) {
     const take = Math.min(CHUNK, readEnd - off);
     const t0 = performance.now();

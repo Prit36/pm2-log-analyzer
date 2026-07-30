@@ -167,6 +167,10 @@ impl Engine {
         self.statuses.reserve(estimate);
         self.durations.reserve(estimate);
         self.path_ids.reserve(estimate);
+        self.path_off.reserve(2048);
+        self.path_len.reserve(2048);
+        self.path_bytes.reserve(65536);
+        self.path_index.reserve(2048);
     }
 
     fn reset_columns(&mut self) {

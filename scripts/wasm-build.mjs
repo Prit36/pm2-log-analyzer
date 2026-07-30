@@ -44,8 +44,6 @@ requireWasmOpt();
 run("cargo test --manifest-path wasm/pm2-core/Cargo.toml");
 run(
   "cargo build --manifest-path wasm/pm2-core/Cargo.toml --target wasm32-unknown-unknown --release",
-  root,
-  { RUSTFLAGS: "-C target-feature=+simd128,+relaxed-simd,+tail-call,+extended-const,+bulk-memory,+nontrapping-fptoint,+mutable-globals,+sign-ext" },
 );
 
 fs.mkdirSync(pkgDir, { recursive: true });
