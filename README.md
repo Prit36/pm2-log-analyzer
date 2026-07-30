@@ -150,22 +150,24 @@ Quiet stage map at the sub-1s point (avg ms): `feed≈524` (still the largest sl
 
 #### 2. Scale-up: 5 GiB default corpus (`5gb default`)
 
-Default bench file switched to `test_data/api-out-5gb.log` (~5.22 GiB / ~5350 MiB) — same line mix as the 535 MiB corpus, repeated 10×. With WebAssembly 3.0 target optimizations, zero-copy `ReadableStream` BYOB stream ingestion directly into Wasm linear memory, fat LTO, and arena pre-allocations (session **62** in `history.json`, 5 runs):
+Default bench file switched to `test_data/api-out-5gb.log` (~5.22 GiB / ~5350 MiB) — same line mix as the 535 MiB corpus, repeated 10×. With WebAssembly 3.0 target optimizations, 16-byte cache-aligned `PackedEntry` struct packing, SIMD `memchr_iter` batch line scanning, zero-copy `ReadableStream` BYOB stream ingestion directly into Wasm linear memory, fat LTO, and arena pre-allocations (session **66** in `history.json`, 3 runs):
 
 | Metric | Avg (±stddev) |
 |--------|----------------|
-| Parse wall | **7.98 s ± 0.05** |
-| Upload → KPI ready | **8.00 s ± 0.05** |
-| Throughput | **670.6 MB/s** |
-| Chromium RSS peak | **~2.65 GiB** (down from ~3.93 GiB) |
+| Parse wall | **7.39 s ± 0.01** |
+| Upload → KPI ready | **7.41 s ± 0.01** |
+| Throughput | **723.2 MB/s** |
+| Chromium RSS peak | **~2.68 GiB** (down from ~3.93 GiB) |
 
+- **16-Byte Contiguous Entry Packing:** Replaced 4 separate vectors with a single 16-byte aligned `PackedEntry` struct vector (`entries: Vec<PackedEntry>`), cutting vector allocation push overhead by 4x and maximizing CPU L1/L2 cache hit rates.
+- **SIMD Batch Newline Iterator:** Batched up to 32 line break offsets per call via `memchr::memchr_iter(b'\n', rest)` into a stack buffer, processing lines in unrolled tight loops.
 - **Zero-Copy BYOB Stream Ingestion:** Bytes stream directly from disk into Wasm `ingest_ptr` linear memory without intermediate V8 `ArrayBuffer` allocations (`copy = 0 ms`).
 - **Wasm 3.0 + Fat LTO:** Compiled with `-C target-feature=+simd128,+relaxed-simd,+tail-call,+extended-const` and whole-program LLVM link-time optimization (`lto = true`).
-| Reagg avg | **322 ms** |
+| Reagg avg | **265 ms** |
 
 Result parity: matched **36,572,842**, unmatched **27,427,800**, endpoints **6,107**, cron **9**.
 
-Stages (avg ms): `read≈1386`, `feed≈5456`, `endShard≈310`, `firstReagg≈919` (`shard≈838` / `decode≈39` / `finish≈42`); warm reagg `shard≈267` / `decode≈13` / `finish≈25`.
+Stages (avg ms): `read≈1432`, `feed≈4621`, `endShard≈216`, `firstReagg≈766` (`shard≈682` / `decode≈41` / `finish≈39`); warm reagg `shard≈216` / `decode≈11` / `finish≈26`.
 
 Rough scale check vs quiet 535 MiB (~0.98 s parse / ~86 ms reagg / ~1.15 GiB RSS): ~10× bytes → ~8.6× parse wall, ~3.7× reagg, ~3.4× RSS peak — feed still dominates; first reagg and RSS grow sub-linearly with the repeated corpus (same endpoint cardinality).
 

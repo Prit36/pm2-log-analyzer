@@ -19,6 +19,16 @@ fn new_byte_map<V>() -> ByteMap<V> {
     HashMap::with_hasher(RandomState::default())
 }
 
+#[repr(C, align(16))]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PackedEntry {
+    pub path_id: u32,
+    pub duration: f32,
+    pub status: u16,
+    pub method: u8,
+    pub _pad: u8,
+}
+
 #[derive(Clone)]
 struct CronEv {
     event: u8,
@@ -49,10 +59,7 @@ pub struct Engine {
     path_len: Vec<u16>,
     path_index: ByteMap<u32>,
 
-    method_codes: Vec<u8>,
-    statuses: Vec<u16>,
-    durations: Vec<f32>,
-    path_ids: Vec<u32>,
+    entries: Vec<PackedEntry>,
 
     unmatched_count: u32,
     unmatched_sample: Vec<Vec<u8>>,
@@ -91,10 +98,7 @@ impl Engine {
             path_off: Vec::new(),
             path_len: Vec::new(),
             path_index: new_byte_map(),
-            method_codes: Vec::new(),
-            statuses: Vec::new(),
-            durations: Vec::new(),
-            path_ids: Vec::new(),
+            entries: Vec::new(),
             unmatched_count: 0,
             unmatched_sample: Vec::new(),
             cron_events: Vec::new(),
@@ -128,7 +132,7 @@ impl Engine {
     }
 
     pub fn hit_count(&self) -> usize {
-        self.method_codes.len()
+        self.entries.len()
     }
 
     pub fn unmatched_count(&self) -> u32 {
@@ -163,10 +167,7 @@ impl Engine {
         self.carry_abs = 0;
         let span = end.saturating_sub(start) as usize;
         let estimate = (span / 140).saturating_add(1024).min(4_000_000);
-        self.method_codes.reserve(estimate);
-        self.statuses.reserve(estimate);
-        self.durations.reserve(estimate);
-        self.path_ids.reserve(estimate);
+        self.entries.reserve(estimate);
         self.path_off.reserve(2048);
         self.path_len.reserve(2048);
         self.path_bytes.reserve(65536);
@@ -178,10 +179,7 @@ impl Engine {
         self.path_off.clear();
         self.path_len.clear();
         self.path_index.clear();
-        self.method_codes.clear();
-        self.statuses.clear();
-        self.durations.clear();
-        self.path_ids.clear();
+        self.entries.clear();
         self.unmatched_count = 0;
         self.unmatched_sample.clear();
         self.cron_events.clear();
@@ -215,7 +213,7 @@ impl Engine {
     /// Common path: no carry — SIMD memchr newline scan over ingest window.
     fn feed_ingest_only(&mut self, len: usize, abs_off: u32) -> u32 {
         let abs_off = abs_off as u64;
-        let before = self.method_codes.len();
+        let before = self.entries.len();
         let mut ingest = std::mem::take(&mut self.ingest);
         if ingest.len() < len {
             ingest.resize(len, 0);
@@ -243,40 +241,51 @@ impl Engine {
             }
         }
 
+        let mut batch = [0usize; 32];
         while i < len {
             let abs_line_start = abs_off + i as u64;
             if abs_line_start >= self.shard_end {
                 break;
             }
-            let line_start = i;
             let rest = &view[i..];
-            match memchr(b'\n', rest) {
-                Some(rel) => {
-                    let line_end = i + rel;
-                    self.accept_line(view, line_start, line_end);
-                    i = line_end + 1;
-                }
-                None => {
-                    if !at_file_end && abs_line_start < extend_limit {
-                        self.carry.clear();
-                        self.carry.extend_from_slice(&view[line_start..]);
-                        self.carry_abs = abs_line_start;
-                    } else if at_file_end {
-                        self.accept_line(view, line_start, len);
-                    }
+            let mut count = 0;
+            for nl_rel in memchr::memchr_iter(b'\n', rest) {
+                batch[count] = i + nl_rel;
+                count += 1;
+                if count == 32 {
                     break;
                 }
+            }
+
+            if count > 0 {
+                let mut line_start = i;
+                for k in 0..count {
+                    let line_end = batch[k];
+                    self.accept_line(view, line_start, line_end);
+                    line_start = line_end + 1;
+                }
+                i = line_start;
+            } else {
+                let line_start = i;
+                if !at_file_end && abs_line_start < extend_limit {
+                    self.carry.clear();
+                    self.carry.extend_from_slice(&view[line_start..]);
+                    self.carry_abs = abs_line_start;
+                } else if at_file_end {
+                    self.accept_line(view, line_start, len);
+                }
+                break;
             }
         }
 
         self.ingest = ingest;
-        (self.method_codes.len() - before) as u32
+        (self.entries.len() - before) as u32
     }
 
     /// Rare path: leftover partial line from previous chunk.
     fn feed_with_carry(&mut self, len: usize, abs_off: u32) -> u32 {
         let abs_off = abs_off as u64;
-        let before = self.method_codes.len();
+        let before = self.entries.len();
 
         let mut ingest = std::mem::take(&mut self.ingest);
         if ingest.len() < len {
@@ -367,7 +376,7 @@ impl Engine {
         }
 
         self.ingest = ingest;
-        (self.method_codes.len() - before) as u32
+        (self.entries.len() - before) as u32
     }
 
     pub fn end_shard(&mut self) {
@@ -394,9 +403,9 @@ impl Engine {
         let mut errors = 0u32;
         let mut slow = 0u32;
         let mut sketch = RelHist::new();
-        for i in 0..self.durations.len() {
-            let d = self.durations[i];
-            let st = self.statuses[i];
+        for entry in &self.entries {
+            let d = entry.duration;
+            let st = entry.status;
             sum += d as f64;
             sketch.accept(d);
             if d > max {
@@ -455,10 +464,13 @@ impl Engine {
             } => {
                 let path = &buf[path_start..path_end];
                 let pid = self.intern_path(path);
-                self.method_codes.push(method as u8);
-                self.statuses.push(status);
-                self.durations.push(duration_ms);
-                self.path_ids.push(pid);
+                self.entries.push(PackedEntry {
+                    path_id: pid,
+                    duration: duration_ms,
+                    status,
+                    method: method as u8,
+                    _pad: 0,
+                });
                 self.methods_mask |= 1u8 << (method as u8);
             }
             LineKind::Unmatched => {
@@ -496,7 +508,7 @@ impl Engine {
             off += take;
         }
         self.end_shard();
-        self.method_codes.len()
+        self.entries.len()
     }
 
     fn intern_path(&mut self, path: &[u8]) -> u32 {
@@ -664,21 +676,22 @@ impl Engine {
             None
         };
 
-        let n = self.method_codes.len();
+        let n = self.entries.len();
         let path_to_norm = &self.path_to_norm[mode];
         for i in 0..n {
-            let duration_ms = self.durations[i];
-            let status = self.statuses[i];
+            let e = self.entries[i];
+            let duration_ms = e.duration;
+            let status = e.status;
 
             if duration_ms < min_ms {
                 continue;
             }
-            let method_code = self.method_codes[i];
+            let method_code = e.method;
             if status_want != -1 && ((status / 100) as i32) != status_want {
                 continue;
             }
 
-            let path_id = self.path_ids[i] as usize;
+            let path_id = e.path_id as usize;
             let norm_id = path_to_norm[path_id];
             let key = ((norm_id as u64) << 3) | (method_code as u64);
 
@@ -769,7 +782,7 @@ impl Engine {
             sum_max,
             sum_errors,
             sum_slow,
-            self.method_codes.len() as u32,
+            self.entries.len() as u32,
             self.unmatched_count,
         )
     }
