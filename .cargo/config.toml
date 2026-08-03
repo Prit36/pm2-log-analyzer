@@ -1,6 +1,3 @@
-[target.x86_64-pc-windows-gnu]
-rustflags = ["-C", "link-self-contained=yes"]
-
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "target-feature=+simd128,+relaxed-simd,+tail-call,+extended-const,+bulk-memory,+nontrapping-fptoint,+mutable-globals,+sign-ext"]
 

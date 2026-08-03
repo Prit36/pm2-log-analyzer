@@ -21,19 +21,7 @@ function log(...args) {
 function playwrightChromiumRssMB() {
   try {
     if (process.platform === "win32") {
-      const script = `
-$procs = Get-CimInstance Win32_Process | Where-Object {
-  $_.Name -match '^(chrome|chrome-headless-shell|headless_shell|chromium)\\.exe$' -and
-  ($_.CommandLine -match 'ms-playwright' -or $_.CommandLine -match 'playwright_chromium')
-}
-if (-not $procs) { Write-Output 0; exit 0 }
-Write-Output (($procs | Measure-Object -Property WorkingSetSize -Sum).Sum)
-`;
-      const out = execFileSync("powershell.exe", ["-NoProfile", "-Command", script], {
-        encoding: "utf8",
-      }).trim();
-      const bytes = Number(out.split(/\r?\n/).filter(Boolean).at(-1));
-      return Number.isFinite(bytes) && bytes > 0 ? bytes / (1024 * 1024) : null;
+      return null;
     }
     const out = execSync(
       "ps -eo rss=,args= | grep -E 'ms-playwright|playwright_chromium' | grep -v grep | awk '{s+=$1} END {print s+0}'",

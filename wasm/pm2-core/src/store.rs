@@ -10,7 +10,7 @@ use rapidhash::fast::RandomState;
 
 const LINE_EXTEND: usize = 256 * 1024;
 /// Reusable ingest window. Keeps Wasm peak memory bounded.
-pub const INGEST_CAP: usize = 8 * 1024 * 1024;
+pub const INGEST_CAP: usize = 512 * 1024 * 1024;
 
 /// Path/norm indexes: rapidhash beats foldhash on byte keys.
 type ByteMap<V> = HashMap<Vec<u8>, V, RandomState>;
@@ -38,6 +38,7 @@ struct CronEv {
 }
 
 struct EndpointAcc {
+    active: bool,
     method: u8,
     path_bytes: Vec<u8>,
     sketch: RelHist,
@@ -86,6 +87,7 @@ pub struct Engine {
     file_size: u64,
     skip_partial: bool,
     parsing: bool,
+    last_path_id: Option<u32>,
 }
 
 impl Engine {
@@ -120,6 +122,7 @@ impl Engine {
             file_size: 0,
             skip_partial: false,
             parsing: false,
+            last_path_id: None,
         }
     }
 
@@ -198,6 +201,7 @@ impl Engine {
         self.summary_slow = 0;
         self.summary_sketch = RelHist::new();
         self.summary_ready = false;
+        self.last_path_id = None;
     }
 
     /// Feed `len` bytes already written at ingest[0..len] starting at absolute `abs_off`.
@@ -512,19 +516,31 @@ impl Engine {
     }
 
     fn intern_path(&mut self, path: &[u8]) -> u32 {
-        let next_id = self.path_off.len() as u32;
-        match self.path_index.entry_ref(path) {
-            EntryRef::Occupied(e) => return *e.get(),
-            EntryRef::Vacant(e) => {
-                e.insert(next_id);
+        if let Some(last_id) = self.last_path_id {
+            let last_id_usize = last_id as usize;
+            if last_id_usize < self.path_off.len() {
+                let off = self.path_off[last_id_usize] as usize;
+                let len = self.path_len[last_id_usize] as usize;
+                if path.len() == len && &self.path_bytes[off..off + len] == path {
+                    return last_id;
+                }
             }
         }
-        let off = self.path_bytes.len() as u32;
-        self.path_bytes.extend_from_slice(path);
-        self.path_off.push(off);
-        self.path_len.push(path.len() as u16);
-        self.mode_ready = [false; 3];
-        next_id
+        let next_id = self.path_off.len() as u32;
+        let pid = match self.path_index.entry_ref(path) {
+            EntryRef::Occupied(e) => *e.get(),
+            EntryRef::Vacant(e) => {
+                e.insert(next_id);
+                let off = self.path_bytes.len() as u32;
+                self.path_bytes.extend_from_slice(path);
+                self.path_off.push(off);
+                self.path_len.push(path.len() as u16);
+                self.mode_ready = [false; 3];
+                next_id
+            }
+        };
+        self.last_path_id = Some(pid);
+        pid
     }
 
     fn path_slice(&self, id: usize) -> &[u8] {
@@ -649,9 +665,19 @@ impl Engine {
             0
         };
 
-        let mut dense: Vec<Option<Box<EndpointAcc>>> = if use_dense {
+        let mut dense: Vec<EndpointAcc> = if use_dense {
             let mut v = Vec::with_capacity(dense_len);
-            v.resize_with(dense_len, || None);
+            v.resize_with(dense_len, || EndpointAcc {
+                active: false,
+                method: 0,
+                path_bytes: Vec::new(),
+                sketch: RelHist::new(),
+                count: 0,
+                sum: 0.0,
+                min: f32::INFINITY,
+                max: f32::NEG_INFINITY,
+                error_count: 0,
+            });
             v
         } else {
             Vec::new()
@@ -700,20 +726,11 @@ impl Engine {
                 if idx >= dense.len() {
                     continue;
                 }
-                let slot = &mut dense[idx];
-                if slot.is_none() {
-                    *slot = Some(Box::new(EndpointAcc {
-                        method: method_code,
-                        path_bytes: Vec::new(),
-                        sketch: RelHist::new(),
-                        count: 0,
-                        sum: 0.0,
-                        min: f32::INFINITY,
-                        max: f32::NEG_INFINITY,
-                        error_count: 0,
-                    }));
+                let entry = &mut dense[idx];
+                if !entry.active {
+                    entry.active = true;
+                    entry.method = method_code;
                 }
-                let entry = slot.as_mut().unwrap();
                 entry.sketch.accept(duration_ms);
                 entry.count += 1;
                 entry.sum += duration_ms as f64;
@@ -728,6 +745,7 @@ impl Engine {
                 }
             } else {
                 let entry = by_key.entry(key).or_insert_with(|| EndpointAcc {
+                    active: true,
                     method: method_code,
                     path_bytes: Vec::new(),
                     sketch: RelHist::new(),
@@ -755,13 +773,13 @@ impl Engine {
         // Attach path bytes and collect for encode
         let mut endpoints: Vec<(u32, EndpointAcc)> = Vec::new();
         if use_dense {
-            for (idx, slot) in dense.into_iter().enumerate() {
-                if let Some(mut e) = slot {
+            for (idx, mut e) in dense.into_iter().enumerate() {
+                if e.active {
                     let norm_id = (idx >> 3) as u32;
                     let off = self.norm_off[mode][norm_id as usize] as usize;
                     let len = self.norm_len[mode][norm_id as usize] as usize;
                     e.path_bytes = self.norm_bytes[mode][off..off + len].to_vec();
-                    endpoints.push((norm_id, *e));
+                    endpoints.push((norm_id, e));
                 }
             }
         } else {

@@ -4,8 +4,8 @@
  * Defaults: test_data/api-out-5gb.log × 5 runs
  *
  * Usage:
- *   pnpm bench
- *   pnpm bench -- --note "baseline"
+ *   node scripts/bench/bench.mjs
+ *   node scripts/bench/bench.mjs --note "baseline"
  *   node scripts/bench/bench.mjs --runs 3 --note "quick"
  *
  * History: scripts/bench/history.json

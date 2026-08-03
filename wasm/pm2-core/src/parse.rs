@@ -102,31 +102,19 @@ fn skip_timestamp(buf: &[u8], start: usize, end: usize) -> Option<(usize, usize,
         return None;
     }
     let a = start;
-    for k in 0..10 {
-        let c = buf[a + k];
-        if k == 4 || k == 7 {
-            if c != b'-' {
-                return None;
-            }
-        } else if !is_digit(c) {
-            return None;
-        }
+    let b = &buf[a..a + 20];
+    if b[4] != b'-' || b[7] != b'-' || b[13] != b':' || b[16] != b':' || b[19] != b':' {
+        return None;
     }
-    let sep = buf[a + 10];
+    let sep = b[10];
     if sep != b'T' && sep != b' ' {
         return None;
     }
-    for k in 11..19 {
-        let c = buf[a + k];
-        if k == 13 || k == 16 {
-            if c != b':' {
-                return None;
-            }
-        } else if !is_digit(c) {
-            return None;
-        }
-    }
-    if buf[a + 19] != b':' {
+    if !is_digit(b[0]) || !is_digit(b[1]) || !is_digit(b[2]) || !is_digit(b[3])
+        || !is_digit(b[5]) || !is_digit(b[6]) || !is_digit(b[8]) || !is_digit(b[9])
+        || !is_digit(b[11]) || !is_digit(b[12]) || !is_digit(b[14]) || !is_digit(b[15])
+        || !is_digit(b[17]) || !is_digit(b[18])
+    {
         return None;
     }
     Some((skip_space_ansi(buf, a + 20, end), a, a + 19))
@@ -160,61 +148,57 @@ fn parse_method(buf: &[u8], mut i: usize, end: usize) -> Option<(Method, usize)>
     None
 }
 
+#[inline]
 fn read_token(buf: &[u8], mut i: usize, end: usize) -> Option<(usize, usize, usize)> {
     i = skip_space_ansi(buf, i, end);
     if i >= end {
         return None;
     }
     let start = i;
-    while i < end {
-        let c = buf[i];
-        if c == b' ' || c == b'\t' || c == 0x1b {
-            break;
+    if let Some(rel) = memchr::memchr3(b' ', b'\t', 0x1b, &buf[i..end]) {
+        let tok_end = i + rel;
+        if tok_end == start {
+            return None;
         }
-        i += 1;
+        Some((start, tok_end, tok_end))
+    } else {
+        Some((start, end, end))
     }
-    if i == start {
-        return None;
-    }
-    Some((start, i, i))
 }
 
+#[inline]
 fn parse_float(buf: &[u8], mut i: usize, end: usize) -> Option<(f32, usize)> {
     i = skip_space_ansi(buf, i, end);
+    if i >= end || (!is_digit(buf[i]) && buf[i] != b'.') {
+        return None;
+    }
     let start = i;
+    let mut int_val: u32 = 0;
     while i < end && is_digit(buf[i]) {
+        int_val = int_val * 10 + (buf[i] - b'0') as u32;
         i += 1;
     }
     if i < end && buf[i] == b'.' {
         i += 1;
+        let frac_start = i;
+        let mut frac_val: u32 = 0;
+        let mut div: f32 = 1.0;
         while i < end && is_digit(buf[i]) {
+            frac_val = frac_val * 10 + (buf[i] - b'0') as u32;
+            div *= 10.0;
             i += 1;
         }
-    }
-    if i == start {
-        return None;
-    }
-    let mut value: f32 = 0.0;
-    let mut frac: f32 = 0.0;
-    let mut frac_div: f32 = 1.0;
-    let mut seen_dot = false;
-    for &c in &buf[start..i] {
-        if c == b'.' {
-            seen_dot = true;
-            continue;
+        if i == start || (i == frac_start && frac_start == start + 1) {
+            return None;
         }
-        let d = (c - b'0') as f32;
-        if !seen_dot {
-            value = value * 10.0 + d;
-        } else {
-            frac = frac * 10.0 + d;
-            frac_div *= 10.0;
+        let val = (int_val as f32) + (frac_val as f32) / div;
+        Some((val, i))
+    } else {
+        if i == start {
+            return None;
         }
+        Some((int_val as f32, i))
     }
-    if seen_dot {
-        value += frac / frac_div;
-    }
-    Some((value, i))
 }
 
 fn find_cron_mark(buf: &[u8], from: usize, end: usize) -> Option<usize> {
@@ -435,22 +419,25 @@ pub fn parse_line_bytes(buf: &[u8], start: usize, mut end: usize) -> LineKind {
     if end > start && buf[end - 1] == b'\r' {
         end -= 1;
     }
-    if !has_non_space(buf, start, end) {
+    if start >= end {
         return LineKind::Empty;
+    }
+    if let Some(k) = try_http_a(buf, start, end) {
+        return k;
     }
     if find_cron_mark(buf, start, end).is_some() {
         if let Some(k) = try_cron(buf, start, end) {
             return k;
         }
     }
-    if let Some(k) = try_http_a(buf, start, end) {
-        return k;
-    }
     if let Some(k) = try_http_b(buf, start, end) {
         return k;
     }
-    let _ = start;
-    LineKind::Unmatched
+    if !has_non_space(buf, start, end) {
+        LineKind::Empty
+    } else {
+        LineKind::Unmatched
+    }
 }
 
 #[cfg(test)]

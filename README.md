@@ -25,7 +25,7 @@ The story starts earlier than either corpus: before [`ef58f1f`](https://github.c
 |-------|--------|
 | UI | React 19, Tailwind CSS 4, Zustand, Recharts, react-window |
 | App shell | TypeScript 7 (strict), Vite 8 |
-| Tooling | pnpm, oxlint, oxfmt, Playwright (browser benches) |
+| Tooling | npm, oxlint, oxfmt, Playwright (browser benches) |
 | Parse / reagg | Rust → Wasm (`wasm/pm2-core`), `wasm-bindgen` 0.2.126, Binaryen `wasm-opt -O3` |
 | Hot crates | `hashbrown` 0.17 (foldhash for RelHist), `rapidhash` 4 (path maps), `memchr` 2.8 (SIMD newlines / `memmem`) |
 | Workers | 4 persistent shard workers; chunked 8 MiB ingest into Wasm linear memory (`ingest_ptr` + `feed`) |
@@ -36,8 +36,8 @@ The story starts earlier than either corpus: before [`ef58f1f`](https://github.c
 ## Quick start
 
 ```bash
-pnpm install
-pnpm dev
+npm install
+npm run dev
 ```
 
 Open the URL Vite prints, drop a `.log` file.
@@ -45,8 +45,8 @@ Open the URL Vite prints, drop a `.log` file.
 ### Production build
 
 ```bash
-pnpm build
-pnpm preview
+npm run build
+npm run preview
 ```
 
 Output is a single `dist/index.html` (plus a small logo asset).
@@ -54,9 +54,9 @@ Output is a single `dist/index.html` (plus a small logo asset).
 ### Lint / format / self-check
 
 ```bash
-pnpm lint
-pnpm fmt
-pnpm selfcheck
+npm run lint
+npm run fmt
+npm run selfcheck
 ```
 
 ---
@@ -70,8 +70,8 @@ Needed only when changing `wasm/pm2-core`. Requires:
 - `wasm-opt` from [Binaryen](https://github.com/WebAssembly/binaryen/releases) **on PATH** (build fails if missing)
 
 ```bash
-pnpm wasm:build    # cargo test + release Wasm + wasm-opt + embed into src/wasm/pm2CoreBytes.ts
-pnpm build
+npm run wasm:build    # cargo test + release Wasm + wasm-opt + embed into src/wasm/pm2CoreBytes.ts
+npm run build
 ```
 
 On Windows, if `cargo install wasm-bindgen-cli` fails (e.g. missing `dlltool`), install the matching [GitHub release binary](https://github.com/wasm-bindgen/wasm-bindgen/releases) into a directory on your PATH.
@@ -83,7 +83,7 @@ On Windows, if `cargo install wasm-bindgen-cli` fails (e.g. missing `dlltool`), 
 ### How to run
 
 ```bash
-pnpm build
+npm run build
 node scripts/bench/bench.mjs --runs 5 --note "my-note"
 # defaults to test_data/api-out-5gb.log (~5.22 GiB); pass a path to override:
 # node scripts/bench/bench.mjs test_data/api-out-500mb.log --runs 5 --note "500mb"

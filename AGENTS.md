@@ -153,19 +153,19 @@ Boris Cherny (creator of Claude Code) keeps his team's file around 100 lines. Un
 ### Stack
 - Language and version: TypeScript 7.0.2 (strict), target ESNext
 - Framework(s): React 19.2.8, Vite 8.1.5, Tailwind CSS 4.3.3 (`@tailwindcss/vite`)
-- Package manager: pnpm (lockfile: `pnpm-lock.yaml`)
+- Package manager: User choice (e.g. bun, yarn, npm)
 - Runtime / deployment target: Browser SPA (Vite multi-asset build)
 
 ### Commands
-- Install: `pnpm install`
-- Build: `pnpm build`
+- Install: `<package-manager> install`
+- Build: `<package-manager> run build`
 - Test (all): `TODO` (no test script in package.json)
 - Test (single file): `TODO`
-- Lint: `pnpm lint` (`oxlint`); fix: `pnpm lint:fix`
-- Format: `pnpm fmt` (`oxfmt`); check: `pnpm fmt:check`
+- Lint: `<package-manager> run lint` (`oxlint`); fix: `<package-manager> run lint:fix`
+- Format: `<package-manager> run fmt` (`oxfmt`); check: `<package-manager> run fmt:check`
 - Typecheck: `TODO` (TypeScript present; no dedicated script in package.json)
-- Run locally: `pnpm dev`
-- Preview build: `pnpm preview`
+- Run locally: `<package-manager> run dev`
+- Preview build: `<package-manager> run preview`
 
 Prefer single-file or single-test runs during iteration. Full suites are for the final verification pass.
 
@@ -192,11 +192,12 @@ Prefer single-file or single-test runs during iteration. Full suites are for the
 When the user corrects your approach, append a one-line rule here before ending the session. Write it concretely ("Always use X for Y"), never abstractly ("be careful with Y"). If an existing line already covers the correction, tighten it instead of adding a new one. Remove lines when the underlying issue goes away (model upgrades, refactors, process changes).
 
 - Rust/Wasm persistent shards (2026-07-25): ship when ingest writes into an 8 MiB reusable Wasm window (`ingest_ptr` + `feed`), columns stay in-shard, summary is built once at `end_shard`, and reagg uses dense slots + HashMap RelHist. Full-shard TypedArray→Rust copies + dual JS/Wasm residency fail parse/RSS gates.
-- Rust/Wasm opt pass (2026-07-25): keep required `wasm-opt -O3` + `memchr` empty-carry newline scan; revert RelHist-in-`accept_line` and hash→arena path intern (those regress). Prefer a quiet manual `pnpm wasm:build` + bench session for gates — agent back-to-back Chromium runs can read ~100–150ms slower than a fresh user shell (session 31 manual: ~1.33s / 97ms vs agent ~1.48s).
+- Rust/Wasm opt pass (2026-07-25): keep required `wasm-opt -O3` + `memchr` empty-carry newline scan; revert RelHist-in-`accept_line` and hash→arena path intern (those regress). Prefer a quiet manual `npm run wasm:build` + bench session for gates — agent back-to-back Chromium runs can read ~100–150ms slower than a fresh user shell (session 31 manual: ~1.33s / 97ms vs agent ~1.48s).
 - Rust deps (2026-07-25): use `hashbrown` 0.17 (default foldhash) instead of `ahash` on Wasm (no AES-NI); pin `wasm-bindgen`/`wasm-bindgen-cli` to the same version (0.2.126); `memchr` 2.8. On Windows prefer the GitHub release tarball for the CLI if `cargo install` fails on `dlltool.exe`.
 - Rust modernize (2026-07-25): edition 2024; `rapidhash` for path/norm `ByteMap`s; `HashMap::entry_ref` intern; `normalize_path` → `Cow`; `memchr::memmem` for `[cron]`; reagg encodes `&summary_sketch` (no RelHist clone). Quiet manual bench is the gate (~1.28s/86ms); agent Chromium stacks can read a bit slower.
 - Always use Context7 (then crates.io / official docs) for language APIs and package versions before choosing deps or “latest” patterns — do not rely on training cutoff. Rust `edition = "YYYY"` is an edition name (valid: 2015/2018/2021/2024 as of mid-2026), not the calendar year.
 - Sub-1s cut (2026-07-25): cold `firstReagg` is mostly lazy `ensure_mode(collapseIds)`. Kick `ENSURE_MODE` on each `SHARD_PARSED` so early shards prewarm while siblings still feed — do **not** only fold ensure into `end_shard` (wall wash). Also: `memchr('[')` before cron `memmem`; frequency-order methods; `normalize_path` Borrowed when unchanged. Do **not** ship RelHist `summary_wire` at parse (≈+20 MB RSS, no wall win) — first reagg `needSummary=true` is enough; warm runs reuse `cachedSummary`. Quiet manual bench is the gate (agent Chromium ~100–150ms slower).
+- Sub-2s 5GB parsing pass (2026-08-03): 1-shot per-shard `file.slice().arrayBuffer()` + 512MB Wasm INGEST_CAP + SIMD `memchr3` token scanning + L1 path intern cache + zero-IPC initial reagg (`partialWire` in `PARSE_SHARD`) cuts 5GB parse wall time from 10.86s to 1.82s (3.14 GB/s throughput).
 
 ---
 

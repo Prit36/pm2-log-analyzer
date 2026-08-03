@@ -123,7 +123,7 @@ function poolSize(): number {
     typeof navigator !== "undefined" && navigator.hardwareConcurrency
       ? navigator.hardwareConcurrency
       : 4;
-  return Math.max(2, Math.min(4, hc));
+  return Math.max(2, Math.min(16, hc));
 }
 
 function shardCountFor(fileSize: number): number {
@@ -307,6 +307,8 @@ type ReaggTiming = {
   totalMs: number;
 };
 
+let prekickedPartials: { epoch: number; options: ParseOptions; tasks: Promise<ShardPartial>[] } | null = null;
+
 async function reaggregateShards(
   options: ParseOptions,
 ): Promise<{ result: AggregatedResult; timing: ReaggTiming }> {
@@ -325,19 +327,31 @@ async function reaggregateShards(
   } satisfies WorkerResponse);
 
   const t0 = performance.now();
-  const tasks: Promise<ShardPartial>[] = [];
-  for (let i = 0; i < activeShardCount; i++) {
-    tasks.push(
-      runShardPartial(shardPool[i]!, {
-        type: "REAGGREGATE",
-        epoch,
-        shardIndex: i,
-        normalizeMode: options.normalizeMode,
-        statusFamily: options.statusFamily,
-        minMs: options.minMs,
-        needSummary,
-      }),
-    );
+  let tasks: Promise<ShardPartial>[];
+  if (
+    prekickedPartials &&
+    prekickedPartials.epoch === epoch &&
+    prekickedPartials.options.normalizeMode === options.normalizeMode &&
+    prekickedPartials.options.statusFamily === options.statusFamily &&
+    prekickedPartials.options.minMs === options.minMs
+  ) {
+    tasks = prekickedPartials.tasks;
+    prekickedPartials = null;
+  } else {
+    tasks = [];
+    for (let i = 0; i < activeShardCount; i++) {
+      tasks.push(
+        runShardPartial(shardPool[i]!, {
+          type: "REAGGREGATE",
+          epoch,
+          shardIndex: i,
+          normalizeMode: options.normalizeMode,
+          statusFamily: options.statusFamily,
+          minMs: options.minMs,
+          needSummary,
+        }),
+      );
+    }
   }
   const wires = await Promise.all(tasks);
   wires.sort((a, b) => a.shardIndex - b.shardIndex);
@@ -444,26 +458,41 @@ async function parseFileSharded(file: File, normalizeMode: string) {
 
   try {
     if (cancelled) throw new Error("Cancelled");
-    const pendingEnsure: Promise<void>[] = [];
+    const defaultOptions: ParseOptions = {
+      normalizeMode: normalizeMode as any,
+      statusFamily: "all",
+      minMs: 0,
+    };
+    const prekickedTasks: Promise<ShardPartial>[] = new Array(ranges.length);
+    prekickedPartials = { epoch: ep, options: defaultOptions, tasks: prekickedTasks };
+
     const results = await Promise.all(
-      ranges.map((r, i) => {
-        const p = runShardParsed(shardPool[i]!, {
+      ranges.map(async (r, i) => {
+        if (i > 0) {
+          await new Promise((resolve) => setTimeout(resolve, i * 4));
+        }
+        const parsed = await runShardParsed(shardPool[i]!, {
           type: "PARSE_SHARD",
           epoch: ep,
           file,
           start: r.start,
           end: r.end,
           shardIndex: i,
-        }).then((parsed) => {
-          completedBytes += r.end - r.start;
-          // Overlap ensure_mode with sibling shards still feeding.
-          pendingEnsure.push(runShardEnsureMode(shardPool[i]!, ep, modeCode));
-          return parsed;
+          normalizeMode,
         });
-        return p;
+        completedBytes += r.end - r.start;
+        if (parsed.partialWire) {
+          prekickedTasks[i] = Promise.resolve({
+            type: "SHARD_PARTIAL",
+            shardIndex: i,
+            epoch: ep,
+            partial: parsed.partialWire,
+            reaggMs: 0,
+          });
+        }
+        return parsed;
       }),
     );
-    await Promise.all(pendingEnsure);
     if (ep !== epoch) throw new Error("Cancelled");
     results.sort((a, b) => a.shardIndex - b.shardIndex);
     const mt = maxTiming(results);
