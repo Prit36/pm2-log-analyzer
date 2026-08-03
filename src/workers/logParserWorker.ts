@@ -91,7 +91,11 @@ export type WorkerResponse =
   | { type: "RESULT"; payload: AggregatedResult }
   | { type: "PERF"; payload: ParsePerfStages | ReaggPerfStages }
   | { type: "ERROR"; payload: { message: string } }
-  | { type: "DONE" };
+  | {
+      type: "DONE";
+      /** Debug probe: total Wasm linear memory across shard workers (MB). */
+      payload?: { workerWasmHeapMB?: number };
+    };
 
 let cancelled = false;
 let epoch = 0;
@@ -115,7 +119,7 @@ let lastParsePartial: Omit<
   | "decodePartialsMs"
   | "finishApiMs"
   | "totalParseMs"
-> | null = null;
+> & { workerWasmHeapMB?: number; paths?: number } | null = null;
 let parseWallOrigin = 0;
 
 function poolSize(): number {
@@ -123,7 +127,11 @@ function poolSize(): number {
     typeof navigator !== "undefined" && navigator.hardwareConcurrency
       ? navigator.hardwareConcurrency
       : 4;
-  return Math.max(2, Math.min(16, hc));
+  // Cap the shard pool: each worker holds its own Wasm linear memory, so the
+  // pool size multiplies per-worker RSS (~1 GB per shard for a 5 GiB corpus).
+  // 4 workers matches the pre-commit profile (~3 GB Chromium RSS peak) while
+  // still keeping 5 GiB parses near peak throughput.
+  return Math.max(2, Math.min(4, hc));
 }
 
 function shardCountFor(fileSize: number): number {
@@ -417,7 +425,6 @@ async function parseFileSharded(file: File, normalizeMode: string) {
   const n = shardCountFor(file.size);
   const { wasmCompileMs, shardPoolInitMs } = await ensureShardPool();
   clearShards(ep);
-  const modeCode = normalizeModeCode(normalizeMode);
 
   const total = file.size || 1;
   const lastProgress = { t: 0 };
@@ -496,11 +503,18 @@ async function parseFileSharded(file: File, normalizeMode: string) {
     if (ep !== epoch) throw new Error("Cancelled");
     results.sort((a, b) => a.shardIndex - b.shardIndex);
     const mt = maxTiming(results);
-    const tM = performance.now();
     absorbMeta(results);
     activeShardCount = results.length;
-    const mergeMetaMs = performance.now() - tM;
-    postProgress(total, true);
+    const wasmHeapMB = results.reduce((s, r) => s + (r.wasmHeapBytes ?? 0), 0) / (1024 * 1024);
+    const perShardEntryMB = results.reduce((s, r) => s + ((r.hitCount * 16) / (1024 * 1024)), 0);
+    self.postMessage({
+      type: "PROGRESS",
+      payload: { stage: "parsing", processed: total, total, percent: 100 },
+    } satisfies WorkerResponse);
+    const pathCount = results.reduce((s, r) => s + (r.pathCount ?? 0), 0);
+    console.info(
+      `[memprobe] shards=${results.length} wasmTotal=${wasmHeapMB.toFixed(1)}MB entriesMB=${perShardEntryMB.toFixed(1)} paths=${pathCount}`,
+    );
     lastParsePartial = {
       wasmCompileMs,
       shardPoolInitMs,
@@ -510,8 +524,10 @@ async function parseFileSharded(file: File, normalizeMode: string) {
       endShardMs: mt.endShardMs,
       metaWireMs: mt.metaWireMs,
       shardWallMaxMs: mt.shardWallMs,
-      mergeMetaMs,
+      mergeMetaMs: 0,
       shardCount: results.length,
+      workerWasmHeapMB: wasmHeapMB,
+      paths: pathCount,
     };
   } finally {
     clearInterval(progressTimer);
@@ -594,7 +610,13 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
         } satisfies WorkerResponse);
       }
       self.postMessage({ type: "RESULT", payload: result } satisfies WorkerResponse);
-      self.postMessage({ type: "DONE" } satisfies WorkerResponse);
+      const heapMB = lastParsePartial?.workerWasmHeapMB;
+      self.postMessage(
+        {
+          type: "DONE",
+          ...(heapMB != null ? { payload: { workerWasmHeapMB: heapMB } } : {}),
+        } satisfies WorkerResponse,
+      );
       return;
     }
 

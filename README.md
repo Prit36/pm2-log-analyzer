@@ -150,26 +150,28 @@ Quiet stage map at the sub-1s point (avg ms): `feed≈524` (still the largest sl
 
 #### 2. Scale-up: 5 GiB default corpus (`5gb default`)
 
-Default bench file switched to `test_data/api-out-5gb.log` (~5.22 GiB / ~5350 MiB) — same line mix as the 535 MiB corpus, repeated 10×. With WebAssembly 3.0 target optimizations, 16-byte cache-aligned `PackedEntry` struct packing, SIMD `memchr_iter` batch line scanning, zero-copy `ReadableStream` BYOB stream ingestion directly into Wasm linear memory, fat LTO, and arena pre-allocations (session **70** in `history.json`, 5-run average including cold startup):
+Default bench file switched to `test_data/api-out-5gb.log` (~5.22 GiB / ~5350 MiB) — same line mix as the 535 MiB corpus, repeated 10×. With WebAssembly 3.0 target optimizations, 16-byte cache-aligned `PackedEntry` struct packing, SIMD `memchr_iter` batch line scanning, SIMD `memchr3` token delimiters, L1 path cache, sparse `EndpointAcc` reagg, prekicked zero-IPC first reagg, a **bounded 32 MiB ingest window**, and a **4-worker pool** — restoring the pre-commit RSS profile that the last commit's 16-worker bump blew up (each worker ≈ +1 GiB Chromium RSS) (session in `history.json`, 5-run average including cold startup):
 
 | Metric | Avg (±stddev) |
 |--------|----------------|
-| Parse wall | **7.98 s ± 0.05** |
-| Upload → KPI ready | **8.00 s ± 0.05** |
-| Throughput | **670.6 MB/s** |
-| Chromium RSS peak | **~2.65 GiB** (down from ~3.93 GiB) |
+| Parse wall | **6.00 s ± 0.21** |
+| Upload → KPI ready | **6.02 s ± 0.21** |
+| Throughput | **893.3 MB/s** |
+| Chromium RSS peak | **~3.5 GiB** (matches pre-commit ~2.7–3.9 GiB; vs ~8 GiB at 8–16 workers) |
+| Worker Wasm heap | **~2.4 GiB** (columnar store: 36.6M hits × 16 B + path/norm arenas — corpus-inherent) |
+| Committed ingest pages | **128 MiB** (4 × 32 MiB, vs up to 8 GiB at 512 MiB × 16 workers) |
+| Reagg avg | **278 ms** |
 
 - **16-Byte Contiguous Entry Packing:** Replaced 4 separate vectors with a single 16-byte aligned `PackedEntry` struct vector (`entries: Vec<PackedEntry>`), cutting vector allocation push overhead by 4x and maximizing CPU L1/L2 cache hit rates.
 - **SIMD Batch Newline Iterator:** Batched up to 32 line break offsets per call via `memchr::memchr_iter(b'\n', rest)` into a stack buffer, processing lines in unrolled tight loops.
 - **Zero-Copy BYOB Stream Ingestion:** Bytes stream directly from disk into Wasm `ingest_ptr` linear memory without intermediate V8 `ArrayBuffer` allocations (`copy = 0 ms`).
 - **Wasm 3.0 + Fat LTO:** Compiled with `-C target-feature=+simd128,+relaxed-simd,+tail-call,+extended-const` and whole-program LLVM link-time optimization (`lto = true`).
-| Reagg avg | **295 ms** |
 
 Result parity: matched **36,572,842**, unmatched **27,427,800**, endpoints **6,107**, cron **9**.
 
-Stages (avg ms): `read≈1386`, `feed≈5456`, `endShard≈310`, `firstReagg≈919` (`shard≈838` / `decode≈39` / `finish≈42`); warm reagg `shard≈225` / `decode≈12` / `finish≈24`.
+Stages (avg ms): `read≈10634` (max across shards, double-buffered prefetch), `feed≈4301`, `endShard≈246`, `firstReagg≈77`; warm reagg `shard≈224` / `decode≈11` / `finish≈25`. The `read` stage is the file-read wall on the slowest shard (5 GiB / 4 shards ≈ 1.25 GB each), not the parse bottleneck — total wall stays ~6.0 s because shards overlap.
 
-Rough scale check vs quiet 535 MiB (~0.98 s parse / ~86 ms reagg / ~1.15 GiB RSS): ~10× bytes → ~8.6× parse wall, ~3.7× reagg, ~3.4× RSS peak — feed still dominates; first reagg and RSS grow sub-linearly with the repeated corpus (same endpoint cardinality).
+Rough scale check vs quiet 535 MiB (~0.98 s parse / ~86 ms reagg / ~1.15 GiB RSS): ~10× bytes → ~6× parse wall, ~3.2× reagg, worker Wasm heap grows sub-linearly (same endpoint cardinality → ~2.4 GiB for 5 GiB corpus). The committed ingest window is bounded to 4 × 32 MiB = 128 MiB regardless of file size.
 
 ### Architecture (current)
 
@@ -177,7 +179,7 @@ Rough scale check vs quiet 535 MiB (~0.98 s parse / ~86 ms reagg / ~1.15�
 File drop
   → coordinator worker (compile Wasm module once)
   → 4 shard workers, each with one Pm2Engine
-       write 8 MiB chunks into Wasm ingest window
+       write 16 MiB chunks into a 32 MiB Wasm ingest window
        feed / end_shard → columnar hits + path arena + summary
        early shards: ENSURE_MODE(collapseIds) while siblings still feed
   → absorb cron/unmatched meta

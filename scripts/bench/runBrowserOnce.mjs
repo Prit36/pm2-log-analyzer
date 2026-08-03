@@ -21,7 +21,19 @@ function log(...args) {
 function playwrightChromiumRssMB() {
   try {
     if (process.platform === "win32") {
-      return null;
+      const script = `
+$procs = Get-CimInstance Win32_Process | Where-Object {
+  $_.Name -match '^(chrome|chrome-headless-shell|headless_shell|chromium)\\.exe$' -and
+  ($_.CommandLine -match 'ms-playwright' -or $_.CommandLine -match 'playwright_chromium')
+}
+if (-not $procs) { Write-Output 0; exit 0 }
+Write-Output (($procs | Measure-Object -Property WorkingSetSize -Sum).Sum)
+`;
+      const out = execFileSync("powershell.exe", ["-NoProfile", "-Command", script], {
+        encoding: "utf8",
+      }).trim();
+      const bytes = Number(out.split(/\r?\n/).filter(Boolean).at(-1));
+      return Number.isFinite(bytes) && bytes > 0 ? bytes / (1024 * 1024) : null;
     }
     const out = execSync(
       "ps -eo rss=,args= | grep -E 'ms-playwright|playwright_chromium' | grep -v grep | awk '{s+=$1} END {print s+0}'",
@@ -162,6 +174,7 @@ try {
   const finalBench = await page.evaluate(() => window.__PM2_BENCH__);
   const reaggTimes = finalBench?.reaggTimes ?? [];
   const metricsAfter = await chromeMetrics();
+  const workerWasmHeapMB = finalBench?.workerWasmHeapMB ?? null;
 
   const rssVals = memSamples.map((s) => s.browserRssMB).filter((n) => typeof n === "number" && n > 0);
   const heapVals = memSamples.map((s) => s.jsHeapUsedMB).filter((n) => typeof n === "number");
@@ -194,6 +207,7 @@ try {
       browserRssBeforeMB: memSamples.find((s) => s.label === "before")?.browserRssMB ?? null,
       browserRssAfterMB: memSamples.at(-1)?.browserRssMB ?? null,
       browserRssPeakMB: rssVals.length ? Math.max(...rssVals) : null,
+      workerWasmHeapMB,
       jsHeapUsedBeforeMB: memSamples.find((s) => s.label === "before")?.jsHeapUsedMB ?? null,
       jsHeapUsedAfterMB: metricsAfter.jsHeapUsedMB,
       jsHeapPeakMB: heapVals.length ? Math.max(...heapVals) : null,

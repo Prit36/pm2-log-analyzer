@@ -61,6 +61,10 @@ export type ShardParsed = {
   cronWire: ArrayBuffer;
   unmatchedWire: ArrayBuffer;
   partialWire?: ArrayBuffer;
+  /** Debug probe: current Wasm linear memory size. */
+  wasmHeapBytes?: number;
+  /** Debug probe: distinct paths interned in this shard. */
+  pathCount?: number;
   timing: ShardTiming;
 };
 
@@ -244,6 +248,8 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         cronWire,
         unmatchedWire,
         partialWire,
+        wasmHeapBytes: wasmMemory!.buffer.byteLength,
+        pathCount: engine.path_count(),
         timing,
       };
       self.postMessage(result, [cronWire, unmatchedWire, partialWire]);

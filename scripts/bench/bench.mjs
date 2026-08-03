@@ -4,8 +4,8 @@
  * Defaults: test_data/api-out-5gb.log × 5 runs
  *
  * Usage:
- *   node scripts/bench/bench.mjs
- *   node scripts/bench/bench.mjs --note "baseline"
+ *   pnpm bench
+ *   pnpm bench -- --note "baseline"
  *   node scripts/bench/bench.mjs --runs 3 --note "quick"
  *
  * History: scripts/bench/history.json
@@ -252,6 +252,7 @@ try {
       browserRssPeakMB: peakRss.length
         ? { avg: avg(peakRss), stddev: stddev(peakRss), min: Math.min(...peakRss), max: Math.max(...peakRss) }
         : null,
+      workerWasmHeapMB: iterations.length ? avg(iterations.map((r) => r.memory.workerWasmHeapMB).filter((n) => typeof n === "number")) : null,
       jsHeapPeakMB: peakHeap.length
         ? { avg: avg(peakHeap), stddev: stddev(peakHeap), min: Math.min(...peakHeap), max: Math.max(...peakHeap) }
         : null,
@@ -290,6 +291,10 @@ try {
       `Chromium RSS peak: ${session.summary.browserRssPeakMB.avg.toFixed(0)} MB (all Chromium procs, incl. workers)`,
     );
   else console.log(`Chromium RSS peak: unavailable`);
+  if (session.summary.workerWasmHeapMB != null)
+    console.log(
+      `Worker Wasm heap:  ${session.summary.workerWasmHeapMB.toFixed(1)} MB (sum of shard worker linear memory)`,
+    );
   if (session.summary.jsHeapPeakMB)
     console.log(
       `JS heap peak:      ${session.summary.jsHeapPeakMB.avg.toFixed(1)} MB (main world only — worker heap is in RSS)`,

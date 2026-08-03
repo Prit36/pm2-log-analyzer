@@ -10,7 +10,11 @@ use rapidhash::fast::RandomState;
 
 const LINE_EXTEND: usize = 256 * 1024;
 /// Reusable ingest window. Keeps Wasm peak memory bounded.
-pub const INGEST_CAP: usize = 512 * 1024 * 1024;
+/// Wasm linear memory is committed in real pages and never returned on shrink,
+/// so this cap directly bounds per-worker RSS. Chunks are 16 MiB; 32 MiB gives
+/// headroom for the 256 KiB line-extend carry without paying for a 512 MiB
+/// window × worker pool.
+pub const INGEST_CAP: usize = 32 * 1024 * 1024;
 
 /// Path/norm indexes: rapidhash beats foldhash on byte keys.
 type ByteMap<V> = HashMap<Vec<u8>, V, RandomState>;
@@ -38,7 +42,6 @@ struct CronEv {
 }
 
 struct EndpointAcc {
-    active: bool,
     method: u8,
     path_bytes: Vec<u8>,
     sketch: RelHist,
@@ -127,11 +130,10 @@ impl Engine {
     }
 
     pub fn clear(&mut self) {
-        let cap = self.ingest.capacity();
+        // Release the columnar store entirely: Wasm linear memory never shrinks,
+        // so retaining Vec/HashMap capacity across parses pins multi-GB of pages
+        // per worker. Drop everything so the next parse reallocates as needed.
         *self = Self::new();
-        if cap > 0 {
-            self.ingest.reserve(cap.min(INGEST_CAP));
-        }
     }
 
     pub fn hit_count(&self) -> usize {
@@ -656,7 +658,11 @@ impl Engine {
             _ => -1,
         };
 
-        // Dense slots for low-cardinality modes: (norm_id << 3) | method
+        // Dense slots for low-cardinality modes: (norm_id << 3) | method.
+        // Sparse Vec<Option<Box<...>>>: None slots cost 1 byte (null pointer), so
+        // the array stays ~n_norm×8 bytes even with millions of paths, while only
+        // active endpoints pay for a heap Box. A flat Vec<EndpointAcc> here would
+        // commit ~80 bytes × n_norm×8 per shard — multi-GB across the worker pool.
         let use_dense = mode != 0;
         let n_norm = self.norm_off[mode].len();
         let dense_len = if use_dense {
@@ -665,19 +671,9 @@ impl Engine {
             0
         };
 
-        let mut dense: Vec<EndpointAcc> = if use_dense {
+        let mut dense: Vec<Option<Box<EndpointAcc>>> = if use_dense {
             let mut v = Vec::with_capacity(dense_len);
-            v.resize_with(dense_len, || EndpointAcc {
-                active: false,
-                method: 0,
-                path_bytes: Vec::new(),
-                sketch: RelHist::new(),
-                count: 0,
-                sum: 0.0,
-                min: f32::INFINITY,
-                max: f32::NEG_INFINITY,
-                error_count: 0,
-            });
+            v.resize_with(dense_len, || None);
             v
         } else {
             Vec::new()
@@ -726,11 +722,20 @@ impl Engine {
                 if idx >= dense.len() {
                     continue;
                 }
-                let entry = &mut dense[idx];
-                if !entry.active {
-                    entry.active = true;
-                    entry.method = method_code;
+                let slot = &mut dense[idx];
+                if slot.is_none() {
+                    *slot = Some(Box::new(EndpointAcc {
+                        method: method_code,
+                        path_bytes: Vec::new(),
+                        sketch: RelHist::new(),
+                        count: 0,
+                        sum: 0.0,
+                        min: f32::INFINITY,
+                        max: f32::NEG_INFINITY,
+                        error_count: 0,
+                    }));
                 }
+                let entry = slot.as_mut().unwrap();
                 entry.sketch.accept(duration_ms);
                 entry.count += 1;
                 entry.sum += duration_ms as f64;
@@ -745,7 +750,6 @@ impl Engine {
                 }
             } else {
                 let entry = by_key.entry(key).or_insert_with(|| EndpointAcc {
-                    active: true,
                     method: method_code,
                     path_bytes: Vec::new(),
                     sketch: RelHist::new(),
@@ -773,13 +777,13 @@ impl Engine {
         // Attach path bytes and collect for encode
         let mut endpoints: Vec<(u32, EndpointAcc)> = Vec::new();
         if use_dense {
-            for (idx, mut e) in dense.into_iter().enumerate() {
-                if e.active {
+            for (idx, slot) in dense.into_iter().enumerate() {
+                if let Some(mut e) = slot {
                     let norm_id = (idx >> 3) as u32;
                     let off = self.norm_off[mode][norm_id as usize] as usize;
                     let len = self.norm_len[mode][norm_id as usize] as usize;
                     e.path_bytes = self.norm_bytes[mode][off..off + len].to_vec();
-                    endpoints.push((norm_id, e));
+                    endpoints.push((norm_id, *e));
                 }
             }
         } else {

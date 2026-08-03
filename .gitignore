@@ -20,6 +20,9 @@ build/
 *.swp
 *.swo
 
+# Command Code agent state (taste, plans, session data)
+.commandcode/
+
 # OS files
 .DS_Store
 Thumbs.db
