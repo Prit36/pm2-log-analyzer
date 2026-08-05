@@ -17,6 +17,8 @@ import type { AggregatedEndpoint, HourlyBucket } from "../parser";
 import { formatMs, formatNum } from "../utils/format";
 import { Activity, BarChart3, Clock, Flame } from "lucide-react";
 
+import { useAnalysisStore } from "../store/analysisStore";
+
 type ChartMode = "timeOfDay" | "throughput" | "distribution" | "topP95";
 
 export function LatencyChart({
@@ -27,6 +29,22 @@ export function LatencyChart({
   hourlyStats?: HourlyBucket[];
 }) {
   const [mode, setMode] = useState<ChartMode>("timeOfDay");
+  const theme = useAnalysisStore((s) => s.theme);
+  const isDark = theme === "dark";
+
+  const gridStroke = isDark ? "#1e293b" : "#f1f5f9";
+  const tickColor = isDark ? "#94a3b8" : "#64748b";
+  const categoryTickColor = isDark ? "#cbd5e1" : "#334155";
+  const tooltipStyle = isDark
+    ? {
+        fontSize: 12,
+        borderRadius: 8,
+        backgroundColor: "#0f172a",
+        border: "1px solid #334155",
+        color: "#f8fafc",
+        boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.5)",
+      }
+    : { fontSize: 12, borderRadius: 6, border: "1px solid #cbd5e1" };
 
   const top20Data = useMemo(
     () =>
@@ -82,19 +100,19 @@ export function LatencyChart({
   const hasData = rows.length > 0 || hourlyStats.some((h) => h.count > 0);
 
   return (
-    <section className="flex flex-col rounded border border-slate-200 bg-white shadow-xs">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-700">
+    <section className="flex flex-col rounded border border-slate-200 bg-white shadow-xs dark:border-slate-800/80 dark:bg-slate-900/80 dark:shadow-md dark:shadow-black/20">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
           API Visual Analytics
         </h2>
-        <div className="flex items-center gap-1 rounded bg-slate-100 p-0.5 text-xs">
+        <div className="flex items-center gap-1 rounded bg-slate-100 p-0.5 text-xs dark:bg-slate-950">
           <button
             type="button"
             onClick={() => setMode("timeOfDay")}
             className={`flex items-center gap-1.5 rounded px-2 py-1 font-medium transition-colors ${
               mode === "timeOfDay"
-                ? "bg-white text-blue-600 shadow-xs"
-                : "text-slate-600 hover:text-slate-900"
+                ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white dark:shadow-md dark:shadow-blue-950/50"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
             }`}
             title="Time of Day vs Latency Trend"
           >
@@ -106,8 +124,8 @@ export function LatencyChart({
             onClick={() => setMode("throughput")}
             className={`flex items-center gap-1.5 rounded px-2 py-1 font-medium transition-colors ${
               mode === "throughput"
-                ? "bg-white text-blue-600 shadow-xs"
-                : "text-slate-600 hover:text-slate-900"
+                ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white dark:shadow-md dark:shadow-blue-950/50"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
             }`}
             title="Hourly Request Volume & Error Rate"
           >
@@ -119,8 +137,8 @@ export function LatencyChart({
             onClick={() => setMode("distribution")}
             className={`flex items-center gap-1.5 rounded px-2 py-1 font-medium transition-colors ${
               mode === "distribution"
-                ? "bg-white text-blue-600 shadow-xs"
-                : "text-slate-600 hover:text-slate-900"
+                ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white dark:shadow-md dark:shadow-blue-950/50"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
             }`}
             title="Latency Distribution Buckets"
           >
@@ -132,8 +150,8 @@ export function LatencyChart({
             onClick={() => setMode("topP95")}
             className={`flex items-center gap-1.5 rounded px-2 py-1 font-medium transition-colors ${
               mode === "topP95"
-                ? "bg-white text-blue-600 shadow-xs"
-                : "text-slate-600 hover:text-slate-900"
+                ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white dark:shadow-md dark:shadow-blue-950/50"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
             }`}
             title="Top p95 Slowest Endpoints"
           >
@@ -144,7 +162,7 @@ export function LatencyChart({
       </div>
 
       {!hasData ? (
-        <div className="px-3 py-12 text-center text-sm text-slate-400">No chart data available yet.</div>
+        <div className="px-3 py-12 text-center text-sm text-slate-400 dark:text-slate-500">No chart data available yet.</div>
       ) : (
         <div className="h-[340px] px-3 py-3">
           <ResponsiveContainer width="100%" height={320}>
@@ -164,22 +182,22 @@ export function LatencyChart({
                     <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
                 <XAxis
                   dataKey="label"
-                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  tick={{ fontSize: 10, fill: tickColor }}
                   interval={2}
                 />
                 <YAxis
-                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  tick={{ fontSize: 10, fill: tickColor }}
                   tickFormatter={(v) => formatMs(Number(v))}
                 />
                 <Tooltip
                   formatter={(val, name) => [formatMs(Number(val ?? 0)), String(name)]}
                   labelFormatter={(lbl) => `Time: ${String(lbl)}`}
-                  contentStyle={{ fontSize: 12, borderRadius: 6, border: "1px solid #cbd5e1" }}
+                  contentStyle={tooltipStyle}
                 />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 4, color: tickColor }} />
                 <Area
                   type="monotone"
                   dataKey="p99Ms"
@@ -210,11 +228,11 @@ export function LatencyChart({
               </AreaChart>
             ) : mode === "throughput" ? (
               <ComposedChart data={hourlyStats} margin={{ top: 10, right: 16, left: 0, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748b" }} interval={2} />
+                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: tickColor }} interval={2} />
                 <YAxis
                   yAxisId="left"
-                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  tick={{ fontSize: 10, fill: tickColor }}
                   tickFormatter={(v) => formatNum(Number(v))}
                 />
                 <YAxis
@@ -226,9 +244,9 @@ export function LatencyChart({
                 <Tooltip
                   formatter={(val, name) => [formatNum(Number(val ?? 0)), String(name)]}
                   labelFormatter={(lbl) => `Hour: ${String(lbl)}`}
-                  contentStyle={{ fontSize: 12, borderRadius: 6, border: "1px solid #cbd5e1" }}
+                  contentStyle={tooltipStyle}
                 />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 4, color: tickColor }} />
                 <Bar
                   yAxisId="left"
                   dataKey="count"
@@ -249,32 +267,32 @@ export function LatencyChart({
               </ComposedChart>
             ) : mode === "distribution" ? (
               <BarChart data={distributionData} margin={{ top: 10, right: 16, left: 0, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#475569" }} />
+                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: tickColor }} />
                 <YAxis
-                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  tick={{ fontSize: 10, fill: tickColor }}
                   tickFormatter={(v) => formatNum(Number(v))}
                 />
                 <Tooltip
                   formatter={(val) => [formatNum(Number(val ?? 0)), "Requests"]}
                   labelFormatter={(lbl) => `Latency Range: ${String(lbl)}`}
-                  contentStyle={{ fontSize: 12, borderRadius: 6, border: "1px solid #cbd5e1" }}
+                  contentStyle={tooltipStyle}
                 />
                 <Bar dataKey="count" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={36} />
               </BarChart>
             ) : (
               <BarChart data={top20Data} layout="vertical" margin={{ top: 4, right: 16, left: 4, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false} />
                 <XAxis
                   type="number"
-                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  tick={{ fontSize: 10, fill: tickColor }}
                   tickFormatter={(v) => formatMs(Number(v))}
                 />
                 <YAxis
                   type="category"
                   dataKey="name"
                   width={150}
-                  tick={{ fontSize: 9, fill: "#334155", fontFamily: "IBM Plex Mono, monospace" }}
+                  tick={{ fontSize: 9, fill: categoryTickColor, fontFamily: "IBM Plex Mono, monospace" }}
                 />
                 <Tooltip
                   formatter={(value) => [formatMs(Number(value ?? 0)), "P95 Latency"]}
@@ -282,7 +300,7 @@ export function LatencyChart({
                     const p = payload?.[0]?.payload as { full?: string } | undefined;
                     return p?.full ?? "";
                   }}
-                  contentStyle={{ fontSize: 12, borderRadius: 6, border: "1px solid #cbd5e1" }}
+                  contentStyle={tooltipStyle}
                 />
                 <Bar dataKey="p95" fill="#2563eb" radius={[0, 3, 3, 0]} maxBarSize={18} />
               </BarChart>

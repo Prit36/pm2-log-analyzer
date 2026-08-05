@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useParserWorker } from "./hooks/useParserWorker";
 import { useAnalysisStore } from "./store/analysisStore";
 import { AppHeader } from "./components/AppHeader";
@@ -12,8 +13,13 @@ import { Toast } from "./components/Toast";
 import { downloadExcel } from "./utils/exportSpreadsheet";
 
 export function App() {
+  const theme = useAnalysisStore((s) => s.theme);
   const { parseFile, parseText, cancel, clear } = useParserWorker();
   const showToast = useAnalysisStore((s) => s.showToast);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+  }, [theme]);
   const apiRows = useFilteredApiRows();
   const cronRows = useFilteredCronRows();
   const apiSortKey = useAnalysisStore((s) => s.filters.sortKey);

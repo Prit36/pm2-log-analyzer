@@ -71,7 +71,7 @@ export function IngestPanel({ onFile, onPaste, onCancel }: Props) {
   };
 
   return (
-    <section className="rounded border border-slate-200 bg-white">
+    <section className="rounded border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -81,16 +81,16 @@ export function IngestPanel({ onFile, onPaste, onCancel }: Props) {
         onDrop={onDrop}
         className={cn(
           "flex flex-col items-center justify-center gap-3 px-6 py-10 text-center transition-colors",
-          dragOver ? "bg-blue-50" : "bg-white",
+          dragOver ? "bg-blue-50 dark:bg-blue-950/40" : "bg-white dark:bg-slate-900",
           busy && "opacity-60",
         )}
       >
-        <Upload className="size-8 text-slate-400" aria-hidden />
+        <Upload className="size-8 text-slate-400 dark:text-slate-500" aria-hidden />
         <div>
-          <p className="text-sm font-medium text-slate-800">
+          <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
             {hasData ? "Drop a new file to replace" : "Drop a PM2 log file"}
           </p>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             .log / .txt — streamed off the main thread for large dumps
           </p>
         </div>
@@ -107,7 +107,7 @@ export function IngestPanel({ onFile, onPaste, onCancel }: Props) {
             type="button"
             disabled={busy}
             onClick={() => setPasteOpen(!pasteOpen)}
-            className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
           >
             <ClipboardPaste className="size-3.5" aria-hidden />
             Paste logs
@@ -116,7 +116,7 @@ export function IngestPanel({ onFile, onPaste, onCancel }: Props) {
             <button
               type="button"
               onClick={onCancel}
-              className="rounded border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700"
+              className="rounded border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300"
             >
               Cancel
             </button>
@@ -135,11 +135,11 @@ export function IngestPanel({ onFile, onPaste, onCancel }: Props) {
         />
         {isParsing && progress && (
           <div className="w-full max-w-md">
-            <div className="mb-1 flex justify-between text-[11px] text-slate-500">
+            <div className="mb-1 flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
               <span className="capitalize">{progress.stage}</span>
               <span>{progress.percent}%</span>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
               <div
                 className="h-full bg-blue-600 transition-[width] duration-150"
                 style={{ width: `${progress.percent}%` }}
@@ -148,15 +148,15 @@ export function IngestPanel({ onFile, onPaste, onCancel }: Props) {
           </div>
         )}
         {!hasData && !isParsing && (
-          <p className="max-w-lg font-mono-data text-[11px] leading-relaxed text-slate-400">
+          <p className="max-w-lg font-mono-data text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
             Example: 2026-07-24T00:00:10: GET /api/health 200 12.5 ms - 42
           </p>
         )}
       </div>
 
       {pasteOpen && (
-        <div className="border-t border-slate-200 px-4 py-3">
-          <label className="mb-1.5 block text-xs font-medium text-slate-600" htmlFor="paste-logs">
+        <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">
+          <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300" htmlFor="paste-logs">
             Paste log lines (not persisted; max ~{formatBytes(PASTE_WARN_BYTES)})
           </label>
           <textarea
@@ -166,7 +166,7 @@ export function IngestPanel({ onFile, onPaste, onCancel }: Props) {
             disabled={busy}
             rows={6}
             placeholder="Paste PM2 stdout/stderr here…"
-            className="w-full resize-y rounded border border-slate-200 bg-slate-50 px-3 py-2 font-mono-data text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white"
+            className="w-full resize-y rounded border border-slate-200 bg-slate-50 px-3 py-2 font-mono-data text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-900"
           />
           <div className="mt-2 flex justify-end">
             <button

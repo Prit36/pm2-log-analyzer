@@ -4,7 +4,7 @@ import type { NormalizeMode, StatusFamily } from "../parser";
 import { cn } from "../utils/cn";
 
 const fieldClass =
-  "rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-blue-500";
+  "rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-blue-400";
 
 export function FilterBar() {
   const searchRef = useRef<HTMLInputElement>(null);
@@ -33,7 +33,7 @@ export function FilterBar() {
   const allSelected = filters.methods.length === 0;
 
   return (
-    <section className="rounded border border-slate-200 bg-white px-3 py-3">
+    <section className="rounded border border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Normalize">
           <select
@@ -110,7 +110,7 @@ export function FilterBar() {
 
       {methods.length > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Methods
           </span>
           <MethodChip
@@ -133,7 +133,7 @@ export function FilterBar() {
             <button
               type="button"
               onClick={() => setMethodFilter([])}
-              className="text-[11px] text-slate-500 underline-offset-2 hover:underline"
+              className="text-[11px] text-slate-500 underline-offset-2 hover:underline dark:text-slate-400"
             >
               Reset
             </button>
@@ -155,7 +155,7 @@ function Field({
 }) {
   return (
     <label className={cn("block", className)}>
-      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {label}
       </span>
       {children}
@@ -177,10 +177,10 @@ function MethodChip({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1",
+        "rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 transition-colors",
         active
-          ? "bg-blue-50 text-blue-700 ring-blue-200"
-          : "bg-slate-50 text-slate-400 ring-slate-200",
+          ? "bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:ring-blue-800"
+          : "bg-slate-50 text-slate-400 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-400 dark:ring-slate-700",
       )}
     >
       {label}

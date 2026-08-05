@@ -10,18 +10,18 @@ import { cn } from "../utils/cn";
 
 function MethodBadge({ method }: { method: string }) {
   const styles: Record<string, string> = {
-    GET: "bg-sky-50 text-sky-700 ring-sky-200",
-    POST: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-    PUT: "bg-amber-50 text-amber-700 ring-amber-200",
-    PATCH: "bg-amber-50 text-amber-700 ring-amber-200",
-    DELETE: "bg-rose-50 text-rose-700 ring-rose-200",
-    OPTIONS: "bg-slate-50 text-slate-600 ring-slate-200",
-    HEAD: "bg-slate-50 text-slate-600 ring-slate-200",
+    GET: "bg-sky-50 text-sky-700 ring-sky-200 dark:border dark:border-sky-600/60 dark:bg-[#062238] dark:text-[#38bdf8]",
+    POST: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:border dark:border-emerald-600/60 dark:bg-[#06261c] dark:text-[#34d399]",
+    PUT: "bg-amber-50 text-amber-700 ring-amber-200 dark:border dark:border-amber-600/60 dark:bg-[#381a06] dark:text-[#fbbf24]",
+    PATCH: "bg-amber-50 text-amber-700 ring-amber-200 dark:border dark:border-amber-600/60 dark:bg-[#381a06] dark:text-[#fbbf24]",
+    DELETE: "bg-rose-50 text-rose-700 ring-rose-200 dark:border dark:border-rose-600/60 dark:bg-[#3d0818] dark:text-[#fb7185]",
+    OPTIONS: "bg-slate-50 text-slate-600 ring-slate-200 dark:border dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-400",
+    HEAD: "bg-slate-50 text-slate-600 ring-slate-200 dark:border dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-400",
   };
   return (
     <span
       className={cn(
-        "inline-block shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1",
+        "inline-block shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 dark:ring-0",
         styles[method] ?? styles.GET,
       )}
     >
@@ -42,8 +42,8 @@ function ApiRow({ index, style, rows, onCopyPath }: RowComponentProps<ApiRowProp
     <div
       style={style}
       className={cn(
-        "grid grid-cols-[minmax(0,1fr)_64px_64px_64px_64px_64px_56px] items-center gap-1 border-b border-slate-100 px-3 text-xs",
-        isEven ? "bg-slate-50/80" : "bg-white",
+        "grid grid-cols-[minmax(0,1fr)_64px_64px_64px_64px_64px_56px] items-center gap-1 border-b border-slate-100 px-3 text-xs transition-colors dark:border-slate-800/60 hover:dark:bg-blue-950/30",
+        isEven ? "bg-white dark:bg-slate-900" : "bg-slate-50/80 dark:bg-[rgb(11,18,37)]",
       )}
     >
       <div className="flex min-w-0 items-center gap-2">
@@ -52,20 +52,20 @@ function ApiRow({ index, style, rows, onCopyPath }: RowComponentProps<ApiRowProp
           type="button"
           title="Copy path"
           onClick={() => onCopyPath(row.path)}
-          className="truncate text-left font-mono-data text-[11px] text-slate-800 hover:text-blue-700"
+          className="truncate text-left font-mono-data text-[11px] text-slate-800 hover:text-blue-700 dark:text-slate-200 dark:hover:text-blue-400"
         >
           {row.path}
         </button>
       </div>
-      <div className="text-right tabular-nums text-slate-700">{formatNum(row.count)}</div>
-      <div className="text-right tabular-nums text-slate-700">{formatMs(row.avgMs)}</div>
-      <div className="text-right font-semibold tabular-nums text-blue-600">{formatMs(row.p95Ms)}</div>
-      <div className="text-right tabular-nums text-slate-700">{formatMs(row.p99Ms)}</div>
-      <div className="text-right font-semibold tabular-nums text-amber-700">{formatMs(row.maxMs)}</div>
+      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">{formatNum(row.count)}</div>
+      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">{formatMs(row.avgMs)}</div>
+      <div className="text-right font-bold tabular-nums text-blue-600 dark:text-blue-400">{formatMs(row.p95Ms)}</div>
+      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">{formatMs(row.p99Ms)}</div>
+      <div className="text-right font-bold tabular-nums text-amber-700 dark:text-amber-400">{formatMs(row.maxMs)}</div>
       <div
         className={cn(
           "text-right tabular-nums",
-          row.errorCount > 0 ? "font-semibold text-rose-600" : "text-slate-400",
+          row.errorCount > 0 ? "font-bold text-rose-600 dark:text-rose-500" : "text-slate-400 dark:text-slate-600",
         )}
       >
         {formatNum(row.errorCount)}
@@ -109,28 +109,28 @@ export function ApiTable({ rows }: { rows: AggregatedEndpoint[] }) {
   };
 
   return (
-    <section className="overflow-hidden rounded border border-slate-200 bg-white">
-      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+    <section className="overflow-hidden rounded border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
           Slow API endpoints
         </h2>
         <button
           type="button"
           onClick={() => void copyTsv()}
           disabled={rows.length === 0}
-          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-800 disabled:opacity-40"
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-800 disabled:opacity-40 dark:text-slate-400 dark:hover:text-slate-200"
         >
           <Copy className="size-3" aria-hidden />
           Copy TSV
         </button>
       </div>
       {rows.length === 0 ? (
-        <div className="px-3 py-10 text-center text-sm text-slate-400">
+        <div className="px-3 py-10 text-center text-sm text-slate-400 dark:text-slate-500">
           Upload or paste logs to see endpoints here.
         </div>
       ) : (
         <div style={{ height }}>
-          <div className="grid grid-cols-[minmax(0,1fr)_64px_64px_64px_64px_64px_56px] items-center gap-1 border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          <div className="grid grid-cols-[minmax(0,1fr)_64px_64px_64px_64px_64px_56px] items-center gap-1 border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
             <div>Endpoint</div>
             <div className="text-right">Count</div>
             <div className="text-right">Avg</div>
