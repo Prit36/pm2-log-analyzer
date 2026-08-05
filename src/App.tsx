@@ -69,7 +69,7 @@ export function App() {
         {hasCron && <CronTable rows={cronRows} />}
         <SkippedDisclosure />
         <footer className="pb-6 pt-2 text-center text-[11px] text-slate-400">
-          Parses in your browser — logs never leave this machine
+          Parses in your browser - logs never leave this machine
         </footer>
       </main>
       <Toast />
