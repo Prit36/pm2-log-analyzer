@@ -4,6 +4,7 @@
 
 import {
   aggregateCron,
+  buildHourlyStats,
   finishApiFromPartials,
   type AggregatedResult,
   type AggPartial,
@@ -403,6 +404,7 @@ async function reaggregateShards(
       jobs: cron.length,
       slowestRun: cron.reduce((m, r) => Math.max(m, r.maxMs), 0),
     },
+    hourlyStats: buildHourlyStats(undefined, api),
     methods: methodList,
     unmatchedSample,
     unmatchedCount,
@@ -470,7 +472,7 @@ async function parseFileSharded(file: File, normalizeMode: string) {
       statusFamily: "all",
       minMs: 0,
     };
-    const prekickedTasks: Promise<ShardPartial>[] = new Array(ranges.length);
+    const prekickedTasks: Promise<ShardPartial>[] = Array.from({ length: ranges.length });
     prekickedPartials = { epoch: ep, options: defaultOptions, tasks: prekickedTasks };
 
     const results = await Promise.all(

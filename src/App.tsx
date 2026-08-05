@@ -18,6 +18,7 @@ export function App() {
   const cronRows = useFilteredCronRows();
   const apiSortKey = useAnalysisStore((s) => s.filters.sortKey);
   const cronSortKey = useAnalysisStore((s) => s.filters.cronSortKey);
+  const hourlyStats = useAnalysisStore((s) => s.result?.hourlyStats);
   const hasCron = useAnalysisStore((s) => {
     const c = s.result?.cronSummary;
     return !!c && c.starts + c.dones + c.fails > 0;
@@ -56,7 +57,7 @@ export function App() {
             <ApiTable rows={apiRows} />
           </div>
           <div className="lg:col-span-2">
-            <LatencyChart rows={apiRows} />
+            <LatencyChart rows={apiRows} hourlyStats={hourlyStats} />
           </div>
         </div>
         {hasCron && <CronTable rows={cronRows} />}

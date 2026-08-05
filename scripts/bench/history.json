@@ -23905,5 +23905,382 @@
         "jsHeapUsedAfterMB": 24.761524200439453
       }
     ]
+  },
+  {
+    "id": "2026-08-05T16:05:13.384Z",
+    "method": "browser-app",
+    "note": null,
+    "git": {
+      "commit": "46cbcf8",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\test_data\\api-out-5gb.log",
+    "fileMB": 5350.371294021606,
+    "runs": 5,
+    "result": {
+      "matched": 36517352,
+      "unmatched": 27385736,
+      "apiEndpoints": 6107,
+      "cronJobs": 9,
+      "p95Ms": 1153.1297126840013
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 5.7974,
+        "stddev": 0.04858230130407577,
+        "min": 5.702,
+        "max": 5.838
+      },
+      "uploadToReadySec": {
+        "avg": 5.81789782,
+        "stddev": 0.048140106397821764,
+        "min": 5.7233757,
+        "max": 5.8578075
+      },
+      "throughputMBps": {
+        "avg": 922.9570824074495,
+        "stddev": 7.823808826376054,
+        "min": 916.4733288834543,
+        "max": 938.3323910946345
+      },
+      "browserRssPeakMB": {
+        "avg": 3327.428125,
+        "stddev": 61.52092130767323,
+        "min": 3279.49609375,
+        "max": 3443.296875
+      },
+      "workerWasmHeapMB": 2418.625,
+      "jsHeapPeakMB": {
+        "avg": 22.08586883544922,
+        "stddev": 3.6772826661320996,
+        "min": 18.904640197753906,
+        "max": 26.92959213256836
+      },
+      "reaggAvgMs": {
+        "avg": 277.53333333333336,
+        "stddev": 7.072953178599901,
+        "min": 268.6666666666667,
+        "max": 289.3333333333333
+      },
+      "stages": {
+        "wasmCompileMs": 3.1320000000298025,
+        "shardPoolInitMs": 8.203000000864268,
+        "readMs": 10279.006000003963,
+        "copyIngestMs": 157.19400000199676,
+        "feedMs": 4192.783999995142,
+        "endShardMs": 243.44799999967216,
+        "metaWireMs": 0.8329999998211861,
+        "shardWallMaxMs": 14811.074000002816,
+        "mergeMetaMs": 0,
+        "shardCount": 4,
+        "workerWasmHeapMB": 2418.625,
+        "paths": 2020780,
+        "shardReaggMaxMs": 0,
+        "decodePartialsMs": 36.02100000008941,
+        "finishApiMs": 40.83600000031292,
+        "firstReaggMs": 76.87999999970198,
+        "totalParseMs": 5714.227999999374,
+        "kind": "parse"
+      },
+      "reaggStages": {
+        "shardReaggMaxMs": 227.77566666677595,
+        "decodePartialsMs": 10.766666666790844,
+        "finishApiMs": 24.939999999975164,
+        "totalMs": 264.0800000001987,
+        "kind": "reagg"
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 5.838,
+        "uploadToReadySec": 5.8578075,
+        "throughputMBps": 916.4733288834543,
+        "reaggAvgMs": 272.6666666666667,
+        "reaggWallMs": [
+          344,
+          377,
+          97
+        ],
+        "stages": {
+          "kind": "parse",
+          "wasmCompileMs": 3.480000000447035,
+          "shardPoolInitMs": 7.9400000013411045,
+          "readMs": 10162.214999997988,
+          "copyIngestMs": 160.21500001102686,
+          "feedMs": 4196.650000004098,
+          "endShardMs": 210.41500000096858,
+          "metaWireMs": 0.4599999990314245,
+          "shardWallMaxMs": 14722.18000001274,
+          "mergeMetaMs": 0,
+          "shardCount": 4,
+          "workerWasmHeapMB": 2418.625,
+          "paths": 2020780,
+          "shardReaggMaxMs": 0,
+          "decodePartialsMs": 35.25999999977648,
+          "finishApiMs": 38.30499999970198,
+          "firstReaggMs": 73.58499999903142,
+          "totalParseMs": 5756.254999998957
+        },
+        "reaggStages": [
+          {
+            "kind": "reagg",
+            "shardReaggMaxMs": 284.9750000014901,
+            "decodePartialsMs": 15.169999999925494,
+            "finishApiMs": 27.355000000447035,
+            "totalMs": 328.1350000016391
+          },
+          {
+            "kind": "reagg",
+            "shardReaggMaxMs": 304.7999999988824,
+            "decodePartialsMs": 15.445000000298023,
+            "finishApiMs": 40.580000000074506,
+            "totalMs": 361.39499999955297
+          },
+          {
+            "kind": "reagg",
+            "shardReaggMaxMs": 78.44999999925494,
+            "decodePartialsMs": 2.4400000013411045,
+            "finishApiMs": 6.080000000074506,
+            "totalMs": 87.39500000141561
+          }
+        ],
+        "browserRssPeakMB": 3292.62109375,
+        "jsHeapPeakMB": 26.21981430053711,
+        "jsHeapUsedAfterMB": 20.67180633544922
+      },
+      {
+        "run": 2,
+        "parseWallSec": 5.702,
+        "uploadToReadySec": 5.7233757,
+        "throughputMBps": 938.3323910946345,
+        "reaggAvgMs": 289.3333333333333,
+        "reaggWallMs": [
+          350,
+          422,
+          96
+        ],
+        "stages": {
+          "kind": "parse",
+          "wasmCompileMs": 3.330000000074506,
+          "shardPoolInitMs": 7.995000001043081,
+          "readMs": 9956.765000002459,
+          "copyIngestMs": 156.74999999813735,
+          "feedMs": 4110.414999999106,
+          "endShardMs": 261.02999999932945,
+          "metaWireMs": 1.5449999999254942,
+          "shardWallMaxMs": 14406.130000002682,
+          "mergeMetaMs": 0,
+          "shardCount": 4,
+          "workerWasmHeapMB": 2418.625,
+          "paths": 2020780,
+          "shardReaggMaxMs": 0,
+          "decodePartialsMs": 32.830000000074506,
+          "finishApiMs": 40.39500000141561,
+          "firstReaggMs": 73.24500000104308,
+          "totalParseMs": 5618.1150000002235
+        },
+        "reaggStages": [
+          {
+            "kind": "reagg",
+            "shardReaggMaxMs": 289.00500000081956,
+            "decodePartialsMs": 14.730000000447035,
+            "finishApiMs": 28.330000000074506,
+            "totalMs": 333.125
+          },
+          {
+            "kind": "reagg",
+            "shardReaggMaxMs": 350.76999999955297,
+            "decodePartialsMs": 14.019999999552965,
+            "finishApiMs": 41.33999999985099,
+            "totalMs": 406.7050000000745
+          },
+          {
+            "kind": "reagg",
+            "shardReaggMaxMs": 79.10999999940395,
+            "decodePartialsMs": 2.7599999997764826,
+            "finishApiMs": 6.074999999254942,
+            "totalMs": 88.16499999910593
+          }
+        ],
+        "browserRssPeakMB": 3279.49609375,
+        "jsHeapPeakMB": 18.904640197753906,
+        "jsHeapUsedAfterMB": 21.2835693359375
+      },
+      {
+        "run": 3,
+        "parseWallSec": 5.821,
+        "uploadToReadySec": 5.8419577,
+        "throughputMBps": 919.1498529499411,
+        "reaggAvgMs": 268.6666666666667,
+        "reaggWallMs": [
+          325,
+          385,
+          96
+        ],
+        "stages": {
+          "kind": "parse",
+          "wasmCompileMs": 3.0049999989569187,
+          "shardPoolInitMs": 8.385000001639128,
+          "readMs": 10588.75,
+          "copyIngestMs": 160.91999999806285,
+          "feedMs": 4185.7799999937415,
+          "endShardMs": 259.89499999955297,
+          "metaWireMs": 0.48499999940395355,
+          "shardWallMaxMs": 15118.98999999091,
+          "mergeMetaMs": 0,
+          "shardCount": 4,
+          "workerWasmHeapMB": 2418.625,
+          "paths": 2020780,
+          "shardReaggMaxMs": 0,
+          "decodePartialsMs": 33.9850000012666,
+          "finishApiMs": 43.955000000074506,
+          "firstReaggMs": 77.95999999903142,
+          "totalParseMs": 5733.834999999031
+        },
+        "reaggStages": [
+          {
+            "kind": "reagg",
+            "shardReaggMaxMs": 266.410000000149,
+            "decodePartialsMs": 14.415000000968575,
+            "finishApiMs": 27.134999999776483,
+            "totalMs": 308.9199999999255
+          },
+          {
+            "kind": "reagg",
+            "shardReaggMaxMs": 310.1650000009686,
+            "decodePartialsMs": 17.179999999701977,
+            "finishApiMs": 41.31499999947846,
+            "totalMs": 369.570000000298
+          },
+          {
+            "kind": "reagg",
+            "shardReaggMaxMs": 78.71499999985099,
+            "decodePartialsMs": 2.425000000745058,
+            "finishApiMs": 5.955000000074506,
+            "totalMs": 87.36500000022352
+          }
+        ],
+        "browserRssPeakMB": 3284.0234375,
+        "jsHeapPeakMB": 19.453453063964844,
+        "jsHeapUsedAfterMB": 24.060688018798828
+      },
+      {
+        "run": 4,
+        "parseWallSec": 5.815,
+        "uploadToReadySec": 5.835869300000001,
+        "throughputMBps": 920.0982448876365,
+        "reaggAvgMs": 276.6666666666667,
+        "reaggWallMs": [
+          340,
+          395,
+          95
+        ],
+        "stages": {
+          "kind": "parse",
+          "wasmCompileMs": 3.175000000745058,
+          "shardPoolInitMs": 7.660000000149012,
+          "readMs": 10395.310000002384,
+          "copyIngestMs": 148.99499999918044,
+          "feedMs": 4245.559999993071,
+          "endShardMs": 242.30499999970198,
+          "metaWireMs": 0.5350000001490116,
+          "shardWallMaxMs": 14958.834999993443,
+          "mergeMetaMs": 0,
+          "shardCount": 4,
+          "workerWasmHeapMB": 2418.625,
+          "paths": 2020780,
+          "shardReaggMaxMs": 0,
+          "decodePartialsMs": 40.13499999977648,
+          "finishApiMs": 40.5,
+          "firstReaggMs": 80.6699999999255,
+          "totalParseMs": 5733.604999998584
+        },
+        "reaggStages": [
+          {
+            "kind": "reagg",
+            "shardReaggMaxMs": 279.2800000011921,
+            "decodePartialsMs": 14.91499999910593,
+            "finishApiMs": 27.530000001192093,
+            "totalMs": 322.67500000074506
+          },
+          {
+            "kind": "reagg",
+            "shardReaggMaxMs": 324.5099999997765,
+            "decodePartialsMs": 13.915000000968575,
+            "finishApiMs": 40.769999999552965,
+            "totalMs": 379.77500000037253
+          },
+          {
+            "kind": "reagg",
+            "shardReaggMaxMs": 77.47000000067055,
+            "decodePartialsMs": 2.4799999985843897,
+            "finishApiMs": 6.269999999552965,
+            "totalMs": 86.5
+          }
+        ],
+        "browserRssPeakMB": 3337.703125,
+        "jsHeapPeakMB": 18.921844482421875,
+        "jsHeapUsedAfterMB": 21.3056640625
+      },
+      {
+        "run": 5,
+        "parseWallSec": 5.811,
+        "uploadToReadySec": 5.8304789,
+        "throughputMBps": 920.7315942215808,
+        "reaggAvgMs": 280.3333333333333,
+        "reaggWallMs": [
+          330,
+          428,
+          83
+        ],
+        "stages": {
+          "kind": "parse",
+          "wasmCompileMs": 2.669999999925494,
+          "shardPoolInitMs": 9.035000000149012,
+          "readMs": 10291.990000016987,
+          "copyIngestMs": 159.09000000357628,
+          "feedMs": 4225.514999985695,
+          "endShardMs": 243.5949999988079,
+          "metaWireMs": 1.1400000005960464,
+          "shardWallMaxMs": 14849.235000014305,
+          "mergeMetaMs": 0,
+          "shardCount": 4,
+          "workerWasmHeapMB": 2418.625,
+          "paths": 2020780,
+          "shardReaggMaxMs": 0,
+          "decodePartialsMs": 37.894999999552965,
+          "finishApiMs": 41.02500000037253,
+          "firstReaggMs": 78.93999999947846,
+          "totalParseMs": 5729.3300000000745
+        },
+        "reaggStages": [
+          {
+            "kind": "reagg",
+            "shardReaggMaxMs": 271.14499999955297,
+            "decodePartialsMs": 14.83500000089407,
+            "finishApiMs": 27.709999999031425,
+            "totalMs": 314.26999999955297
+          },
+          {
+            "kind": "reagg",
+            "shardReaggMaxMs": 356.35500000044703,
+            "decodePartialsMs": 14.325000001117587,
+            "finishApiMs": 41.42999999970198,
+            "totalMs": 412.6349999997765
+          },
+          {
+            "kind": "reagg",
+            "shardReaggMaxMs": 65.47499999962747,
+            "decodePartialsMs": 2.444999998435378,
+            "finishApiMs": 6.225000001490116,
+            "totalMs": 74.57000000029802
+          }
+        ],
+        "browserRssPeakMB": 3443.296875,
+        "jsHeapPeakMB": 26.92959213256836,
+        "jsHeapUsedAfterMB": 21.044330596923828
+      }
+    ]
   }
 ]
