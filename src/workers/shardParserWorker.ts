@@ -228,7 +228,11 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
       const timing = await parseFileRange(file, start, end);
       const modeCode = normalizeModeCode(normalizeMode ?? "collapseIds");
       engine.ensure_mode(modeCode);
-      const partialWire = engine.reaggregate(modeCode, 0, 0, true).buffer;
+      const partialWireU8 = engine.reaggregate(modeCode, 0, 0, true);
+      const partialWire = partialWireU8.buffer.slice(
+        partialWireU8.byteOffset,
+        partialWireU8.byteOffset + partialWireU8.byteLength,
+      ) as ArrayBuffer;
       const tMeta = performance.now();
       const { cronWire, unmatchedWire } = metaBuffers();
       timing.metaWireMs = performance.now() - tMeta;
@@ -252,7 +256,7 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         pathCount: engine.path_count(),
         timing,
       };
-      self.postMessage(result, [cronWire, unmatchedWire, partialWire]);
+      (self as unknown as Worker).postMessage(result, [cronWire, unmatchedWire, partialWire]);
       return;
     }
 
@@ -299,7 +303,7 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         unmatchedWire,
         timing,
       };
-      self.postMessage(result, [cronWire, unmatchedWire]);
+      (self as unknown as Worker).postMessage(result, [cronWire, unmatchedWire]);
       return;
     }
 
@@ -316,7 +320,7 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         partial.byteOffset,
         partial.byteOffset + partial.byteLength,
       ) as ArrayBuffer;
-      self.postMessage(
+      (self as unknown as Worker).postMessage(
         {
           type: "SHARD_PARTIAL",
           shardIndex: msg.shardIndex,

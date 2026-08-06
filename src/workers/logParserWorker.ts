@@ -471,6 +471,10 @@ async function parseFileSharded(file: File, normalizeMode: string) {
       normalizeMode: normalizeMode as any,
       statusFamily: "all",
       minMs: 0,
+      methodFilter: null,
+      cronQuery: "",
+      cronMinMs: 0,
+      cronShowFailedOnly: false,
     };
     const prekickedTasks: Promise<ShardPartial>[] = Array.from({ length: ranges.length });
     prekickedPartials = { epoch: ep, options: defaultOptions, tasks: prekickedTasks };

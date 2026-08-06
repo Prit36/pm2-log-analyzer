@@ -7,6 +7,7 @@ import type {
   CronAggregated,
   CronEventCompact,
   CronSummary,
+  HourlyBucket,
   LogMethod,
   LogSummary,
   ParseOptions,
@@ -19,6 +20,7 @@ export type ColumnarStore = {
   durations: Float32Array;
   pathIds: Uint32Array;
   pathTable: string[];
+  hours?: Uint8Array;
   count: number;
   unmatchedCount: number;
   unmatchedSample: string[];

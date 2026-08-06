@@ -2,8 +2,8 @@ import { normalizePath } from "./normalize";
 import { createLineScratch, parseLine, parseLineBytes } from "./parseLine";
 import { percentile, sortAsc } from "./percentiles";
 import { RelHist } from "./relHist";
-import { aggregateColumnSlice, finishApiFromPartials, aggregateApiWithSummary } from "./aggregate";
-import type { ColumnarStore, ParseOptions } from "./types";
+import { aggregateColumnSlice, finishApiFromPartials, aggregateApiWithSummary, type ColumnarStore } from "./aggregate";
+import type { ParseOptions } from "./types";
 import { METHODS } from "./types";
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(`selfcheck failed: ${msg}`);

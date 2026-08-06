@@ -26,7 +26,7 @@ export function LatencyChart({
   hourlyStats = [],
 }: {
   rows: AggregatedEndpoint[];
-  hourlyStats?: HourlyBucket[];
+  hourlyStats?: HourlyBucket[] | undefined;
 }) {
   const [mode, setMode] = useState<ChartMode>("timeOfDay");
   const theme = useAnalysisStore((s) => s.theme);
