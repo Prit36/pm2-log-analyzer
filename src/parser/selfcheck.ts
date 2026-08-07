@@ -2,7 +2,16 @@ import { normalizePath } from "./normalize";
 import { createLineScratch, parseLine, parseLineBytes } from "./parseLine";
 import { percentile, sortAsc } from "./percentiles";
 import { RelHist } from "./relHist";
-import { aggregateColumnSlice, finishApiFromPartials, aggregateApiWithSummary, type ColumnarStore } from "./aggregate";
+import {
+  aggregateColumnSlice,
+  aggregateApiWithSummary,
+  buildHourlyStats,
+  finalizeHourlyStats,
+  finishApiFromPartials,
+  mergeHourlyPartials,
+  type ColumnarStore,
+  type HourlyPartial,
+} from "./aggregate";
 import type { ParseOptions } from "./types";
 import { METHODS } from "./types";
 function assert(cond: unknown, msg: string): asserts cond {
@@ -214,6 +223,85 @@ assert(parseLine("   ").kind === "empty", "empty");
   approx(one.summary!.p95Ms, two.summary!.p95Ms, 1e-6);
 }
 
+// --- hourly chart data uses explicit request hours and merged sketches ---
+{
+  const durations = new Float32Array([10, 20, 40, 80]);
+  const statuses = new Uint16Array([200, 500, 200, 200]);
+  const store: ColumnarStore = {
+    methodCodes: new Uint8Array([0, 0, 1, 1]),
+    statuses,
+    durations,
+    pathIds: new Uint32Array([0, 0, 1, 1]),
+    pathTable: ["/a", "/b"],
+    hours: new Uint8Array([3, 3, 15, 15]),
+    count: 4,
+    unmatchedCount: 0,
+    unmatchedSample: [],
+    cronEvents: [],
+    methodSeen: new Set(["GET", "POST"]),
+  };
+  const hourly = buildHourlyStats(store);
+  assert(hourly.length === 24, "hourly bucket count");
+  assert(hourly[3]!.count === 2, "hour 3 count");
+  assert(hourly[3]!.errorCount === 1, "hour 3 errors");
+  assert(hourly[3]!.avgMs === 15, "hour 3 average");
+  assert(hourly[3]!.maxMs === 20, "hour 3 max");
+  assert(hourly[15]!.count === 2, "hour 15 count");
+  assert(hourly[15]!.avgMs === 60, "hour 15 average");
+  assert(hourly[15]!.maxMs === 80, "hour 15 max");
+  assert(hourly[0]!.count === 0, "empty hour remains empty");
+
+  const noHours = buildHourlyStats({ ...store, hours: undefined });
+  assert(
+    noHours.every((bucket) => bucket.count === 0),
+    "no synthetic hourly data",
+  );
+
+  const partA: HourlyPartial = {
+    buckets: hourly.map((bucket, hour) => {
+      const sketch = new RelHist();
+      if (hour === 3) {
+        sketch.accept(10);
+        sketch.accept(20);
+      }
+      if (hour === 15) {
+        sketch.accept(40);
+        sketch.accept(80);
+      }
+      return {
+        count: bucket.count,
+        errorCount: bucket.errorCount,
+        sum: bucket.count * bucket.avgMs,
+        max: bucket.maxMs,
+        sketch: sketch.toWire(),
+      };
+    }),
+  };
+  const partB: HourlyPartial = {
+    buckets: hourly.map((bucket, hour) => {
+      const sketch = new RelHist();
+      if (hour === 3) {
+        sketch.accept(10);
+        sketch.accept(20);
+      }
+      if (hour === 15) {
+        sketch.accept(40);
+        sketch.accept(80);
+      }
+      return {
+        count: bucket.count,
+        errorCount: bucket.errorCount,
+        sum: bucket.count * bucket.avgMs,
+        max: bucket.maxMs,
+        sketch: sketch.toWire(),
+      };
+    }),
+  };
+  const merged = finalizeHourlyStats(mergeHourlyPartials([partA, partB]));
+  assert(merged[3]!.count === 4, "merged hour count");
+  assert(merged[3]!.errorCount === 2, "merged hour errors");
+}
+
 // --- Wasm core parity (Node): parse + reagg vs TS column slice ---
 {
   const { readFileSync } = await import("node:fs");
@@ -238,7 +326,8 @@ assert(parseLine("   ").kind === "empty", "empty");
   eng.finalize_paths();
   assert(eng.hit_count() === 3, `wasm hits ${eng.hit_count()}`);
   assert(eng.unmatched_count() === 1, "wasm unmatched");
-  const { decodePm2Partial, decodeCronWire } = await import("../wasm/decodePartial");
+  const { decodeHourlyWire, decodePm2Partial, decodeCronWire } =
+    await import("../wasm/decodePartial");
   const wire = eng.reaggregate(2, 0, 0, true); // collapseIds, all
   const { matched, unmatched, partial } = decodePm2Partial(wire);
   assert(matched === 3, "partial matched");
@@ -247,9 +336,45 @@ assert(parseLine("   ").kind === "empty", "empty");
   const health = partial.buckets.find((b) => b.path === "/api/health" && b.method === "GET");
   assert(health && health.count === 2, "health count");
   assert(health!.errorCount === 1, "health errors");
+  const hourlyPartial = decodeHourlyWire(eng.hourly_wire());
+  const hourlyStats = finalizeHourlyStats(hourlyPartial);
+  assert(hourlyStats[0]!.count === 3, "wasm hour 0 count");
+  assert(hourlyStats[0]!.errorCount === 1, "wasm hour 0 errors");
+  approx(hourlyStats[0]!.avgMs, (12.5 + 3.1 + 40) / 3, 0.5);
+  assert(hourlyStats[0]!.maxMs === 40, "wasm hour 0 max");
+  assert(hourlyStats[9]!.count === 0, "wasm empty hour");
+  assert(
+    hourlyStats.every((bucket) => bucket.count === 0 || bucket.hour === 0),
+    "wasm timestamp buckets",
+  );
   const cronEv = decodeCronWire(eng.cron_wire());
   assert(cronEv.length === 1 && cronEv[0]!.name === "export-motor-policy-csv", "cron wire");
+
+  const noTimestamp = new Pm2Engine();
+  const noTimestampBytes = new TextEncoder().encode("40ms GET /api/untimestamped");
+  noTimestamp.parse_shard(noTimestampBytes, 0, noTimestampBytes.length, noTimestampBytes.length);
+  const noTimestampStats = finalizeHourlyStats(decodeHourlyWire(noTimestamp.hourly_wire()));
+  assert(
+    noTimestampStats.every((bucket) => bucket.count === 0),
+    "wasm no synthetic hours",
+  );
+
+  const shardA = new Pm2Engine();
+  const shardB = new Pm2Engine();
+  const firstShardBytes = new TextEncoder().encode(sample.split("\n").slice(0, 2).join("\n"));
+  const secondShardBytes = new TextEncoder().encode(sample.split("\n")[2]!);
+  shardA.parse_shard(firstShardBytes, 0, firstShardBytes.length, firstShardBytes.length);
+  shardB.parse_shard(secondShardBytes, 0, secondShardBytes.length, secondShardBytes.length);
+  const mergedShardStats = finalizeHourlyStats(
+    mergeHourlyPartials([
+      decodeHourlyWire(shardA.hourly_wire()),
+      decodeHourlyWire(shardB.hourly_wire()),
+    ]),
+  );
+  assert(mergedShardStats[0]!.count === hourlyStats[0]!.count, "merged wasm hour count");
+  assert(mergedShardStats[0]!.errorCount === hourlyStats[0]!.errorCount, "merged wasm errors");
+  assert(mergedShardStats[0]!.maxMs === hourlyStats[0]!.maxMs, "merged wasm max");
+  assert(mergedShardStats[0]!.avgMs === hourlyStats[0]!.avgMs, "merged wasm average");
 }
 
 console.log("parser selfcheck: ok");
-

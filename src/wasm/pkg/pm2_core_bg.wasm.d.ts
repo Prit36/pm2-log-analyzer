@@ -10,6 +10,7 @@ export const pm2engine_ensure_mode: (a: number, b: number) => void;
 export const pm2engine_feed: (a: number, b: number, c: number) => number;
 export const pm2engine_finalize_paths: (a: number) => void;
 export const pm2engine_hit_count: (a: number) => number;
+export const pm2engine_hourly_wire: (a: number) => [number, number];
 export const pm2engine_ingest_ptr: (a: number, b: number) => number;
 export const pm2engine_methods_mask: (a: number) => number;
 export const pm2engine_new: () => number;

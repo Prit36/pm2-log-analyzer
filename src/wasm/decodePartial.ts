@@ -1,6 +1,6 @@
 /** Decode Rust PM2P reagg partials and cron/unmatched wires. */
 
-import type { AggPartial, NormBucketWire } from "../parser/aggregate";
+import type { AggPartial, HourlyPartial, NormBucketWire } from "../parser/aggregate";
 import type { CronEventCompact, LogMethod } from "../parser";
 import type { RelHistWire } from "../parser/relHist";
 import { METHODS } from "../parser";
@@ -17,7 +17,11 @@ function f64(view: DataView, o: number): number {
   return view.getFloat64(o, true);
 }
 
-function readBytes(buf: Uint8Array, view: DataView, o: number): { bytes: Uint8Array; next: number } {
+function readBytes(
+  buf: Uint8Array,
+  view: DataView,
+  o: number,
+): { bytes: Uint8Array; next: number } {
   const len = u32(view, o);
   o += 4;
   return { bytes: buf.subarray(o, o + len), next: o + len };
@@ -37,6 +41,33 @@ function decodeSketch(buf: Uint8Array): RelHistWire {
     o += 8;
   }
   return { buckets, count };
+}
+
+const HOURLY_MAGIC = 0x504d3248;
+
+export function decodeHourlyWire(buf: Uint8Array): HourlyPartial {
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  if (buf.byteLength < 8 || u32(view, 0) !== HOURLY_MAGIC) throw new Error("bad PM2H magic");
+  const version = view.getUint16(4, true);
+  if (version !== 1) throw new Error(`unsupported PM2H version ${version}`);
+  const bucketCount = view.getUint16(6, true);
+  if (bucketCount !== 24) throw new Error(`unsupported PM2H bucket count ${bucketCount}`);
+
+  const buckets: HourlyPartial["buckets"] = [];
+  let o = 8;
+  for (let i = 0; i < bucketCount; i++) {
+    const count = u32(view, o);
+    const errorCount = u32(view, o + 4);
+    const sum = f64(view, o + 8);
+    const max = f32(view, o + 16);
+    const sketchLength = u32(view, o + 20);
+    o += 24;
+    const sketch = decodeSketch(buf.subarray(o, o + sketchLength));
+    o += sketchLength;
+    buckets.push({ count, errorCount, sum, max, sketch });
+  }
+  if (o !== buf.byteLength) throw new Error("trailing PM2H bytes");
+  return { buckets };
 }
 
 const dec = new TextDecoder();

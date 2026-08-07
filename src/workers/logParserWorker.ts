@@ -4,8 +4,9 @@
 
 import {
   aggregateCron,
-  buildHourlyStats,
+  finalizeHourlyStats,
   finishApiFromPartials,
+  mergeHourlyPartials,
   type AggregatedResult,
   type AggPartial,
   type CronEventCompact,
@@ -15,6 +16,7 @@ import {
 } from "../parser";
 import {
   decodeCronWire,
+  decodeHourlyWire,
   decodePm2Partial,
   decodeUnmatchedWire,
   methodsFromMask,
@@ -110,17 +112,20 @@ let unmatchedSample: string[] = [];
 let cronEvents: CronEventCompact[] = [];
 let methods: string[] = [];
 let activeShardCount = 0;
+let hourlyStats = finalizeHourlyStats(mergeHourlyPartials([]));
 let cachedSummary: { summary: LogSummary; methods: string[] } | null = null;
 
-let lastParsePartial: Omit<
-  ParsePerfStages,
-  | "kind"
-  | "firstReaggMs"
-  | "shardReaggMaxMs"
-  | "decodePartialsMs"
-  | "finishApiMs"
-  | "totalParseMs"
-> & { workerWasmHeapMB?: number; paths?: number } | null = null;
+let lastParsePartial:
+  | (Omit<
+      ParsePerfStages,
+      | "kind"
+      | "firstReaggMs"
+      | "shardReaggMaxMs"
+      | "decodePartialsMs"
+      | "finishApiMs"
+      | "totalParseMs"
+    > & { workerWasmHeapMB?: number; paths?: number })
+  | null = null;
 let parseWallOrigin = 0;
 
 function poolSize(): number {
@@ -147,6 +152,7 @@ function resetMeta() {
   cronEvents = [];
   methods = [];
   activeShardCount = 0;
+  hourlyStats = finalizeHourlyStats(mergeHourlyPartials([]));
   cachedSummary = null;
 }
 
@@ -246,11 +252,7 @@ function runShardPartial(
 }
 
 /** Prewarm normalize map; overlaps sibling shard feeds when kicked per SHARD_PARSED. */
-function runShardEnsureMode(
-  worker: Worker,
-  epoch: number,
-  mode: number,
-): Promise<void> {
+function runShardEnsureMode(worker: Worker, epoch: number, mode: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const onMsg = (e: MessageEvent<ShardModeReady | ShardError>) => {
       const data = e.data;
@@ -273,16 +275,19 @@ function absorbMeta(shards: ShardParsed[]) {
   unmatchedSample = [];
   cronEvents = [];
   let mask = 0;
+  const hourlyPartials = [];
   for (const s of shards) {
     hitCount += s.hitCount;
     unmatchedCount += s.unmatchedCount;
     mask |= s.methodsMask;
+    hourlyPartials.push(decodeHourlyWire(new Uint8Array(s.hourlyWire)));
     cronEvents.push(...decodeCronWire(new Uint8Array(s.cronWire)));
     for (const line of decodeUnmatchedWire(new Uint8Array(s.unmatchedWire))) {
       if (unmatchedSample.length >= 40) break;
       unmatchedSample.push(line);
     }
   }
+  hourlyStats = finalizeHourlyStats(mergeHourlyPartials(hourlyPartials));
   methods = methodsFromMask(mask);
   // Summary comes from first reagg (needSummary=true); warm reaggs reuse cache.
   cachedSummary = null;
@@ -316,7 +321,11 @@ type ReaggTiming = {
   totalMs: number;
 };
 
-let prekickedPartials: { epoch: number; options: ParseOptions; tasks: Promise<ShardPartial>[] } | null = null;
+let prekickedPartials: {
+  epoch: number;
+  options: ParseOptions;
+  tasks: Promise<ShardPartial>[];
+} | null = null;
 
 async function reaggregateShards(
   options: ParseOptions,
@@ -404,7 +413,7 @@ async function reaggregateShards(
       jobs: cron.length,
       slowestRun: cron.reduce((m, r) => Math.max(m, r.maxMs), 0),
     },
-    hourlyStats: buildHourlyStats(undefined, api),
+    hourlyStats,
     methods: methodList,
     unmatchedSample,
     unmatchedCount,
@@ -512,7 +521,7 @@ async function parseFileSharded(file: File, normalizeMode: string) {
     absorbMeta(results);
     activeShardCount = results.length;
     const wasmHeapMB = results.reduce((s, r) => s + (r.wasmHeapBytes ?? 0), 0) / (1024 * 1024);
-    const perShardEntryMB = results.reduce((s, r) => s + ((r.hitCount * 16) / (1024 * 1024)), 0);
+    const perShardEntryMB = results.reduce((s, r) => s + (r.hitCount * 16) / (1024 * 1024), 0);
     self.postMessage({
       type: "PROGRESS",
       payload: { stage: "parsing", processed: total, total, percent: 100 },
@@ -617,12 +626,10 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
       }
       self.postMessage({ type: "RESULT", payload: result } satisfies WorkerResponse);
       const heapMB = lastParsePartial?.workerWasmHeapMB;
-      self.postMessage(
-        {
-          type: "DONE",
-          ...(heapMB != null ? { payload: { workerWasmHeapMB: heapMB } } : {}),
-        } satisfies WorkerResponse,
-      );
+      self.postMessage({
+        type: "DONE",
+        ...(heapMB != null ? { payload: { workerWasmHeapMB: heapMB } } : {}),
+      } satisfies WorkerResponse);
       return;
     }
 

@@ -27,6 +27,7 @@ export class Pm2Engine {
     feed(len: number, abs_off: number): number;
     finalize_paths(): void;
     hit_count(): number;
+    hourly_wire(): Uint8Array;
     /**
      * Grow ingest window to `len` bytes; returns pointer into Wasm memory for JS writes.
      */
@@ -59,6 +60,7 @@ export interface InitOutput {
     readonly pm2engine_feed: (a: number, b: number, c: number) => number;
     readonly pm2engine_finalize_paths: (a: number) => void;
     readonly pm2engine_hit_count: (a: number) => number;
+    readonly pm2engine_hourly_wire: (a: number) => [number, number];
     readonly pm2engine_ingest_ptr: (a: number, b: number) => number;
     readonly pm2engine_methods_mask: (a: number) => number;
     readonly pm2engine_new: () => number;

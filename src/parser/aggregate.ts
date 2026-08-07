@@ -51,6 +51,18 @@ export type AggPartial = {
   } | null;
 };
 
+export type HourlyBucketPartial = {
+  count: number;
+  errorCount: number;
+  sum: number;
+  max: number;
+  sketch: RelHistWire;
+};
+
+export type HourlyPartial = {
+  buckets: HourlyBucketPartial[];
+};
+
 function sketchQuantile(sketch: RelHist, q: number, n: number): number {
   if (n === 0) return 0;
   return sketch.quantile(q);
@@ -422,10 +434,54 @@ function buildCronSummary(events: CronEventCompact[], cron: CronAggregated[]): C
   };
 }
 
-export function buildHourlyStats(
-  store: ColumnarStore | undefined,
-  api: AggregatedEndpoint[],
-): HourlyBucket[] {
+export function mergeHourlyPartials(partials: HourlyPartial[]): HourlyPartial {
+  const buckets = Array.from({ length: 24 }, () => ({
+    count: 0,
+    errorCount: 0,
+    sum: 0,
+    max: 0,
+    sketch: makeRelHist(),
+  }));
+  for (const partial of partials) {
+    for (let hour = 0; hour < 24; hour++) {
+      const source = partial.buckets[hour];
+      if (!source) continue;
+      const target = buckets[hour]!;
+      target.count += source.count;
+      target.errorCount += source.errorCount;
+      target.sum += source.sum;
+      if (source.max > target.max) target.max = source.max;
+      target.sketch.mergeWire(source.sketch);
+    }
+  }
+  return {
+    buckets: buckets.map((bucket) => ({
+      count: bucket.count,
+      errorCount: bucket.errorCount,
+      sum: bucket.sum,
+      max: bucket.max,
+      sketch: bucket.sketch.toWire(),
+    })),
+  };
+}
+
+export function finalizeHourlyStats(partial: HourlyPartial): HourlyBucket[] {
+  return partial.buckets.map((bucket, hour) => {
+    const sketch = RelHist.fromWire(bucket.sketch);
+    return {
+      hour,
+      label: `${String(hour).padStart(2, "0")}:00`,
+      count: bucket.count,
+      errorCount: bucket.errorCount,
+      avgMs: bucket.count > 0 ? Math.round(bucket.sum / bucket.count) : 0,
+      p95Ms: Math.round(sketchQuantile(sketch, 0.95, bucket.count)),
+      p99Ms: Math.round(sketchQuantile(sketch, 0.99, bucket.count)),
+      maxMs: Math.round(bucket.max),
+    };
+  });
+}
+
+export function buildHourlyStats(store: ColumnarStore | undefined): HourlyBucket[] {
   const buckets = Array.from({ length: 24 }, (_, i) => ({
     hour: i,
     count: 0,
@@ -434,8 +490,6 @@ export function buildHourlyStats(
     maxMs: 0,
     sketch: makeRelHist(),
   }));
-
-  let hasExplicitHours = false;
 
   if (store && store.hours && store.hours.length > 0) {
     const len = store.count;
@@ -446,7 +500,6 @@ export function buildHourlyStats(
     for (let i = 0; i < len; i++) {
       const h = hours[i];
       if (h !== undefined && h >= 0 && h < 24) {
-        hasExplicitHours = true;
         const dur = durations[i] ?? 0;
         const st = statuses[i] ?? 200;
         const b = buckets[h]!;
@@ -457,67 +510,6 @@ export function buildHourlyStats(
         b.sketch.accept(dur);
       }
     }
-  }
-
-  if (!hasExplicitHours && api.length > 0) {
-    const totalCount = api.reduce((acc, r) => acc + r.count, 0);
-    const totalErrors = api.reduce((acc, r) => acc + r.errorCount, 0);
-    const overallAvg = totalCount > 0 ? api.reduce((acc, r) => acc + r.avgMs * r.count, 0) / totalCount : 0;
-    const overallP95 = api.length > 0 ? Math.max(...api.map((r) => r.p95Ms)) : 0;
-    const overallP99 = api.length > 0 ? Math.max(...api.map((r) => r.p99Ms)) : 0;
-    const overallMax = api.length > 0 ? Math.max(...api.map((r) => r.maxMs)) : 0;
-
-    const requestWeights = [
-      0.015, 0.010, 0.008, 0.008, 0.010, 0.020, 0.035, 0.055,
-      0.075, 0.085, 0.090, 0.080, 0.070, 0.095, 0.100, 0.085,
-      0.065, 0.050, 0.035, 0.025, 0.018, 0.015, 0.014, 0.012,
-    ];
-    const sumReqW = requestWeights.reduce((a, b) => a + b, 0);
-
-    const errorStressFactor = [
-      0.6, 0.5, 0.5, 1.4, 0.6, 0.7, 0.8, 1.0,
-      1.2, 1.4, 1.6, 1.5, 1.3, 1.7, 1.8, 1.5,
-      1.2, 1.0, 0.9, 0.8, 0.7, 0.6, 0.6, 0.6,
-    ];
-
-    const rawErrorWeights = requestWeights.map((w, i) => w * (errorStressFactor[i] ?? 1.0));
-    const sumErrW = rawErrorWeights.reduce((a, b) => a + b, 0);
-
-    let accumCount = 0;
-    let accumErrors = 0;
-
-    return Array.from({ length: 24 }, (_, i) => {
-      const rw = (requestWeights[i] ?? 0.04) / sumReqW;
-      const ew = (rawErrorWeights[i] ?? 0.04) / sumErrW;
-
-      let count = Math.round(totalCount * rw);
-      let errorCount = Math.round(totalErrors * ew);
-
-      if (i === 23) {
-        count = Math.max(0, totalCount - accumCount);
-        errorCount = Math.max(0, totalErrors - accumErrors);
-      } else {
-        accumCount += count;
-        accumErrors += errorCount;
-      }
-
-      const loadFactor = 0.80 + ((requestWeights[i] ?? 0.04) / 0.10) * 0.45;
-      const avgMs = Math.round(overallAvg * loadFactor);
-      const p95Ms = Math.max(avgMs + 5, Math.round(overallP95 * loadFactor));
-      const p99Ms = Math.max(p95Ms + 5, Math.round(overallP99 * loadFactor));
-      const maxMs = Math.max(p99Ms + 10, Math.round(overallMax * Math.max(1, loadFactor)));
-
-      return {
-        hour: i,
-        label: `${String(i).padStart(2, "0")}:00`,
-        count,
-        errorCount,
-        avgMs,
-        p95Ms,
-        p99Ms,
-        maxMs,
-      };
-    });
   }
 
   return buckets.map((b) => ({
@@ -541,7 +533,7 @@ export function buildResult(store: ColumnarStore, options: ParseOptions): Aggreg
     cron,
     summary: summary!,
     cronSummary: buildCronSummary(store.cronEvents, cron),
-    hourlyStats: buildHourlyStats(store, api),
+    hourlyStats: buildHourlyStats(store),
     methods: Array.from(store.methodSeen).sort(),
     unmatchedSample: store.unmatchedSample,
     unmatchedCount: store.unmatchedCount,
@@ -564,7 +556,7 @@ export function buildResultCached(
     cron,
     summary,
     cronSummary: buildCronSummary(store.cronEvents, cron),
-    hourlyStats: buildHourlyStats(store, api),
+    hourlyStats: buildHourlyStats(store),
     methods,
     unmatchedSample: store.unmatchedSample,
     unmatchedCount: store.unmatchedCount,
@@ -592,7 +584,7 @@ export function buildResultFromPartials(
     cron,
     summary,
     cronSummary: buildCronSummary(store.cronEvents, cron),
-    hourlyStats: buildHourlyStats(store, api),
+    hourlyStats: buildHourlyStats(store),
     methods,
     unmatchedSample: store.unmatchedSample,
     unmatchedCount: store.unmatchedCount,

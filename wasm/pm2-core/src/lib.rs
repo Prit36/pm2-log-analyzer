@@ -113,6 +113,10 @@ impl Pm2Engine {
         self.inner.summary_wire()
     }
 
+    pub fn hourly_wire(&self) -> Vec<u8> {
+        self.inner.hourly_wire()
+    }
+
     pub fn methods_mask(&self) -> u8 {
         self.inner.methods_mask()
     }

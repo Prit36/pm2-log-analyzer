@@ -60,6 +60,7 @@ export type ShardParsed = {
   methodsMask: number;
   cronWire: ArrayBuffer;
   unmatchedWire: ArrayBuffer;
+  hourlyWire: ArrayBuffer;
   partialWire?: ArrayBuffer;
   /** Debug probe: current Wasm linear memory size. */
   wasmHeapBytes?: number;
@@ -187,14 +188,23 @@ async function parseFileRange(file: File, start: number, end: number): Promise<S
   };
 }
 
-function metaBuffers(): { cronWire: ArrayBuffer; unmatchedWire: ArrayBuffer } {
+function metaBuffers(): {
+  cronWire: ArrayBuffer;
+  unmatchedWire: ArrayBuffer;
+  hourlyWire: ArrayBuffer;
+} {
   const cron = engine!.cron_wire();
   const unmatched = engine!.unmatched_sample_wire();
+  const hourly = engine!.hourly_wire();
   return {
     cronWire: cron.buffer.slice(cron.byteOffset, cron.byteOffset + cron.byteLength) as ArrayBuffer,
     unmatchedWire: unmatched.buffer.slice(
       unmatched.byteOffset,
       unmatched.byteOffset + unmatched.byteLength,
+    ) as ArrayBuffer,
+    hourlyWire: hourly.buffer.slice(
+      hourly.byteOffset,
+      hourly.byteOffset + hourly.byteLength,
     ) as ArrayBuffer,
   };
 }
@@ -234,14 +244,10 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         partialWireU8.byteOffset + partialWireU8.byteLength,
       ) as ArrayBuffer;
       const tMeta = performance.now();
-      const { cronWire, unmatchedWire } = metaBuffers();
+      const { cronWire, unmatchedWire, hourlyWire } = metaBuffers();
       timing.metaWireMs = performance.now() - tMeta;
       timing.shardWallMs =
-        timing.readMs +
-        timing.copyIngestMs +
-        timing.feedMs +
-        timing.endShardMs +
-        timing.metaWireMs;
+        timing.readMs + timing.copyIngestMs + timing.feedMs + timing.endShardMs + timing.metaWireMs;
       const result: ShardParsed = {
         type: "SHARD_PARSED",
         shardIndex,
@@ -251,12 +257,18 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         methodsMask: engine.methods_mask(),
         cronWire,
         unmatchedWire,
+        hourlyWire,
         partialWire,
         wasmHeapBytes: wasmMemory!.buffer.byteLength,
         pathCount: engine.path_count(),
         timing,
       };
-      (self as unknown as Worker).postMessage(result, [cronWire, unmatchedWire, partialWire]);
+      (self as unknown as Worker).postMessage(result, [
+        cronWire,
+        unmatchedWire,
+        hourlyWire,
+        partialWire,
+      ]);
       return;
     }
 
@@ -282,7 +294,7 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
       engine.end_shard();
       const endShardMs = performance.now() - tEnd;
       const tMeta = performance.now();
-      const { cronWire, unmatchedWire } = metaBuffers();
+      const { cronWire, unmatchedWire, hourlyWire } = metaBuffers();
       const metaWireMs = performance.now() - tMeta;
       const timing: ShardTiming = {
         readMs: 0,
@@ -301,9 +313,10 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         methodsMask: engine.methods_mask(),
         cronWire,
         unmatchedWire,
+        hourlyWire,
         timing,
       };
-      (self as unknown as Worker).postMessage(result, [cronWire, unmatchedWire]);
+      (self as unknown as Worker).postMessage(result, [cronWire, unmatchedWire, hourlyWire]);
       return;
     }
 

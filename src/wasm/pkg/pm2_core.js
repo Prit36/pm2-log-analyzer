@@ -69,6 +69,15 @@ export class Pm2Engine {
         return ret >>> 0;
     }
     /**
+     * @returns {Uint8Array}
+     */
+    hourly_wire() {
+        const ret = wasm.pm2engine_hourly_wire(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
      * Grow ingest window to `len` bytes; returns pointer into Wasm memory for JS writes.
      * @param {number} len
      * @returns {number}

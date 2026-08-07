@@ -52,6 +52,14 @@ struct EndpointAcc {
     error_count: u32,
 }
 
+struct HourlyAcc {
+    count: u32,
+    error_count: u32,
+    sum: f64,
+    max: f32,
+    sketch: RelHist,
+}
+
 pub struct Engine {
     ingest: Vec<u8>,
     carry: Vec<u8>,
@@ -432,6 +440,36 @@ impl Engine {
         self.summary_ready = true;
     }
 
+    /// Encode filter-independent hour-of-day request statistics.
+    pub fn hourly_wire(&self) -> Vec<u8> {
+        let mut buckets: Vec<HourlyAcc> = (0..24)
+            .map(|_| HourlyAcc {
+                count: 0,
+                error_count: 0,
+                sum: 0.0,
+                max: 0.0,
+                sketch: RelHist::new(),
+            })
+            .collect();
+
+        for entry in &self.entries {
+            let Some(bucket) = buckets.get_mut(entry._pad as usize) else {
+                continue;
+            };
+            bucket.count += 1;
+            bucket.sum += entry.duration as f64;
+            if entry.duration > bucket.max {
+                bucket.max = entry.duration;
+            }
+            if entry.status >= 400 {
+                bucket.error_count += 1;
+            }
+            bucket.sketch.accept(entry.duration);
+        }
+
+        encode_hourly_vec(&buckets)
+    }
+
     /// Summary wire for coordinator cache (same fields as PM2P summary block).
     pub fn summary_wire(&self) -> Vec<u8> {
         let mut out = Vec::new();
@@ -467,6 +505,7 @@ impl Engine {
                 path_end,
                 status,
                 duration_ms,
+                hour,
             } => {
                 let path = &buf[path_start..path_end];
                 let pid = self.intern_path(path);
@@ -475,7 +514,7 @@ impl Engine {
                     duration: duration_ms,
                     status,
                     method: method as u8,
-                    _pad: 0,
+                    _pad: hour.unwrap_or(255),
                 });
                 self.methods_mask |= 1u8 << (method as u8);
             }
@@ -843,6 +882,23 @@ impl Engine {
     }
 }
 
+fn encode_hourly_vec(buckets: &[HourlyAcc]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(16 + buckets.len() * 32);
+    out.extend_from_slice(&0x504D3248u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&(buckets.len() as u16).to_le_bytes());
+    for bucket in buckets {
+        out.extend_from_slice(&bucket.count.to_le_bytes());
+        out.extend_from_slice(&bucket.error_count.to_le_bytes());
+        out.extend_from_slice(&bucket.sum.to_le_bytes());
+        out.extend_from_slice(&bucket.max.to_le_bytes());
+        let wire = bucket.sketch.to_wire();
+        out.extend_from_slice(&(wire.len() as u32).to_le_bytes());
+        out.extend_from_slice(&wire);
+    }
+    out
+}
+
 fn write_bytes(out: &mut Vec<u8>, b: &[u8]) {
     out.extend_from_slice(&(b.len() as u32).to_le_bytes());
     out.extend_from_slice(b);
@@ -935,6 +991,43 @@ socket connected\n\
         assert_eq!(a.unmatched_count(), b.unmatched_count());
         assert_eq!(a.hit_count(), 2);
         assert_eq!(a.unmatched_count(), 1);
+    }
+
+    #[test]
+    fn hourly_wire_uses_timestamp_hours() {
+        let sample = b"2026-07-24T03:00:10: GET /api/a 200 12.5 ms - 42\n\
+2026-07-24T15:00:11: POST /api/b 500 40 ms - 1\n\
+40ms GET /api/c\n";
+        let mut engine = Engine::new();
+        engine.parse_shard(sample, 0, sample.len(), sample.len());
+
+        let wire = engine.hourly_wire();
+        assert_eq!(&wire[0..4], &0x504D3248u32.to_le_bytes());
+        assert_eq!(u16::from_le_bytes(wire[4..6].try_into().unwrap()), 1);
+        assert_eq!(u16::from_le_bytes(wire[6..8].try_into().unwrap()), 24);
+
+        let mut offset = 8usize;
+        let mut records = [(0u32, 0u32, 0.0f64, 0.0f32); 24];
+        for record in &mut records {
+            record.0 = u32::from_le_bytes(wire[offset..offset + 4].try_into().unwrap());
+            record.1 = u32::from_le_bytes(wire[offset + 4..offset + 8].try_into().unwrap());
+            record.2 = f64::from_le_bytes(wire[offset + 8..offset + 16].try_into().unwrap());
+            record.3 = f32::from_le_bytes(wire[offset + 16..offset + 20].try_into().unwrap());
+            let sketch_len = u32::from_le_bytes(wire[offset + 20..offset + 24].try_into().unwrap()) as usize;
+            offset += 24 + sketch_len;
+        }
+
+        assert_eq!(records[3].0, 1);
+        assert_eq!(records[3].1, 0);
+        assert!((records[3].2 - 12.5).abs() < 0.01);
+        assert!((records[3].3 - 12.5).abs() < 0.01);
+        assert_eq!(records[15].0, 1);
+        assert_eq!(records[15].1, 1);
+        assert!((records[15].2 - 40.0).abs() < 0.01);
+        assert!((records[15].3 - 40.0).abs() < 0.01);
+        assert_eq!(records[0].0, 0);
+
+        assert_eq!(offset, wire.len());
     }
 
     #[test]

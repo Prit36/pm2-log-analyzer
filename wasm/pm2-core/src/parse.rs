@@ -47,6 +47,7 @@ pub enum LineKind {
         path_end: usize,
         status: u16,
         duration_ms: f32,
+        hour: Option<u8>,
     },
     Cron {
         event: u8, // 0=start 1=done 2=fail
@@ -97,7 +98,7 @@ fn only_space_ansi_left(buf: &[u8], i: usize, end: usize) -> bool {
     skip_space_ansi(buf, i, end) >= end
 }
 
-fn skip_timestamp(buf: &[u8], start: usize, end: usize) -> Option<(usize, usize, usize)> {
+fn skip_timestamp(buf: &[u8], start: usize, end: usize) -> Option<(usize, usize, usize, u8)> {
     if end - start < 20 {
         return None;
     }
@@ -117,7 +118,8 @@ fn skip_timestamp(buf: &[u8], start: usize, end: usize) -> Option<(usize, usize,
     {
         return None;
     }
-    Some((skip_space_ansi(buf, a + 20, end), a, a + 19))
+    let hour = (b[11] - b'0') * 10 + (b[12] - b'0');
+    Some((skip_space_ansi(buf, a + 20, end), a, a + 19, hour))
 }
 
 fn parse_method(buf: &[u8], mut i: usize, end: usize) -> Option<(Method, usize)> {
@@ -244,11 +246,14 @@ fn strip_ansi_bytes(buf: &[u8]) -> Vec<u8> {
 
 fn try_http_a(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
     let mut i = skip_space_ansi(buf, start, end);
-    if let Some((ni, _, _)) = skip_timestamp(buf, i, end) {
+    let hour = if let Some((ni, _, _, hour)) = skip_timestamp(buf, i, end) {
         if ni != i {
             i = ni;
         }
-    }
+        (hour < 24).then_some(hour)
+    } else {
+        None
+    };
     let (method, ni) = parse_method(buf, i, end)?;
     i = ni;
     let (ps, pe, ni) = read_token(buf, i, end)?;
@@ -298,6 +303,7 @@ fn try_http_a(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
         path_end: pe,
         status,
         duration_ms: dur,
+        hour,
     })
 }
 
@@ -321,13 +327,14 @@ fn try_http_b(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
         path_end: pe,
         status: 0,
         duration_ms: dur,
+        hour: None,
     })
 }
 
 fn try_cron(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
     let mut i = skip_space_ansi(buf, start, end);
     let ts = skip_timestamp(buf, i, end);
-    if let Some((ni, _, _)) = ts {
+    if let Some((ni, _, _, _)) = ts {
         i = ni;
     }
     let cron_idx = find_cron_mark(buf, i, end)?;
@@ -405,7 +412,7 @@ fn try_cron(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
             }
         }
     }
-    let ts_bytes = ts.map(|(_, a, b)| buf[a..b].to_vec());
+    let ts_bytes = ts.map(|(_, a, b, _)| buf[a..b].to_vec());
     Some(LineKind::Cron {
         event,
         name,
@@ -454,11 +461,13 @@ mod tests {
                 path_end,
                 status,
                 duration_ms,
+                hour,
             } => {
                 assert_eq!(method, Method::Get);
                 assert_eq!(&s[path_start..path_end], b"/api/health");
                 assert_eq!(status, 200);
                 assert!((duration_ms - 12.5).abs() < 0.01);
+                assert_eq!(hour, Some(0));
             }
             other => panic!("unexpected {other:?}"),
         }
@@ -474,11 +483,13 @@ mod tests {
                 path_end,
                 status,
                 duration_ms,
+                hour,
             } => {
                 assert_eq!(method, Method::Post);
                 assert_eq!(&s[path_start..path_end], b"/api/admin/dashboard/dashboarddata");
                 assert_eq!(status, 200);
                 assert!((duration_ms - 71.197).abs() < 0.01);
+                assert_eq!(hour, None);
             }
             other => panic!("unexpected {other:?}"),
         }
