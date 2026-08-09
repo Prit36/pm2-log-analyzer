@@ -508,16 +508,50 @@ pub fn parse_line_bytes(buf: &[u8], start: usize, mut end: usize) -> LineKind {
     if start >= end {
         return LineKind::Empty;
     }
-    if let Some(k) = try_http_a(buf, start, end) {
-        return k;
+    // First non-space/ANSI byte gates the pattern probes. httpA needs a
+    // method letter (G/P/H/D) or a digit (timestamp first); httpB needs a
+    // digit (duration first); cron needs '['. Skipping failed probes for the
+    // ~67% non-httpA lines is the cheapest parse win available.
+    let mut gate = start;
+    loop {
+        gate = skip_ansi(buf, gate, end);
+        if gate >= end {
+            return LineKind::Empty;
+        }
+        let c = buf[gate];
+        if c == b' ' || c == b'\t' {
+            gate += 1;
+            continue;
+        }
+        break;
     }
-    if find_cron_mark(buf, start, end).is_some() {
-        if let Some(k) = try_cron(buf, start, end) {
+    let g = buf[gate];
+    let method_start = matches!(g, b'G' | b'P' | b'H' | b'D');
+    // httpB (duration-first) allows a leading '.' (e.g. `.5ms GET /x`).
+    let float_start = g.is_ascii_digit() || g == b'.';
+    let cron_start = g == b'[';
+
+    if method_start || float_start {
+        if let Some(k) = try_http_a(buf, start, end) {
             return k;
         }
     }
-    if let Some(k) = try_http_b(buf, start, end) {
-        return k;
+    if cron_start {
+        if let Some(k) = try_cron(buf, start, end) {
+            return k;
+        }
+    } else if float_start && g.is_ascii_digit() {
+        // Timestamp-first lines may still embed `[cron]` after the timestamp.
+        if find_cron_mark(buf, start, end).is_some() {
+            if let Some(k) = try_cron(buf, start, end) {
+                return k;
+            }
+        }
+    }
+    if float_start {
+        if let Some(k) = try_http_b(buf, start, end) {
+            return k;
+        }
     }
     if is_socket_noise(buf, start, end) {
         // Socket.IO / socket tracking lines are pure noise — skip like empty lines.
@@ -591,6 +625,26 @@ mod tests {
                 assert_eq!(method, Method::Post);
                 assert_eq!(status, 0);
                 assert!((duration_ms - 68064.174).abs() < 0.01);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn http_b_leading_dot() {
+        // Duration-first lines may start with '.' (e.g. `.5ms GET /x`).
+        let s = b".5ms GET /api/dot";
+        match parse_line_bytes(s, 0, s.len()) {
+            LineKind::Http {
+                method,
+                path_start,
+                path_end,
+                duration_ms,
+                ..
+            } => {
+                assert_eq!(method, Method::Get);
+                assert_eq!(&s[path_start..path_end], b"/api/dot");
+                assert!((duration_ms - 0.5).abs() < 0.01);
             }
             other => panic!("unexpected {other:?}"),
         }
