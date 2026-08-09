@@ -251,7 +251,7 @@ assert(parseLine("   ").kind === "empty", "empty");
   assert(hourly[15]!.maxMs === 80, "hour 15 max");
   assert(hourly[0]!.count === 0, "empty hour remains empty");
 
-  const noHours = buildHourlyStats({ ...store, hours: undefined });
+  const noHours = buildHourlyStats({ ...store, hours: undefined as unknown as Uint8Array });
   assert(
     noHours.every((bucket) => bucket.count === 0),
     "no synthetic hourly data",
@@ -375,6 +375,51 @@ assert(parseLine("   ").kind === "empty", "empty");
   assert(mergedShardStats[0]!.errorCount === hourlyStats[0]!.errorCount, "merged wasm errors");
   assert(mergedShardStats[0]!.maxMs === hourlyStats[0]!.maxMs, "merged wasm max");
   assert(mergedShardStats[0]!.avgMs === hourlyStats[0]!.avgMs, "merged wasm average");
+}
+
+// --- OPTIONS and socket lines are dropped at parse (both Rust + TS parity) ---
+{
+  const noiseSample = [
+    "2026-07-24T00:00:10: \u001b[0mOPTIONS /api/x \u001b[32m204\u001b[0m 0.115 ms - 0\u001b[0m",
+    "2026-07-24T00:00:10: \u001b[0mGET /api/health 200 12.5 ms - 42\u001b[0m",
+    "2026-07-24T00:00:05: New Connection { address: '::ffff:127.0.0.1', id: 'abc' }",
+    "2026-07-24T00:01:29: join {",
+    "  { 'abc': undefined }",
+    "}",
+    "] { CoNctv8nmitCu03iAAEW: undefined }",
+    "] Length: 5",
+    "2026-07-24T00:04:28: Token parts: [",
+    "  address: '::ffff:127.0.0.1',",
+    "  method: 'join'",
+    "useOfVehicle 1 vehicleUsage 1",
+  ].join("\n");
+  const out = createLineScratch();
+  const enc = new TextEncoder();
+  const noiseLines = noiseSample.split("\n");
+  const noiseKinds = noiseLines.map((l) => {
+    parseLineBytes(enc.encode(l), 0, l.length, out);
+    return out.kind;
+  });
+  // OPTIONS + socket lines are dropped (empty); the GET stays http; legit
+  // non-HTTP content (useOfVehicle) stays unmatched.
+  const expected = ["unmatched", "http", "empty", "empty", "empty", "empty", "empty", "empty", "empty", "empty", "empty", "unmatched"];
+  assert(
+    noiseKinds.every((k, i) => k === expected[i]),
+    `noise kinds ${noiseKinds}`,
+  );
+  const httpLine = noiseLines.find((l) => l.includes("GET /api/health"));
+  assert(httpLine !== undefined, "health line present");
+  parseLineBytes(enc.encode(httpLine!), 0, httpLine!.length, out);
+  assert(out.method === "GET" && out.path === "/api/health", "GET still parsed");
+
+  // Wasm parity: same sample through the engine — only the GET counts; OPTIONS
+  // and socket noise are dropped, useOfVehicle stays unmatched.
+  const { Pm2Engine: WasmEngine } = await import("../wasm/pkg/pm2_core.js");
+  const eng = new WasmEngine();
+  const buf = enc.encode(noiseSample);
+  eng.parse_shard(buf, 0, buf.length, buf.length);
+  assert(eng.hit_count() === 1, `wasm noise hits ${eng.hit_count()}`);
+  assert(eng.unmatched_count() === 2, `wasm noise unmatched ${eng.unmatched_count()}`);
 }
 
 console.log("parser selfcheck: ok");

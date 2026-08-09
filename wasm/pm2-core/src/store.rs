@@ -702,6 +702,7 @@ impl Engine {
         // the array stays ~n_norm×8 bytes even with millions of paths, while only
         // active endpoints pay for a heap Box. A flat Vec<EndpointAcc> here would
         // commit ~80 bytes × n_norm×8 per shard — multi-GB across the worker pool.
+        // 6 methods (OPTIONS dropped at parse) → max 3 bits used, slots 6..7 unused.
         let use_dense = mode != 0;
         let n_norm = self.norm_off[mode].len();
         let dense_len = if use_dense {

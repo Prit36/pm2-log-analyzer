@@ -1,4 +1,4 @@
-export type LogMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
+export type LogMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
 
 export type NormalizeMode = "exact" | "stripQuery" | "collapseIds";
 
@@ -112,7 +112,6 @@ export const METHODS: LogMethod[] = [
   "PUT",
   "PATCH",
   "DELETE",
-  "OPTIONS",
   "HEAD",
 ];
 

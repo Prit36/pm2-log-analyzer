@@ -2,7 +2,9 @@
 
 Browser-only ops console for large PM2 HTTP / cron logs. Drop a file (or paste text), get KPI cards, filterable API latency tables, percentile charts, cron summaries, and Excel export — all client-side. No backend.
 
-**Default stress corpus:** `test_data/api-out-5gb.log` (~5.22 GiB) — **36,572,842** matched HTTP lines, **27,427,800** unmatched, **6,107** endpoints, **9** cron jobs (10× concat of the older 535 MiB file). The climb in [Performance journey](#performance-journey) §1 was timed on `api-out-500mb.log`; §2 is the current 5 GiB gate. Benches are real Chromium + Vite preview + Web Workers via Playwright (`scripts/bench/bench.mjs`). Full session log: [`scripts/bench/history.json`](scripts/bench/history.json).
+**Default stress corpus:** `test_data/api-out-5gb.log` (~5.22 GiB) — after noise filtering, **19,950,841** matched HTTP lines, **32,529,192** unmatched, **5,416** endpoints, **9** cron jobs (10× concat of the older 535 MiB file). The climb in [Performance journey](#performance-journey) §1 was timed on `api-out-500mb.log`; §2 is the current 5 GiB gate. Benches are real Chromium + Vite preview + Web Workers via Playwright (`scripts/bench/bench.mjs`). Full session log: [`scripts/bench/history.json`](scripts/bench/history.json).
+
+> **Noise filtering:** `OPTIONS` preflight requests (25.9% of the corpus, always ~0.1 ms 204s) and Socket.IO/socket tracking lines (`New Connection`, `disconnected`, `join {`, `leave {`, bare `{}`/`[]`/`]`/`},` fragments, `Token parts:`, `address: '::ffff:…`, `method: 'join'`/`'disconnect'`, short `id: '…'` dumps — ~10.8%) are dropped at parse time and never counted. Legitimate non-HTTP content (debug prints, JSON payload dumps) stays in the unmatched bucket.
 
 The story starts earlier than either corpus: before [`ef58f1f`](https://github.com/Prit36/pm2-log-analyzer/commit/ef58f1f), even **~50 MB** files could hang or crash the tab (main-thread parse). See [Performance journey](#performance-journey).
 
@@ -12,6 +14,7 @@ The story starts earlier than either corpus: before [`ef58f1f`](https://github.c
 
 - Ingest PM2-style log lines (HTTP access + `[cron]` events) from file drop or paste
 - Parse and aggregate in workers (Rust/Wasm today; JS workers earlier)
+- Automatically drop noise: `OPTIONS` preflights and Socket.IO/socket tracking lines
 - Show KPIs (matched / unmatched / p95 / errors / slow calls)
 - Filter by method, status family, min duration, path normalize mode (exact / strip query / collapse IDs)
 - Virtualized API table, RelHist-based latency chart, cron table
@@ -167,7 +170,7 @@ Default bench file switched to `test_data/api-out-5gb.log` (~5.22 GiB / ~5350�
 - **Zero-Copy BYOB Stream Ingestion:** Bytes stream directly from disk into Wasm `ingest_ptr` linear memory without intermediate V8 `ArrayBuffer` allocations (`copy = 0 ms`).
 - **Wasm 3.0 + Fat LTO:** Compiled with `-C target-feature=+simd128,+relaxed-simd,+tail-call,+extended-const` and whole-program LLVM link-time optimization (`lto = true`).
 
-Result parity: matched **36,572,842**, unmatched **27,427,800**, endpoints **6,107**, cron **9**.
+Result parity (after noise filtering): matched **19,950,841**, unmatched **32,529,192**, endpoints **5,416**, cron **9**.
 
 Stages (avg ms): `read≈10634` (max across shards, double-buffered prefetch), `feed≈4301`, `endShard≈246`, `firstReagg≈77`; warm reagg `shard≈224` / `decode≈11` / `finish≈25`. The `read` stage is the file-read wall on the slowest shard (5 GiB / 4 shards ≈ 1.25 GB each), not the parse bottleneck — total wall stays ~6.0 s because shards overlap.
 

@@ -1,6 +1,6 @@
 import type { CronEventCompact, LogMethod, ParsedLine } from "./types";
 
-const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"] as const;
+const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] as const;
 const METHOD_BYTES: { method: LogMethod; bytes: number[] }[] = METHODS.map((m) => ({
   method: m,
   bytes: Array.from(m, (ch) => ch.charCodeAt(0)),
@@ -320,6 +320,79 @@ function hasNonSpaceBytes(buf: Uint8Array, start: number, end: number): boolean 
   return false;
 }
 
+/** Line content after the optional PM2 timestamp + leading whitespace. */
+function noiseBody(buf: Uint8Array, start: number, end: number): Uint8Array {
+  let i = skipSpaceAnsiBytes(buf, start, end);
+  const ts = skipTimestampBytes(buf, i, end);
+  if (ts && ts.i !== i) i = ts.i;
+  while (i < end && (buf[i] === 32 || buf[i] === 9)) i++;
+  return buf.subarray(i, end);
+}
+
+function isAlpha(c: number): boolean {
+  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+}
+
+function isAlphaNumeric(c: number): boolean {
+  return (c >= 48 && c <= 57) || isAlpha(c);
+}
+
+function startsWithBytes(buf: Uint8Array, s: string): boolean {
+  if (buf.length < s.length) return false;
+  for (let k = 0; k < s.length; k++) {
+    if (buf[k] !== s.charCodeAt(k)) return false;
+  }
+  return true;
+}
+
+/**
+ * Socket.IO / socket connection noise — chat/tracking lines with no HTTP value.
+ * Mirrors wasm/pm2-core/src/parse.rs `is_socket_noise`.
+ */
+function isSocketNoiseBytes(buf: Uint8Array, start: number, end: number): boolean {
+  const body = noiseBody(buf, start, end);
+  if (body.length === 0) return false;
+  const c0 = body[0]!;
+
+  if (isAlpha(c0)) {
+    // alphabetic word prefix (matches Rust `is_ascii_alphabetic`)
+    let w = 0;
+    while (w < body.length && isAlphaNumeric(body[w]!)) w++;
+    const word = body.subarray(0, w);
+    let after = body.subarray(w);
+    while (after.length && (after[0] === 32 || after[0] === 9)) after = after.subarray(1);
+
+    const isSocketWord =
+      startsWithBytes(word, "New") || startsWithBytes(word, "disconnected") ||
+      startsWithBytes(word, "join") || startsWithBytes(word, "leave");
+    if (
+      isSocketWord &&
+      (startsWithBytes(after, "Connection {") || startsWithBytes(after, "{"))
+    ) {
+      return true;
+    }
+    if (startsWithBytes(word, "Token") && startsWithBytes(after, "parts: [")) return true;
+    if (startsWithBytes(word, "method") && (startsWithBytes(after, ": 'join'") || startsWithBytes(after, ": 'disconnect'"))) return true;
+    if (startsWithBytes(word, "address") && startsWithBytes(after, ": '::ffff:")) return true;
+    if (startsWithBytes(word, "id") && startsWithBytes(after, ": '") && body.length <= 64) return true;
+    return false;
+  }
+
+  // Bare Socket.IO fragment lines: `{ …`, `}`, `} ,` , `[ …`, `]`, `] { …`, `] Length: …`
+  if (c0 === 0x7b || c0 === 0x7d || c0 === 0x5b || c0 === 0x5d) {
+    const tail = body.subarray(1);
+    const bareTail = Array.from(tail).every((c) => c === 32 || c === 9 || c === 44);
+    if (c0 === 0x7b) return bareTail || startsWithBytes(body, "{ '");
+    if (c0 === 0x5b) return bareTail;
+    if (c0 === 0x7d) return bareTail;
+    if (c0 === 0x5d) {
+      if (startsWithBytes(body, "] {") || startsWithBytes(body, "] Length:")) return true;
+      return bareTail;
+    }
+  }
+  return false;
+}
+
 /** Reusable parse output — avoids per-line object alloc in the worker. */
 export type LineScratch = {
   kind: "empty" | "http" | "cron" | "unmatched";
@@ -362,6 +435,11 @@ export function parseLineBytes(
   if (findCronMark(buf, start, end) !== -1 && tryCronBytes(buf, start, end, out)) return;
   if (tryHttpABytes(buf, start, end, out)) return;
   if (tryHttpBBytes(buf, start, end, out)) return;
+  if (isSocketNoiseBytes(buf, start, end)) {
+    out.kind = "empty";
+    out.cron = null;
+    return;
+  }
 
   out.kind = "unmatched";
   out.cron = null;
