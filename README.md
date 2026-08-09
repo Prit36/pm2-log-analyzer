@@ -153,28 +153,30 @@ Quiet stage map at the sub-1s point (avg ms): `feed≈524` (still the largest sl
 
 #### 2. Scale-up: 5 GiB default corpus (`5gb default`)
 
-Default bench file switched to `test_data/api-out-5gb.log` (~5.22 GiB / ~5350 MiB) — same line mix as the 535 MiB corpus, repeated 10×. With WebAssembly 3.0 target optimizations, 16-byte cache-aligned `PackedEntry` struct packing, SIMD `memchr_iter` batch line scanning, SIMD `memchr3` token delimiters, L1 path cache, sparse `EndpointAcc` reagg, prekicked zero-IPC first reagg, a **bounded 32 MiB ingest window**, and a **4-worker pool** — restoring the pre-commit RSS profile that the last commit's 16-worker bump blew up (each worker ≈ +1 GiB Chromium RSS) (session in `history.json`, 5-run average including cold startup):
+Default bench file switched to `test_data/api-out-5gb.log` (~5.22 GiB / ~5350 MiB) — same line mix as the 535 MiB corpus, repeated 10×. With WebAssembly 3.0 target optimizations, 16-byte cache-aligned `PackedEntry` struct packing, SIMD `memchr_iter` batch line scanning, SIMD `memchr3` token delimiters, L1 path cache, sparse `EndpointAcc` reagg, prekicked zero-IPC first reagg, a **bounded 32 MiB ingest window**, a **4-worker pool**, **parse-time noise filtering** (OPTIONS preflights + Socket.IO tracking lines), and a **first-byte probe gate** — restoring the pre-commit RSS profile that the last commit's 16-worker bump blew up (each worker ≈ +1 GiB Chromium RSS) (session in `history.json`, 5-run average including cold startup):
 
 | Metric | Avg (±stddev) |
 |--------|----------------|
-| Parse wall | **6.00 s ± 0.21** |
-| Upload → KPI ready | **6.02 s ± 0.21** |
-| Throughput | **893.3 MB/s** |
-| Chromium RSS peak | **~3.5 GiB** (matches pre-commit ~2.7–3.9 GiB; vs ~8 GiB at 8–16 workers) |
-| Worker Wasm heap | **~2.4 GiB** (columnar store: 36.6M hits × 16 B + path/norm arenas — corpus-inherent) |
+| Parse wall | **5.07 s ± 0.01** |
+| Upload → KPI ready | **5.07 s ± 0.01** |
+| Throughput | **1054.8 MB/s** |
+| Chromium RSS peak | **~3.3 GiB** (matches pre-commit ~2.7–3.9 GiB; vs ~8 GiB at 8–16 workers) |
+| Worker Wasm heap | **~1.15 GiB** (columnar store: 19.95M hits × 16 B + path/norm arenas — corpus-inherent after noise filtering) |
 | Committed ingest pages | **128 MiB** (4 × 32 MiB, vs up to 8 GiB at 512 MiB × 16 workers) |
-| Reagg avg | **278 ms** |
+| Reagg avg | **171 ms** |
 
 - **16-Byte Contiguous Entry Packing:** Replaced 4 separate vectors with a single 16-byte aligned `PackedEntry` struct vector (`entries: Vec<PackedEntry>`), cutting vector allocation push overhead by 4x and maximizing CPU L1/L2 cache hit rates.
 - **SIMD Batch Newline Iterator:** Batched up to 32 line break offsets per call via `memchr::memchr_iter(b'\n', rest)` into a stack buffer, processing lines in unrolled tight loops.
 - **Zero-Copy BYOB Stream Ingestion:** Bytes stream directly from disk into Wasm `ingest_ptr` linear memory without intermediate V8 `ArrayBuffer` allocations (`copy = 0 ms`).
 - **Wasm 3.0 + Fat LTO:** Compiled with `-C target-feature=+simd128,+relaxed-simd,+tail-call,+extended-const` and whole-program LLVM link-time optimization (`lto = true`).
+- **Parse-time noise filtering:** `OPTIONS` preflights (25.9% of the corpus) are dropped from the method table, and Socket.IO/socket tracking lines (`New Connection`, `disconnected`, `join {`, `leave {`, bare `{}`/`[]`/`]`/`},` fragments, `Token parts:`, `address:`/`method:`/`id:` socket payload lines — ~10.8%) are skipped at parse. Legitimate non-HTTP content (debug prints, JSON dumps) stays unmatched.
+- **First-byte probe gate:** `parse_line_bytes` dispatches on the first non-space byte so httpA/httpB/cron probes only run for lines that can match (the corpus is ~31% httpA, ~18% socket noise, ~49% unmatched). No behavior change — verified by parity tests.
 
 Result parity (after noise filtering): matched **19,950,841**, unmatched **32,529,192**, endpoints **5,416**, cron **9**.
 
-Stages (avg ms): `read≈10634` (max across shards, double-buffered prefetch), `feed≈4301`, `endShard≈246`, `firstReagg≈77`; warm reagg `shard≈224` / `decode≈11` / `finish≈25`. The `read` stage is the file-read wall on the slowest shard (5 GiB / 4 shards ≈ 1.25 GB each), not the parse bottleneck — total wall stays ~6.0 s because shards overlap.
+Stages (avg ms): `read≈9036` (max across shards, double-buffered prefetch), `feed≈3631`, `endShard≈130`, `firstReagg≈64`; warm reagg `shard≈128` / `decode≈10` / `finish≈18`. The `read` stage is the file-read wall on the slowest shard (5 GiB / 4 shards ≈ 1.25 GB each), not the parse bottleneck — total wall stays ~5.1 s because shards overlap.
 
-Rough scale check vs quiet 535 MiB (~0.98 s parse / ~86 ms reagg / ~1.15 GiB RSS): ~10× bytes → ~6× parse wall, ~3.2× reagg, worker Wasm heap grows sub-linearly (same endpoint cardinality → ~2.4 GiB for 5 GiB corpus). The committed ingest window is bounded to 4 × 32 MiB = 128 MiB regardless of file size.
+Rough scale check vs quiet 535 MiB (~0.98 s parse / ~86 ms reagg / ~1.15 GiB RSS): ~10× bytes → ~5× parse wall, ~2× reagg, worker Wasm heap grows sub-linearly (noise-filtered endpoint cardinality → ~1.15 GiB for 5 GiB corpus). The committed ingest window is bounded to 4 × 32 MiB = 128 MiB regardless of file size.
 
 ### Architecture (current)
 
