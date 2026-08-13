@@ -25,6 +25,7 @@ export function App() {
   const apiSortKey = useAnalysisStore((s) => s.filters.sortKey);
   const cronSortKey = useAnalysisStore((s) => s.filters.cronSortKey);
   const hourlyStats = useAnalysisStore((s) => s.result?.hourlyStats);
+  const summary = useAnalysisStore((s) => s.result?.summary);
   const hasCron = useAnalysisStore((s) => {
     const c = s.result?.cronSummary;
     return !!c && c.starts + c.dones + c.fails > 0;
@@ -36,11 +37,17 @@ export function App() {
       return;
     }
     try {
-      await downloadExcel(apiRows, cronRows, { api: apiSortKey, cron: cronSortKey });
+      await downloadExcel(
+        apiRows,
+        cronRows,
+        { api: apiSortKey, cron: cronSortKey },
+        hourlyStats,
+        summary,
+      );
       showToast(
         cronRows.length > 0
-          ? "Excel downloaded — API + Cron sheets"
-          : "Excel downloaded — API sheet",
+          ? "Excel downloaded — Visual Analytics + Data sheets"
+          : "Excel downloaded — Visual Analytics + API sheets",
       );
     } catch {
       showToast("Excel export failed");
