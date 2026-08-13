@@ -71,8 +71,7 @@ function fmtStageLine(stages, reaggAvg) {
     `firstReagg=${n("firstReaggMs")} (shard=${n("shardReaggMaxMs")} decode=${n("decodePartialsMs")} finish=${n("finishApiMs")})`;
   if (reaggAvg) {
     const r = (k) => (typeof reaggAvg[k] === "number" ? reaggAvg[k].toFixed(0) : "?");
-    line +=
-      ` | reagg shard=${r("shardReaggMaxMs")} decode=${r("decodePartialsMs")} finish=${r("finishApiMs")}`;
+    line += ` | reagg shard=${r("shardReaggMaxMs")} decode=${r("decodePartialsMs")} finish=${r("finishApiMs")}`;
   }
   return line;
 }
@@ -185,7 +184,15 @@ if (!(await portFree(PORT))) {
 console.log(`Starting preview on ${BASE} …`);
 const preview = spawn(
   process.execPath,
-  [resolve("node_modules/vite/bin/vite.js"), "preview", "--host", "127.0.0.1", "--port", String(PORT), "--strictPort"],
+  [
+    resolve("node_modules/vite/bin/vite.js"),
+    "preview",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    String(PORT),
+    "--strictPort",
+  ],
   { stdio: ["ignore", "pipe", "pipe"], env: process.env },
 );
 preview.stderr.on("data", (d) => process.stderr.write(d));
@@ -211,9 +218,15 @@ try {
   const parseWallSec = iterations.map((r) => r.parse.wallSec);
   const readySec = iterations.map((r) => r.parse.uploadToReadySec);
   const throughput = iterations.map((r) => r.parse.throughputMBps);
-  const peakRss = iterations.map((r) => r.memory.browserRssPeakMB).filter((n) => typeof n === "number");
-  const peakHeap = iterations.map((r) => r.memory.jsHeapPeakMB).filter((n) => typeof n === "number");
-  const reaggAvg = iterations.map((r) => r.reaggregate.avgWallMs).filter((n) => typeof n === "number");
+  const peakRss = iterations
+    .map((r) => r.memory.browserRssPeakMB)
+    .filter((n) => typeof n === "number");
+  const peakHeap = iterations
+    .map((r) => r.memory.jsHeapPeakMB)
+    .filter((n) => typeof n === "number");
+  const reaggAvg = iterations
+    .map((r) => r.reaggregate.avgWallMs)
+    .filter((n) => typeof n === "number");
 
   const parseStages = iterations.map((r) => r.stages).filter(Boolean);
   const stagesAvg = avgObjects(parseStages);
@@ -250,14 +263,31 @@ try {
         max: Math.max(...throughput),
       },
       browserRssPeakMB: peakRss.length
-        ? { avg: avg(peakRss), stddev: stddev(peakRss), min: Math.min(...peakRss), max: Math.max(...peakRss) }
+        ? {
+            avg: avg(peakRss),
+            stddev: stddev(peakRss),
+            min: Math.min(...peakRss),
+            max: Math.max(...peakRss),
+          }
         : null,
-      workerWasmHeapMB: iterations.length ? avg(iterations.map((r) => r.memory.workerWasmHeapMB).filter((n) => typeof n === "number")) : null,
+      workerWasmHeapMB: iterations.length
+        ? avg(iterations.map((r) => r.memory.workerWasmHeapMB).filter((n) => typeof n === "number"))
+        : null,
       jsHeapPeakMB: peakHeap.length
-        ? { avg: avg(peakHeap), stddev: stddev(peakHeap), min: Math.min(...peakHeap), max: Math.max(...peakHeap) }
+        ? {
+            avg: avg(peakHeap),
+            stddev: stddev(peakHeap),
+            min: Math.min(...peakHeap),
+            max: Math.max(...peakHeap),
+          }
         : null,
       reaggAvgMs: reaggAvg.length
-        ? { avg: avg(reaggAvg), stddev: stddev(reaggAvg), min: Math.min(...reaggAvg), max: Math.max(...reaggAvg) }
+        ? {
+            avg: avg(reaggAvg),
+            stddev: stddev(reaggAvg),
+            min: Math.min(...reaggAvg),
+            max: Math.max(...reaggAvg),
+          }
         : null,
       stages: stagesAvg,
       reaggStages: reaggStagesAvg,
@@ -283,8 +313,12 @@ try {
   writeFileSync(HISTORY_PATH, JSON.stringify(history, null, 2) + "\n");
 
   console.log("\n=== BROWSER APP SUMMARY (avg of", runs, "runs) ===");
-  console.log(`parse wall (app):  ${session.summary.parseWallSec.avg.toFixed(2)}s ± ${session.summary.parseWallSec.stddev.toFixed(2)}`);
-  console.log(`upload→KPI ready:  ${session.summary.uploadToReadySec.avg.toFixed(2)}s ± ${session.summary.uploadToReadySec.stddev.toFixed(2)}`);
+  console.log(
+    `parse wall (app):  ${session.summary.parseWallSec.avg.toFixed(2)}s ± ${session.summary.parseWallSec.stddev.toFixed(2)}`,
+  );
+  console.log(
+    `upload→KPI ready:  ${session.summary.uploadToReadySec.avg.toFixed(2)}s ± ${session.summary.uploadToReadySec.stddev.toFixed(2)}`,
+  );
   console.log(`throughput:        ${session.summary.throughputMBps.avg.toFixed(1)} MB/s`);
   if (session.summary.browserRssPeakMB)
     console.log(

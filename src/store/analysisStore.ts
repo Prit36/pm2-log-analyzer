@@ -115,13 +115,16 @@ export const useAnalysisStore = create<AnalysisState>()(
       setResult: (result) =>
         set({
           result,
-          hasData: result !== null && (result.summary.matched > 0 || result.cronSummary.jobs > 0 || result.unmatchedCount > 0),
+          hasData:
+            result !== null &&
+            (result.summary.matched > 0 ||
+              result.cronSummary.jobs > 0 ||
+              result.unmatchedCount > 0),
         }),
       setError: (error) => set({ error }),
       setSourceFile: (name, size) =>
         set({ sourceKind: "file", fileName: name, fileSize: size, pasteOpen: false }),
-      setSourcePaste: () =>
-        set({ sourceKind: "paste", fileName: null, fileSize: null }),
+      setSourcePaste: () => set({ sourceKind: "paste", fileName: null, fileSize: null }),
       setFilters: (patch) => set({ filters: { ...get().filters, ...patch } }),
       setMethodFilter: (methods) => set({ filters: { ...get().filters, methods } }),
       toggleMethod: (method) => {

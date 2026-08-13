@@ -47,9 +47,7 @@ run(
 );
 
 fs.mkdirSync(pkgDir, { recursive: true });
-run(
-  `wasm-bindgen --target web --out-dir "${pkgDir}" --out-name pm2_core "${wasmOut}"`,
-);
+run(`wasm-bindgen --target web --out-dir "${pkgDir}" --out-name pm2_core "${wasmOut}"`);
 
 const wasmPath = path.join(pkgDir, "pm2_core_bg.wasm");
 run(

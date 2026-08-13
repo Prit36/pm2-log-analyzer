@@ -113,11 +113,7 @@ export function FilterBar() {
           <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Methods
           </span>
-          <MethodChip
-            label="All"
-            active={allSelected}
-            onClick={() => setMethodFilter([])}
-          />
+          <MethodChip label="All" active={allSelected} onClick={() => setMethodFilter([])} />
           {methods.map((m) => (
             <MethodChip
               key={m}

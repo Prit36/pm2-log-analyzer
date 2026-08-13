@@ -6,11 +6,7 @@ import type {
   WorkerResponse,
 } from "../workers/logParserWorker";
 import LogParserWorker from "../workers/logParserWorker.ts?worker&inline";
-import {
-  useAnalysisStore,
-  workerParseOptions,
-  type ParseProgress,
-} from "../store/analysisStore";
+import { useAnalysisStore, workerParseOptions, type ParseProgress } from "../store/analysisStore";
 
 type Pm2Bench = {
   at: string;

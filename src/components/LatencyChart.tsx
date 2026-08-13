@@ -82,8 +82,8 @@ export function LatencyChart({
     for (const r of rows) {
       const c = r.count;
       if (c <= 0) continue;
-      const c50 = Math.round(c * 0.50);
-      const c90 = Math.round(c * 0.40);
+      const c50 = Math.round(c * 0.5);
+      const c90 = Math.round(c * 0.4);
       const c95 = Math.round(c * 0.05);
       const c99 = Math.round(c * 0.04);
       const cMax = Math.max(0, c - c50 - c90 - c95 - c99);
@@ -162,7 +162,9 @@ export function LatencyChart({
       </div>
 
       {!hasData ? (
-        <div className="px-3 py-12 text-center text-sm text-slate-400 dark:text-slate-500">No chart data available yet.</div>
+        <div className="px-3 py-12 text-center text-sm text-slate-400 dark:text-slate-500">
+          No chart data available yet.
+        </div>
       ) : (
         <div className="h-[340px] px-3 py-3">
           <ResponsiveContainer width="100%" height={320}>
@@ -183,11 +185,7 @@ export function LatencyChart({
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fontSize: 10, fill: tickColor }}
-                  interval={2}
-                />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: tickColor }} interval={2} />
                 <YAxis
                   tick={{ fontSize: 10, fill: tickColor }}
                   tickFormatter={(v) => formatMs(Number(v))}
@@ -197,7 +195,10 @@ export function LatencyChart({
                   labelFormatter={(lbl) => `Time: ${String(lbl)}`}
                   contentStyle={tooltipStyle}
                 />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 4, color: tickColor }} />
+                <Legend
+                  iconType="circle"
+                  wrapperStyle={{ fontSize: 11, paddingTop: 4, color: tickColor }}
+                />
                 <Area
                   type="monotone"
                   dataKey="p99Ms"
@@ -246,7 +247,10 @@ export function LatencyChart({
                   labelFormatter={(lbl) => `Hour: ${String(lbl)}`}
                   contentStyle={tooltipStyle}
                 />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 4, color: tickColor }} />
+                <Legend
+                  iconType="circle"
+                  wrapperStyle={{ fontSize: 11, paddingTop: 4, color: tickColor }}
+                />
                 <Bar
                   yAxisId="left"
                   dataKey="count"
@@ -281,7 +285,11 @@ export function LatencyChart({
                 <Bar dataKey="count" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={36} />
               </BarChart>
             ) : (
-              <BarChart data={top20Data} layout="vertical" margin={{ top: 4, right: 16, left: 4, bottom: 4 }}>
+              <BarChart
+                data={top20Data}
+                layout="vertical"
+                margin={{ top: 4, right: 16, left: 4, bottom: 4 }}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false} />
                 <XAxis
                   type="number"
@@ -292,7 +300,11 @@ export function LatencyChart({
                   type="category"
                   dataKey="name"
                   width={150}
-                  tick={{ fontSize: 9, fill: categoryTickColor, fontFamily: "IBM Plex Mono, monospace" }}
+                  tick={{
+                    fontSize: 9,
+                    fill: categoryTickColor,
+                    fontFamily: "IBM Plex Mono, monospace",
+                  }}
                 />
                 <Tooltip
                   formatter={(value) => [formatMs(Number(value ?? 0)), "P95 Latency"]}

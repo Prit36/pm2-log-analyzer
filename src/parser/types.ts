@@ -106,14 +106,7 @@ export type ParsedLine =
   | { kind: "unmatched" }
   | { kind: "empty" };
 
-export const METHODS: LogMethod[] = [
-  "GET",
-  "POST",
-  "PUT",
-  "PATCH",
-  "DELETE",
-  "HEAD",
-];
+export const METHODS: LogMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"];
 
 export const METHOD_INDEX = new Map(METHODS.map((m, i) => [m, i]));
 
@@ -127,4 +120,3 @@ export const EMPTY_RESULT: AggregatedResult = {
   unmatchedSample: [],
   unmatchedCount: 0,
 };
-

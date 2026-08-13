@@ -23,23 +23,40 @@ function CronRow({ index, style, rows }: RowComponentProps<CronRowProps>) {
         isEven ? "bg-white dark:bg-slate-900" : "bg-slate-50/80 dark:bg-[rgb(11,18,37)]",
       )}
     >
-      <div className="truncate font-mono-data text-[11px] text-slate-800 dark:text-slate-200" title={row.name}>
+      <div
+        className="truncate font-mono-data text-[11px] text-slate-800 dark:text-slate-200"
+        title={row.name}
+      >
         {row.name}
       </div>
-      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">{formatNum(row.runs)}</div>
-      <div className="text-right tabular-nums text-slate-400 dark:text-slate-500">{formatNum(row.starts)}</div>
+      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">
+        {formatNum(row.runs)}
+      </div>
+      <div className="text-right tabular-nums text-slate-400 dark:text-slate-500">
+        {formatNum(row.starts)}
+      </div>
       <div
         className={cn(
           "text-right tabular-nums",
-          row.fails > 0 ? "font-bold text-rose-600 dark:text-rose-500" : "text-slate-400 dark:text-slate-600",
+          row.fails > 0
+            ? "font-bold text-rose-600 dark:text-rose-500"
+            : "text-slate-400 dark:text-slate-600",
         )}
       >
         {formatNum(row.fails)}
       </div>
-      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">{formatMs(row.avgMs)}</div>
-      <div className="text-right font-bold tabular-nums text-blue-600 dark:text-blue-400">{formatMs(row.p95Ms)}</div>
-      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">{formatMs(row.p99Ms)}</div>
-      <div className="text-right font-bold tabular-nums text-amber-700 dark:text-amber-400">{formatMs(row.maxMs)}</div>
+      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">
+        {formatMs(row.avgMs)}
+      </div>
+      <div className="text-right font-bold tabular-nums text-blue-600 dark:text-blue-400">
+        {formatMs(row.p95Ms)}
+      </div>
+      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">
+        {formatMs(row.p99Ms)}
+      </div>
+      <div className="text-right font-bold tabular-nums text-amber-700 dark:text-amber-400">
+        {formatMs(row.maxMs)}
+      </div>
       <div className="text-right tabular-nums text-slate-400 dark:text-slate-500">
         {row.lastDurationMs !== undefined ? formatMs(row.lastDurationMs) : "-"}
       </div>
@@ -71,7 +88,9 @@ export function CronTable({ rows }: { rows: CronAggregated[] }) {
   return (
     <section className="overflow-hidden rounded border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Cron jobs</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+          Cron jobs
+        </h2>
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="search"
@@ -121,7 +140,9 @@ export function CronTable({ rows }: { rows: CronAggregated[] }) {
         </div>
       </div>
       {rows.length === 0 ? (
-        <div className="px-3 py-8 text-center text-sm text-slate-400 dark:text-slate-500">No cron jobs match filters.</div>
+        <div className="px-3 py-8 text-center text-sm text-slate-400 dark:text-slate-500">
+          No cron jobs match filters.
+        </div>
       ) : (
         <div style={{ height }}>
           <div className="grid grid-cols-[minmax(0,1.2fr)_56px_56px_56px_64px_64px_64px_64px_64px] items-center gap-1 border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">

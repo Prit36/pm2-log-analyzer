@@ -13,8 +13,10 @@ function MethodBadge({ method }: { method: string }) {
     GET: "bg-sky-50 text-sky-700 ring-sky-200 dark:border dark:border-sky-600/60 dark:bg-[#062238] dark:text-[#38bdf8]",
     POST: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:border dark:border-emerald-600/60 dark:bg-[#06261c] dark:text-[#34d399]",
     PUT: "bg-amber-50 text-amber-700 ring-amber-200 dark:border dark:border-amber-600/60 dark:bg-[#381a06] dark:text-[#fbbf24]",
-    PATCH: "bg-amber-50 text-amber-700 ring-amber-200 dark:border dark:border-amber-600/60 dark:bg-[#381a06] dark:text-[#fbbf24]",
-    DELETE: "bg-rose-50 text-rose-700 ring-rose-200 dark:border dark:border-rose-600/60 dark:bg-[#3d0818] dark:text-[#fb7185]",
+    PATCH:
+      "bg-amber-50 text-amber-700 ring-amber-200 dark:border dark:border-amber-600/60 dark:bg-[#381a06] dark:text-[#fbbf24]",
+    DELETE:
+      "bg-rose-50 text-rose-700 ring-rose-200 dark:border dark:border-rose-600/60 dark:bg-[#3d0818] dark:text-[#fb7185]",
     HEAD: "bg-slate-50 text-slate-600 ring-slate-200 dark:border dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-400",
   };
   return (
@@ -56,15 +58,27 @@ function ApiRow({ index, style, rows, onCopyPath }: RowComponentProps<ApiRowProp
           {row.path}
         </button>
       </div>
-      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">{formatNum(row.count)}</div>
-      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">{formatMs(row.avgMs)}</div>
-      <div className="text-right font-bold tabular-nums text-blue-600 dark:text-blue-400">{formatMs(row.p95Ms)}</div>
-      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">{formatMs(row.p99Ms)}</div>
-      <div className="text-right font-bold tabular-nums text-amber-700 dark:text-amber-400">{formatMs(row.maxMs)}</div>
+      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">
+        {formatNum(row.count)}
+      </div>
+      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">
+        {formatMs(row.avgMs)}
+      </div>
+      <div className="text-right font-bold tabular-nums text-blue-600 dark:text-blue-400">
+        {formatMs(row.p95Ms)}
+      </div>
+      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">
+        {formatMs(row.p99Ms)}
+      </div>
+      <div className="text-right font-bold tabular-nums text-amber-700 dark:text-amber-400">
+        {formatMs(row.maxMs)}
+      </div>
       <div
         className={cn(
           "text-right tabular-nums",
-          row.errorCount > 0 ? "font-bold text-rose-600 dark:text-rose-500" : "text-slate-400 dark:text-slate-600",
+          row.errorCount > 0
+            ? "font-bold text-rose-600 dark:text-rose-500"
+            : "text-slate-400 dark:text-slate-600",
         )}
       >
         {formatNum(row.errorCount)}
@@ -86,7 +100,10 @@ export function useFilteredApiRows(): AggregatedEndpoint[] {
     const q = debouncedQuery.trim().toLowerCase();
     let rows = api;
     if (methodSet) rows = rows.filter((r) => methodSet.has(r.method));
-    if (q) rows = rows.filter((r) => r.path.toLowerCase().includes(q) || r.key.toLowerCase().includes(q));
+    if (q)
+      rows = rows.filter(
+        (r) => r.path.toLowerCase().includes(q) || r.key.toLowerCase().includes(q),
+      );
     rows = [...rows].sort((a, b) => (b[sortKey] as number) - (a[sortKey] as number));
     return rows.slice(0, topN);
   }, [api, methods, debouncedQuery, sortKey, topN]);

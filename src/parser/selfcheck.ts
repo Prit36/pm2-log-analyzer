@@ -402,7 +402,20 @@ assert(parseLine("   ").kind === "empty", "empty");
   });
   // OPTIONS + socket lines are dropped (empty); the GET stays http; legit
   // non-HTTP content (useOfVehicle) stays unmatched.
-  const expected = ["unmatched", "http", "empty", "empty", "empty", "empty", "empty", "empty", "empty", "empty", "empty", "unmatched"];
+  const expected = [
+    "unmatched",
+    "http",
+    "empty",
+    "empty",
+    "empty",
+    "empty",
+    "empty",
+    "empty",
+    "empty",
+    "empty",
+    "empty",
+    "unmatched",
+  ];
   assert(
     noiseKinds.every((k, i) => k === expected[i]),
     `noise kinds ${noiseKinds}`,

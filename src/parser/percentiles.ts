@@ -8,4 +8,3 @@ export function percentile(sorted: ArrayLike<number>, p: number): number {
 export function sortAsc(values: number[]): number[] {
   return values.slice().sort((a, b) => a - b);
 }
-

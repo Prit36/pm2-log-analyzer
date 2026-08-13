@@ -123,7 +123,8 @@ try {
 
   log("wait parse complete (__PM2_BENCH__)");
   await page.waitForFunction(
-    () => typeof window.__PM2_BENCH__?.parseWallMs === "number" && window.__PM2_BENCH__.parseWallMs > 0,
+    () =>
+      typeof window.__PM2_BENCH__?.parseWallMs === "number" && window.__PM2_BENCH__.parseWallMs > 0,
     undefined,
     { timeout: 10 * 60 * 1000 },
   );
@@ -176,7 +177,9 @@ try {
   const metricsAfter = await chromeMetrics();
   const workerWasmHeapMB = finalBench?.workerWasmHeapMB ?? null;
 
-  const rssVals = memSamples.map((s) => s.browserRssMB).filter((n) => typeof n === "number" && n > 0);
+  const rssVals = memSamples
+    .map((s) => s.browserRssMB)
+    .filter((n) => typeof n === "number" && n > 0);
   const heapVals = memSamples.map((s) => s.jsHeapUsedMB).filter((n) => typeof n === "number");
 
   log("done");
@@ -200,7 +203,9 @@ try {
     reaggregate: {
       runs: reaggTimes.length,
       wallMs: reaggTimes,
-      avgWallMs: reaggTimes.length ? reaggTimes.reduce((a, b) => a + b, 0) / reaggTimes.length : null,
+      avgWallMs: reaggTimes.length
+        ? reaggTimes.reduce((a, b) => a + b, 0) / reaggTimes.length
+        : null,
       stages: finalBench.reaggStages ?? [],
     },
     memory: {

@@ -71,7 +71,12 @@ function skipTimestampBytes(
   }
   if (buf[a + 19] !== 58) return null;
   const hour = (buf[a + 11]! - 48) * 10 + (buf[a + 12]! - 48);
-  return { i: skipSpaceAnsiBytes(buf, a + 20, end), tsStart: a, tsEnd: a + 19, hour: hour >= 0 && hour < 24 ? hour : 0 };
+  return {
+    i: skipSpaceAnsiBytes(buf, a + 20, end),
+    tsStart: a,
+    tsEnd: a + 19,
+    hour: hour >= 0 && hour < 24 ? hour : 0,
+  };
 }
 
 function parseMethodBytes(
@@ -363,18 +368,22 @@ function isSocketNoiseBytes(buf: Uint8Array, start: number, end: number): boolea
     while (after.length && (after[0] === 32 || after[0] === 9)) after = after.subarray(1);
 
     const isSocketWord =
-      startsWithBytes(word, "New") || startsWithBytes(word, "disconnected") ||
-      startsWithBytes(word, "join") || startsWithBytes(word, "leave");
-    if (
-      isSocketWord &&
-      (startsWithBytes(after, "Connection {") || startsWithBytes(after, "{"))
-    ) {
+      startsWithBytes(word, "New") ||
+      startsWithBytes(word, "disconnected") ||
+      startsWithBytes(word, "join") ||
+      startsWithBytes(word, "leave");
+    if (isSocketWord && (startsWithBytes(after, "Connection {") || startsWithBytes(after, "{"))) {
       return true;
     }
     if (startsWithBytes(word, "Token") && startsWithBytes(after, "parts: [")) return true;
-    if (startsWithBytes(word, "method") && (startsWithBytes(after, ": 'join'") || startsWithBytes(after, ": 'disconnect'"))) return true;
+    if (
+      startsWithBytes(word, "method") &&
+      (startsWithBytes(after, ": 'join'") || startsWithBytes(after, ": 'disconnect'"))
+    )
+      return true;
     if (startsWithBytes(word, "address") && startsWithBytes(after, ": '::ffff:")) return true;
-    if (startsWithBytes(word, "id") && startsWithBytes(after, ": '") && body.length <= 64) return true;
+    if (startsWithBytes(word, "id") && startsWithBytes(after, ": '") && body.length <= 64)
+      return true;
     return false;
   }
 

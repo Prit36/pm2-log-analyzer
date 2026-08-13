@@ -156,7 +156,10 @@ export function IngestPanel({ onFile, onPaste, onCancel }: Props) {
 
       {pasteOpen && (
         <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">
-          <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300" htmlFor="paste-logs">
+          <label
+            className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300"
+            htmlFor="paste-logs"
+          >
             Paste log lines (not persisted; max ~{formatBytes(PASTE_WARN_BYTES)})
           </label>
           <textarea
