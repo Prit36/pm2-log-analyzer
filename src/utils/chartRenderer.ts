@@ -198,8 +198,11 @@ export function renderHourlyVolumeChart(hourlyStats: HourlyBucket[]): string {
     const barY = 52 + graphHeight - barH;
     ctx.fillStyle = "#3b82f6";
     ctx.beginPath();
-    if ("roundRect" in ctx) ctx.roundRect(xCenter - barW / 2, barY, barW, barH, [3, 3, 0, 0]);
-    else ctx.fillRect(xCenter - barW / 2, barY, barW, barH);
+    if ("roundRect" in CanvasRenderingContext2D.prototype) {
+      ctx.roundRect(xCenter - barW / 2, barY, barW, barH, [3, 3, 0, 0]);
+    } else {
+      ctx.fillRect(xCenter - barW / 2, barY, barW, barH);
+    }
     ctx.fill();
   });
 
@@ -292,8 +295,11 @@ export function renderDistributionChart(rows: AggregatedEndpoint[]): string {
 
     ctx.fillStyle = b.fill;
     ctx.beginPath();
-    if ("roundRect" in ctx) ctx.roundRect(xCenter - barW / 2, barY, barW, barH, [4, 4, 0, 0]);
-    else ctx.fillRect(xCenter - barW / 2, barY, barW, barH);
+    if ("roundRect" in CanvasRenderingContext2D.prototype) {
+      ctx.roundRect(xCenter - barW / 2, barY, barW, barH, [4, 4, 0, 0]);
+    } else {
+      ctx.fillRect(xCenter - barW / 2, barY, barW, barH);
+    }
     ctx.fill();
 
     if (b.count > 0) {
