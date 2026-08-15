@@ -50,27 +50,27 @@ function stddev(nums) {
 /** Average numeric fields across objects that share the same keys. */
 function avgObjects(objs) {
   if (!objs.length) return null;
-  const keys = Object.keys(objs[0]).filter((k) => typeof objs[0][k] === "number");
+  const keys = Object.keys(objs[0]).filter((k) => Number.isFinite(objs[0][k]));
   const out = {};
   for (const k of keys) {
-    const vals = objs.map((o) => o[k]).filter((n) => typeof n === "number");
+    const vals = objs.map((o) => o[k]).filter(Number.isFinite);
     if (vals.length) out[k] = avg(vals);
   }
   // Preserve non-numeric kind/label from first object when present
-  if (typeof objs[0].kind === "string") out.kind = objs[0].kind;
+  if (objs[0].kind !== undefined && !Number.isFinite(objs[0].kind)) out.kind = objs[0].kind;
   return out;
 }
 
 function fmtStageLine(stages, reaggAvg) {
   if (!stages) return null;
-  const n = (k) => (typeof stages[k] === "number" ? stages[k].toFixed(0) : "?");
+  const n = (k) => (Number.isFinite(stages[k]) ? stages[k].toFixed(0) : "?");
   let line =
     `stages (avg ms): wasmInit=${n("wasmCompileMs")} pool=${n("shardPoolInitMs")} ` +
     `read=${n("readMs")} copy=${n("copyIngestMs")} feed=${n("feedMs")} ` +
     `endShard=${n("endShardMs")} meta=${n("metaWireMs")} merge=${n("mergeMetaMs")} ` +
     `firstReagg=${n("firstReaggMs")} (shard=${n("shardReaggMaxMs")} decode=${n("decodePartialsMs")} finish=${n("finishApiMs")})`;
   if (reaggAvg) {
-    const r = (k) => (typeof reaggAvg[k] === "number" ? reaggAvg[k].toFixed(0) : "?");
+    const r = (k) => (Number.isFinite(reaggAvg[k]) ? reaggAvg[k].toFixed(0) : "?");
     line += ` | reagg shard=${r("shardReaggMaxMs")} decode=${r("decodePartialsMs")} finish=${r("finishApiMs")}`;
   }
   return line;
@@ -218,15 +218,9 @@ try {
   const parseWallSec = iterations.map((r) => r.parse.wallSec);
   const readySec = iterations.map((r) => r.parse.uploadToReadySec);
   const throughput = iterations.map((r) => r.parse.throughputMBps);
-  const peakRss = iterations
-    .map((r) => r.memory.browserRssPeakMB)
-    .filter((n) => typeof n === "number");
-  const peakHeap = iterations
-    .map((r) => r.memory.jsHeapPeakMB)
-    .filter((n) => typeof n === "number");
-  const reaggAvg = iterations
-    .map((r) => r.reaggregate.avgWallMs)
-    .filter((n) => typeof n === "number");
+  const peakRss = iterations.map((r) => r.memory.browserRssPeakMB).filter(Number.isFinite);
+  const peakHeap = iterations.map((r) => r.memory.jsHeapPeakMB).filter(Number.isFinite);
+  const reaggAvg = iterations.map((r) => r.reaggregate.avgWallMs).filter(Number.isFinite);
 
   const parseStages = iterations.map((r) => r.stages).filter(Boolean);
   const stagesAvg = avgObjects(parseStages);
@@ -271,7 +265,7 @@ try {
           }
         : null,
       workerWasmHeapMB: iterations.length
-        ? avg(iterations.map((r) => r.memory.workerWasmHeapMB).filter((n) => typeof n === "number"))
+        ? avg(iterations.map((r) => r.memory.workerWasmHeapMB).filter(Number.isFinite))
         : null,
       jsHeapPeakMB: peakHeap.length
         ? {

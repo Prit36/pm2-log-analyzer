@@ -6,7 +6,7 @@ import type {
   WorkerResponse,
 } from "../workers/logParserWorker";
 import LogParserWorker from "../workers/logParserWorker.ts?worker&inline";
-import { useAnalysisStore, workerParseOptions, type ParseProgress } from "../store/analysisStore";
+import { useAnalysisStore, workerParseOptions } from "../store/analysisStore";
 
 type Pm2Bench = {
   at: string;
@@ -28,12 +28,14 @@ type Pm2Bench = {
   lastReaggMs?: number;
 };
 
-function benchWin(): Window & { __PM2_BENCH__?: Pm2Bench } {
-  return window as Window & { __PM2_BENCH__?: Pm2Bench };
+declare global {
+  interface Window {
+    __PM2_BENCH__?: Pm2Bench;
+  }
 }
 
 function ensureBench(partial?: Partial<Pm2Bench>): Pm2Bench {
-  const w = benchWin();
+  const w = window;
   if (!w.__PM2_BENCH__) {
     w.__PM2_BENCH__ = {
       at: new Date().toISOString(),
@@ -48,7 +50,7 @@ function ensureBench(partial?: Partial<Pm2Bench>): Pm2Bench {
 
 export function useParserWorker() {
   const workerRef = useRef<Worker | null>(null);
-  const resolveRef = useRef<((value: unknown) => void) | null>(null);
+  const resolveRef = useRef<(() => void) | null>(null);
   const rejectRef = useRef<((reason: Error) => void) | null>(null);
   const skipNextReagg = useRef(false);
 
@@ -67,7 +69,7 @@ export function useParserWorker() {
       const msg = e.data;
       switch (msg.type) {
         case "PROGRESS":
-          setProgress(msg.payload as ParseProgress);
+          setProgress(msg.payload);
           break;
         case "PERF": {
           const b = ensureBench();
@@ -82,7 +84,7 @@ export function useParserWorker() {
           setResult(msg.payload);
           setProgress({ stage: "complete", processed: 100, total: 100, percent: 100 });
           setParsing(false);
-          resolveRef.current?.(msg.payload);
+          resolveRef.current?.();
           resolveRef.current = null;
           rejectRef.current = null;
           break;
@@ -121,8 +123,8 @@ export function useParserWorker() {
   }, [setWorkerReady, setParsing, setProgress, setResult, setError, showToast]);
 
   const run = useCallback(
-    (message: WorkerMessage) => {
-      return new Promise((resolve, reject) => {
+    (message: WorkerMessage): Promise<void> => {
+      return new Promise<void>((resolve, reject) => {
         if (!workerRef.current) {
           reject(new Error("Worker not ready"));
           return;

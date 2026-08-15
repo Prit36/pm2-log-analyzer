@@ -7,33 +7,38 @@ import type ExcelJS from "exceljs";
 const MS_FMT = '#,##0.0" ms"';
 const TABLE_HEADER_ROW = 4;
 
-const API_SORT_LABEL: Record<ApiSortKey, string> = {
+const API_SORT_LABEL = {
   p95Ms: "p95",
   p99Ms: "p99",
   avgMs: "avg",
   maxMs: "max",
   count: "count",
   errorCount: "errors",
-};
+} satisfies Record<ApiSortKey, string>;
 
-const CRON_SORT_LABEL: Record<CronSortKey, string> = {
+const CRON_SORT_LABEL = {
   p95Ms: "p95",
   p99Ms: "p99",
   avgMs: "avg",
   maxMs: "max",
   runs: "runs",
   fails: "fails",
-};
+} satisfies Record<CronSortKey, string>;
 
-const METHOD_FILL: Record<string, { argb: string; text: string }> = {
+type MethodStyle = { argb: string; text: string };
+type MethodFillMap = { readonly GET: MethodStyle; readonly POST: MethodStyle };
+
+const METHOD_FILL = {
   GET: { argb: "FFDBEAFE", text: "FF1E40AF" },
   POST: { argb: "FFD1FAE5", text: "FF065F46" },
-};
+} satisfies MethodFillMap;
 
-const METHOD_OTHER = { argb: "FFFEF3C7", text: "FF92400E" };
+const METHOD_OTHER: MethodStyle = { argb: "FFFEF3C7", text: "FF92400E" };
 
-function methodFill(method: string) {
-  return METHOD_FILL[method] ?? METHOD_OTHER;
+function methodFill(method: string): MethodStyle {
+  if (method === "GET") return METHOD_FILL.GET;
+  if (method === "POST") return METHOD_FILL.POST;
+  return METHOD_OTHER;
 }
 
 function styleTitleMeta(ws: ExcelJS.Worksheet, lastCol: number, title: string, meta: string) {

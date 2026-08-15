@@ -8,22 +8,30 @@ import { formatMs, formatNum } from "../utils/format";
 import { buildApiTsv } from "../utils/exportSpreadsheet";
 import { cn } from "../utils/cn";
 
+function methodBadgeStyle(method: string): string {
+  switch (method) {
+    case "GET":
+      return "bg-sky-50 text-sky-700 ring-sky-200 dark:border dark:border-sky-600/60 dark:bg-[#062238] dark:text-[#38bdf8]";
+    case "POST":
+      return "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:border dark:border-emerald-600/60 dark:bg-[#06261c] dark:text-[#34d399]";
+    case "PUT":
+    case "PATCH":
+      return "bg-amber-50 text-amber-700 ring-amber-200 dark:border dark:border-amber-600/60 dark:bg-[#381a06] dark:text-[#fbbf24]";
+    case "DELETE":
+      return "bg-rose-50 text-rose-700 ring-rose-200 dark:border dark:border-rose-600/60 dark:bg-[#3d0818] dark:text-[#fb7185]";
+    case "HEAD":
+      return "bg-slate-50 text-slate-600 ring-slate-200 dark:border dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-400";
+    default:
+      return "bg-sky-50 text-sky-700 ring-sky-200 dark:border dark:border-sky-600/60 dark:bg-[#062238] dark:text-[#38bdf8]";
+  }
+}
+
 function MethodBadge({ method }: { method: string }) {
-  const styles: Record<string, string> = {
-    GET: "bg-sky-50 text-sky-700 ring-sky-200 dark:border dark:border-sky-600/60 dark:bg-[#062238] dark:text-[#38bdf8]",
-    POST: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:border dark:border-emerald-600/60 dark:bg-[#06261c] dark:text-[#34d399]",
-    PUT: "bg-amber-50 text-amber-700 ring-amber-200 dark:border dark:border-amber-600/60 dark:bg-[#381a06] dark:text-[#fbbf24]",
-    PATCH:
-      "bg-amber-50 text-amber-700 ring-amber-200 dark:border dark:border-amber-600/60 dark:bg-[#381a06] dark:text-[#fbbf24]",
-    DELETE:
-      "bg-rose-50 text-rose-700 ring-rose-200 dark:border dark:border-rose-600/60 dark:bg-[#3d0818] dark:text-[#fb7185]",
-    HEAD: "bg-slate-50 text-slate-600 ring-slate-200 dark:border dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-400",
-  };
   return (
     <span
       className={cn(
         "inline-block shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1 dark:ring-0",
-        styles[method] ?? styles.GET,
+        methodBadgeStyle(method),
       )}
     >
       {method}
@@ -104,7 +112,7 @@ export function useFilteredApiRows(): AggregatedEndpoint[] {
       rows = rows.filter(
         (r) => r.path.toLowerCase().includes(q) || r.key.toLowerCase().includes(q),
       );
-    rows = [...rows].sort((a, b) => (b[sortKey] as number) - (a[sortKey] as number));
+    rows = [...rows].sort((a, b) => b[sortKey] - a[sortKey]);
     return rows.slice(0, topN);
   }, [api, methods, debouncedQuery, sortKey, topN]);
 }

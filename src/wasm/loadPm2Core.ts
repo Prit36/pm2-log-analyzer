@@ -15,6 +15,7 @@ export function pm2CoreWasmBytes(): Uint8Array {
 /** Compile once on the coordinator; Module is structured-cloneable to workers. */
 export async function compilePm2CoreModule(): Promise<WebAssembly.Module> {
   if (cachedModule) return cachedModule;
+  // SAFETY: Base64 decoded bytes produce an ArrayBuffer-backed Uint8Array matching the Wasm BufferSource interface.
   cachedModule = await WebAssembly.compile(pm2CoreWasmBytes() as BufferSource);
   return cachedModule;
 }

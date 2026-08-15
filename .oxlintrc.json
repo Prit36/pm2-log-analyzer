@@ -4,9 +4,44 @@
   "categories": {
     "correctness": "error"
   },
-  "rules": {},
+  "rules": {
+    "anti-slop/no-chained-type-assertions": "error",
+    "anti-slop/no-conditional-empty-object-spread": "error",
+    "anti-slop/no-known-value-widening": "error",
+    "anti-slop/no-module-mocking": "error",
+    "anti-slop/no-object-parameters": "error",
+    "anti-slop/no-reflect-apply": "error",
+    "anti-slop/no-reflect-get": "error",
+    "anti-slop/no-runtime-typeof": "error",
+    "anti-slop/no-shape-in-symbol-names": "error",
+    "anti-slop/no-unknown-parameters": "error",
+    "anti-slop/no-unknown-returns": "error",
+    "anti-slop/no-unknown-type-aliases": "error",
+    "anti-slop/no-unsafe-dictionary-type": "error",
+    "anti-slop/no-widen-then-assert": "error",
+    "anti-slop/require-safety-comment-for-type-assertion": "error"
+  },
+  "jsPlugins": [{ "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" }],
   "env": {
     "builtin": true
   },
-  "ignorePatterns": ["src/wasm/pkg/**", "wasm/pm2-core/target/**"]
+  "ignorePatterns": [
+    ".agent/**",
+    ".agents/**",
+    ".cargo/**",
+    ".claude/**",
+    ".codex/**",
+    ".commandcode/**",
+    ".continue/**",
+    ".cursor/**",
+    ".gemini/**",
+    ".opencode/**",
+    ".pi/**",
+    ".roo/**",
+    ".vscode/**",
+    ".windsurf/**",
+    "src/wasm/pkg/**",
+    "wasm/pm2-core/target/**",
+    "tools/oxlint/anti-slop/**"
+  ]
 }

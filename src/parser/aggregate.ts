@@ -20,7 +20,7 @@ export type ColumnarStore = {
   durations: Float32Array;
   pathIds: Uint32Array;
   pathTable: string[];
-  hours?: Uint8Array;
+  hours?: Uint8Array | undefined;
   count: number;
   unmatchedCount: number;
   unmatchedSample: string[];
@@ -68,12 +68,28 @@ function sketchQuantile(sketch: RelHist, q: number, n: number): number {
   return sketch.quantile(q);
 }
 
+function isLogMethod(m: string): m is LogMethod {
+  switch (m) {
+    case "GET":
+    case "POST":
+    case "PUT":
+    case "PATCH":
+    case "DELETE":
+    case "HEAD":
+      return true;
+    default:
+      return false;
+  }
+}
+
 function methodOkMask(options: ParseOptions): Uint8Array {
   const methodOk = new Uint8Array(METHODS.length);
   if (options.methodFilter && options.methodFilter.length > 0) {
     for (const m of options.methodFilter) {
-      const i = METHODS.indexOf(m as LogMethod);
-      if (i >= 0) methodOk[i] = 1;
+      if (isLogMethod(m)) {
+        const i = METHODS.indexOf(m);
+        if (i >= 0) methodOk[i] = 1;
+      }
     }
   } else {
     methodOk.fill(1);
@@ -222,12 +238,17 @@ export function aggregateColumnSlice(
   };
 }
 
+export type ApiReaggregateResult = {
+  api: AggregatedEndpoint[];
+  summary: LogSummary | null;
+};
+
 /** Merge normalized-path partials into API rows (+ optional summary). */
 export function finishApiFromPartials(
   partials: AggPartial[],
   options: ParseOptions,
   storeMeta: { count: number; unmatchedCount: number },
-): { api: AggregatedEndpoint[]; summary: LogSummary | null } {
+): ApiReaggregateResult {
   type Merged = {
     method: LogMethod;
     path: string;

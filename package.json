@@ -12,7 +12,8 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "selfcheck": "tsx src/parser/selfcheck.ts",
-    "wasm:build": "node scripts/wasm-build.mjs"
+    "wasm:build": "node scripts/wasm-build.mjs",
+    "bench": "node scripts/bench/bench.mjs"
   },
   "dependencies": {
     "clsx": "2.1.1",
@@ -26,13 +27,14 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.78.0",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "^26.1.1",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.4",
     "oxfmt": "^0.60.0",
-    "oxlint": "^1.75.0",
+    "oxlint": "^1.78.0",
     "playwright": "^1.61.1",
     "tailwindcss": "4.3.3",
     "tsx": "^4.23.1",

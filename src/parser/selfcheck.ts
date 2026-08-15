@@ -14,7 +14,7 @@ import {
 } from "./aggregate";
 import type { ParseOptions } from "./types";
 import { METHODS } from "./types";
-function assert(cond: unknown, msg: string): asserts cond {
+function assert(cond: boolean, msg: string): asserts cond {
   if (!cond) throw new Error(`selfcheck failed: ${msg}`);
 }
 
@@ -210,13 +210,13 @@ assert(parseLine("   ").kind === "empty", "empty");
   const byKey = new Map(two.api.map((r) => [r.key, r]));
   for (const r of one.api) {
     const o = byKey.get(r.key);
-    assert(o, `missing key ${r.key}`);
+    assert(o !== undefined, `missing key ${r.key}`);
     assert(o!.count === r.count, `count ${r.key}`);
     assert(o!.errorCount === r.errorCount, `errors ${r.key}`);
     approx(o!.avgMs, r.avgMs, 1e-6);
     approx(o!.p95Ms, r.p95Ms, 1e-6);
   }
-  assert(one.summary && two.summary, "summaries present");
+  assert(one.summary !== null && two.summary !== null, "summaries present");
   assert(one.summary!.matched === two.summary!.matched, "summary matched");
   assert(one.summary!.errors === two.summary!.errors, "summary errors");
   approx(one.summary!.avg, two.summary!.avg, 1e-6);
@@ -251,7 +251,7 @@ assert(parseLine("   ").kind === "empty", "empty");
   assert(hourly[15]!.maxMs === 80, "hour 15 max");
   assert(hourly[0]!.count === 0, "empty hour remains empty");
 
-  const noHours = buildHourlyStats({ ...store, hours: undefined as unknown as Uint8Array });
+  const noHours = buildHourlyStats({ ...store, hours: undefined });
   assert(
     noHours.every((bucket) => bucket.count === 0),
     "no synthetic hourly data",
@@ -334,7 +334,7 @@ assert(parseLine("   ").kind === "empty", "empty");
   assert(unmatched === 1, "partial unmatched");
   assert(partial.buckets.length >= 2, "wasm endpoints");
   const health = partial.buckets.find((b) => b.path === "/api/health" && b.method === "GET");
-  assert(health && health.count === 2, "health count");
+  assert(health !== undefined && health.count === 2, "health count");
   assert(health!.errorCount === 1, "health errors");
   const hourlyPartial = decodeHourlyWire(eng.hourly_wire());
   const hourlyStats = finalizeHourlyStats(hourlyPartial);

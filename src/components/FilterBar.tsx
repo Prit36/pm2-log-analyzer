@@ -6,6 +6,27 @@ import { cn } from "../utils/cn";
 const fieldClass =
   "rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-blue-400";
 
+function isNormalizeMode(value: string): value is NormalizeMode {
+  return value === "collapseIds" || value === "stripQuery" || value === "exact";
+}
+
+function isStatusFamily(value: string): value is StatusFamily {
+  return (
+    value === "all" || value === "2xx" || value === "3xx" || value === "4xx" || value === "5xx"
+  );
+}
+
+function isApiSortKey(value: string): value is ApiSortKey {
+  return (
+    value === "p95Ms" ||
+    value === "p99Ms" ||
+    value === "avgMs" ||
+    value === "maxMs" ||
+    value === "count" ||
+    value === "errorCount"
+  );
+}
+
 export function FilterBar() {
   const searchRef = useRef<HTMLInputElement>(null);
   const filters = useAnalysisStore((s) => s.filters);
@@ -18,8 +39,12 @@ export function FilterBar() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const t = e.target;
+      if (
+        t instanceof HTMLElement &&
+        (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)
+      )
+        return;
       e.preventDefault();
       searchRef.current?.focus();
     };
@@ -38,7 +63,10 @@ export function FilterBar() {
         <Field label="Normalize">
           <select
             value={filters.normalizeMode}
-            onChange={(e) => setFilters({ normalizeMode: e.target.value as NormalizeMode })}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (isNormalizeMode(value)) setFilters({ normalizeMode: value });
+            }}
             className={fieldClass}
           >
             <option value="collapseIds">Collapse IDs</option>
@@ -50,7 +78,10 @@ export function FilterBar() {
           <select
             data-testid="filter-status"
             value={filters.statusFamily}
-            onChange={(e) => setFilters({ statusFamily: e.target.value as StatusFamily })}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (isStatusFamily(value)) setFilters({ statusFamily: value });
+            }}
             className={fieldClass}
           >
             <option value="all">All</option>
@@ -73,7 +104,10 @@ export function FilterBar() {
         <Field label="Sort">
           <select
             value={filters.sortKey}
-            onChange={(e) => setFilters({ sortKey: e.target.value as ApiSortKey })}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (isApiSortKey(value)) setFilters({ sortKey: value });
+            }}
             className={fieldClass}
           >
             <option value="p95Ms">p95</option>

@@ -124,7 +124,8 @@ try {
   log("wait parse complete (__PM2_BENCH__)");
   await page.waitForFunction(
     () =>
-      typeof window.__PM2_BENCH__?.parseWallMs === "number" && window.__PM2_BENCH__.parseWallMs > 0,
+      Number.isFinite(window.__PM2_BENCH__?.parseWallMs) &&
+      (window.__PM2_BENCH__?.parseWallMs ?? 0) > 0,
     undefined,
     { timeout: 10 * 60 * 1000 },
   );
@@ -177,10 +178,8 @@ try {
   const metricsAfter = await chromeMetrics();
   const workerWasmHeapMB = finalBench?.workerWasmHeapMB ?? null;
 
-  const rssVals = memSamples
-    .map((s) => s.browserRssMB)
-    .filter((n) => typeof n === "number" && n > 0);
-  const heapVals = memSamples.map((s) => s.jsHeapUsedMB).filter((n) => typeof n === "number");
+  const rssVals = memSamples.map((s) => s.browserRssMB).filter((n) => Number.isFinite(n) && n > 0);
+  const heapVals = memSamples.map((s) => s.jsHeapUsedMB).filter(Number.isFinite);
 
   log("done");
   await browser.close();

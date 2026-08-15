@@ -20,9 +20,10 @@ function initChart(
   maxYRight?: number,
   isCategorical = false,
 ) {
-  if (typeof document === "undefined") return null;
-  const canvas = document.createElement("canvas");
-  if (!canvas || typeof canvas.getContext !== "function") return null;
+  const doc = globalThis.document;
+  if (!doc) return null;
+  const canvas = doc.createElement("canvas");
+  if (!canvas || !("getContext" in canvas)) return null;
 
   const dpr = 2;
   canvas.width = width * dpr;

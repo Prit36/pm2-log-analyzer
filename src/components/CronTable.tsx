@@ -64,11 +64,22 @@ function CronRow({ index, style, rows }: RowComponentProps<CronRowProps>) {
   );
 }
 
+function isCronSortKey(value: string): value is CronSortKey {
+  return (
+    value === "p95Ms" ||
+    value === "p99Ms" ||
+    value === "avgMs" ||
+    value === "maxMs" ||
+    value === "runs" ||
+    value === "fails"
+  );
+}
+
 export function useFilteredCronRows(): CronAggregated[] {
   const cron = useAnalysisStore((s) => s.result?.cron ?? EMPTY_CRON);
   const sortKey = useAnalysisStore((s) => s.filters.cronSortKey);
   return useMemo(() => {
-    return [...cron].sort((a, b) => (b[sortKey] as number) - (a[sortKey] as number));
+    return [...cron].sort((a, b) => b[sortKey] - a[sortKey]);
   }, [cron, sortKey]);
 }
 
@@ -118,7 +129,10 @@ export function CronTable({ rows }: { rows: CronAggregated[] }) {
           </label>
           <select
             value={filters.cronSortKey}
-            onChange={(e) => setFilters({ cronSortKey: e.target.value as CronSortKey })}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (isCronSortKey(value)) setFilters({ cronSortKey: value });
+            }}
             className={fieldClass}
           >
             <option value="p95Ms">p95</option>

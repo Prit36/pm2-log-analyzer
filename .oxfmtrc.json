@@ -1,4 +1,24 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": []
+  "ignorePatterns": [
+    ".agent/**",
+    ".agents/**",
+    ".cargo/**",
+    ".claude/**",
+    ".codex/**",
+    ".commandcode/**",
+    ".continue/**",
+    ".cursor/**",
+    ".gemini/**",
+    ".opencode/**",
+    ".pi/**",
+    ".roo/**",
+    ".vscode/**",
+    ".windsurf/**",
+    "src/wasm/pkg/**",
+    "wasm/pm2-core/target/**",
+    "tools/oxlint/anti-slop/**",
+    "*.md",
+    "scripts/bench/history.json"
+  ]
 }

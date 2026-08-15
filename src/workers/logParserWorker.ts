@@ -11,6 +11,7 @@ import {
   type AggPartial,
   type CronEventCompact,
   type LogSummary,
+  type NormalizeMode,
   type ParseOptions,
   EMPTY_RESULT,
 } from "../parser";
@@ -129,10 +130,7 @@ let lastParsePartial:
 let parseWallOrigin = 0;
 
 function poolSize(): number {
-  const hc =
-    typeof navigator !== "undefined" && navigator.hardwareConcurrency
-      ? navigator.hardwareConcurrency
-      : 4;
+  const hc = globalThis.navigator?.hardwareConcurrency ?? 4;
   // Cap the shard pool: each worker holds its own Wasm linear memory, so the
   // pool size multiplies per-worker RSS (~1 GB per shard for a 5 GiB corpus).
   // 4 workers matches the pre-commit profile (~3 GB Chromium RSS peak) while
@@ -428,7 +426,7 @@ async function reaggregateShards(
   };
 }
 
-async function parseFileSharded(file: File, normalizeMode: string) {
+async function parseFileSharded(file: File, normalizeMode: NormalizeMode) {
   epoch++;
   const ep = epoch;
   resetMeta();
@@ -477,7 +475,7 @@ async function parseFileSharded(file: File, normalizeMode: string) {
   try {
     if (cancelled) throw new Error("Cancelled");
     const defaultOptions: ParseOptions = {
-      normalizeMode: normalizeMode as any,
+      normalizeMode,
       statusFamily: "all",
       minMs: 0,
       methodFilter: null,
@@ -549,7 +547,7 @@ async function parseFileSharded(file: File, normalizeMode: string) {
   }
 }
 
-async function parseText(text: string, normalizeMode: string) {
+async function parseText(text: string, normalizeMode: NormalizeMode) {
   epoch++;
   const ep = epoch;
   resetMeta();
@@ -626,10 +624,9 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
       }
       self.postMessage({ type: "RESULT", payload: result } satisfies WorkerResponse);
       const heapMB = lastParsePartial?.workerWasmHeapMB;
-      self.postMessage({
-        type: "DONE",
-        ...(heapMB != null ? { payload: { workerWasmHeapMB: heapMB } } : {}),
-      } satisfies WorkerResponse);
+      const doneResponse: WorkerResponse =
+        heapMB != null ? { type: "DONE", payload: { workerWasmHeapMB: heapMB } } : { type: "DONE" };
+      self.postMessage(doneResponse);
       return;
     }
 

@@ -17,11 +17,12 @@ function f64(view: DataView, o: number): number {
   return view.getFloat64(o, true);
 }
 
-function readBytes(
-  buf: Uint8Array,
-  view: DataView,
-  o: number,
-): { bytes: Uint8Array; next: number } {
+type ReadBytesResult = {
+  bytes: Uint8Array;
+  next: number;
+};
+
+function readBytes(buf: Uint8Array, view: DataView, o: number): ReadBytesResult {
   const len = u32(view, o);
   o += 4;
   return { bytes: buf.subarray(o, o + len), next: o + len };
@@ -72,11 +73,13 @@ export function decodeHourlyWire(buf: Uint8Array): HourlyPartial {
 
 const dec = new TextDecoder();
 
-export function decodePm2Partial(buf: Uint8Array): {
+export type DecodedPm2Partial = {
   matched: number;
   unmatched: number;
   partial: AggPartial;
-} {
+};
+
+export function decodePm2Partial(buf: Uint8Array): DecodedPm2Partial {
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let o = 0;
   if (u32(view, o) !== MAGIC) throw new Error("bad PM2P magic");
@@ -131,7 +134,7 @@ export function decodePm2Partial(buf: Uint8Array): {
     o += 4;
     const sketch = decodeSketch(buf.subarray(o, o + skLen));
     o += skLen;
-    const method = (METHODS[methodCode] ?? "GET") as LogMethod;
+    const method = METHODS[methodCode] ?? "GET";
     const path = dec.decode(pathRead.bytes);
     buckets.push({
       method,

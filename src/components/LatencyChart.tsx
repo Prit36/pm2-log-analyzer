@@ -309,6 +309,7 @@ export function LatencyChart({
                 <Tooltip
                   formatter={(value) => [formatMs(Number(value ?? 0)), "P95 Latency"]}
                   labelFormatter={(_, payload) => {
+                    // SAFETY: Recharts tooltips for topEndpoints receive the data item containing the endpoint full path.
                     const p = payload?.[0]?.payload as { full?: string } | undefined;
                     return p?.full ?? "";
                   }}

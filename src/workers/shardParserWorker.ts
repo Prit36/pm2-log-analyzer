@@ -188,25 +188,40 @@ async function parseFileRange(file: File, start: number, end: number): Promise<S
   };
 }
 
-function metaBuffers(): {
+export type ShardResponse = ShardReady | ShardModeReady | ShardParsed | ShardPartial | ShardError;
+
+interface WorkerGlobal {
+  postMessage(message: ShardResponse, transfer?: Transferable[]): void;
+  onmessage: ((e: MessageEvent<ShardRequest>) => Promise<void> | void) | null;
+}
+declare const self: WorkerGlobal;
+
+type ShardMetaBuffers = {
   cronWire: ArrayBuffer;
   unmatchedWire: ArrayBuffer;
   hourlyWire: ArrayBuffer;
-} {
+};
+
+function metaBuffers(): ShardMetaBuffers {
   const cron = engine!.cron_wire();
   const unmatched = engine!.unmatched_sample_wire();
   const hourly = engine!.hourly_wire();
-  return {
-    cronWire: cron.buffer.slice(cron.byteOffset, cron.byteOffset + cron.byteLength) as ArrayBuffer,
-    unmatchedWire: unmatched.buffer.slice(
-      unmatched.byteOffset,
-      unmatched.byteOffset + unmatched.byteLength,
-    ) as ArrayBuffer,
-    hourlyWire: hourly.buffer.slice(
-      hourly.byteOffset,
-      hourly.byteOffset + hourly.byteLength,
-    ) as ArrayBuffer,
-  };
+  // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
+  const cronWire = cron.buffer.slice(
+    cron.byteOffset,
+    cron.byteOffset + cron.byteLength,
+  ) as ArrayBuffer;
+  // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
+  const unmatchedWire = unmatched.buffer.slice(
+    unmatched.byteOffset,
+    unmatched.byteOffset + unmatched.byteLength,
+  ) as ArrayBuffer;
+  // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
+  const hourlyWire = hourly.buffer.slice(
+    hourly.byteOffset,
+    hourly.byteOffset + hourly.byteLength,
+  ) as ArrayBuffer;
+  return { cronWire, unmatchedWire, hourlyWire };
 }
 
 self.onmessage = async (e: MessageEvent<ShardRequest>) => {
@@ -239,6 +254,7 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
       const modeCode = normalizeModeCode(normalizeMode ?? "collapseIds");
       engine.ensure_mode(modeCode);
       const partialWireU8 = engine.reaggregate(modeCode, 0, 0, true);
+      // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
       const partialWire = partialWireU8.buffer.slice(
         partialWireU8.byteOffset,
         partialWireU8.byteOffset + partialWireU8.byteLength,
@@ -263,12 +279,7 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         pathCount: engine.path_count(),
         timing,
       };
-      (self as unknown as Worker).postMessage(result, [
-        cronWire,
-        unmatchedWire,
-        hourlyWire,
-        partialWire,
-      ]);
+      self.postMessage(result, [cronWire, unmatchedWire, hourlyWire, partialWire]);
       return;
     }
 
@@ -316,7 +327,7 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         hourlyWire,
         timing,
       };
-      (self as unknown as Worker).postMessage(result, [cronWire, unmatchedWire, hourlyWire]);
+      self.postMessage(result, [cronWire, unmatchedWire, hourlyWire]);
       return;
     }
 
@@ -329,11 +340,12 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         msg.needSummary,
       );
       const reaggMs = performance.now() - t0;
+      // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
       const ab = partial.buffer.slice(
         partial.byteOffset,
         partial.byteOffset + partial.byteLength,
       ) as ArrayBuffer;
-      (self as unknown as Worker).postMessage(
+      self.postMessage(
         {
           type: "SHARD_PARTIAL",
           shardIndex: msg.shardIndex,
@@ -346,8 +358,8 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
       return;
     }
   } catch (err) {
-    const shardIndex = "shardIndex" in msg ? (msg as { shardIndex: number }).shardIndex : 0;
-    const epoch = "epoch" in msg ? (msg as { epoch: number }).epoch : 0;
+    const shardIndex = "shardIndex" in msg ? msg.shardIndex : 0;
+    const epoch = "epoch" in msg ? msg.epoch : 0;
     self.postMessage({
       type: "SHARD_ERROR",
       shardIndex,

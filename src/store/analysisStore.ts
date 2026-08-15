@@ -5,6 +5,7 @@ import type {
   AggregatedResult,
   CronAggregated,
   NormalizeMode,
+  ParseOptions,
   StatusFamily,
 } from "../parser";
 import { EMPTY_RESULT } from "../parser";
@@ -157,15 +158,7 @@ export const useAnalysisStore = create<AnalysisState>()(
   ),
 );
 
-export function workerParseOptions(filters: AnalysisFilters): {
-  normalizeMode: NormalizeMode;
-  methodFilter: null;
-  statusFamily: StatusFamily;
-  minMs: number;
-  cronQuery: string;
-  cronMinMs: number;
-  cronShowFailedOnly: boolean;
-} {
+export function workerParseOptions(filters: AnalysisFilters): ParseOptions {
   return {
     normalizeMode: filters.normalizeMode,
     methodFilter: null, // method filter is client-side
