@@ -58,7 +58,7 @@ function ApiRow({ index, style, rows }: RowComponentProps<RowProps>) {
         <button
           type="button"
           onClick={() => void copyApiPath(row.path)}
-          className="group flex min-w-0 flex-1 items-center gap-1.5 text-left font-mono text-[11px] text-slate-800 hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400"
+          className="group flex min-w-0 flex-1 items-center gap-1.5 text-left font-mono-data text-[11px] text-slate-800 hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400"
           title={`Click to copy: ${row.path}`}
         >
           <span className="truncate">{row.path}</span>

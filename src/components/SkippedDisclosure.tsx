@@ -5,7 +5,7 @@ import { formatNum } from "../utils/format";
 export function SkippedDisclosure() {
   const { unmatchedCount, sample } = useAnalysisStore(
     useShallow((s) => ({
-      unmatchedCount: s.hasData ? s.result?.unmatchedCount ?? 0 : 0,
+      unmatchedCount: s.hasData ? (s.result?.unmatchedCount ?? 0) : 0,
       sample: s.result?.unmatchedSample ?? EMPTY_SAMPLES,
     })),
   );

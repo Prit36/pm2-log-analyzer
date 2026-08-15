@@ -9,13 +9,8 @@ import { cn } from "../utils/cn";
 /** Soft guard for paste path — large dumps should use file upload. */
 export const PASTE_WARN_BYTES = 8 * 1024 * 1024;
 
-const {
-  appendLoadedFiles,
-  setLoadedFiles,
-  setPasteOpen,
-  setSourcePaste,
-  showToast,
-} = useAnalysisStore.getState();
+const { appendLoadedFiles, setLoadedFiles, setPasteOpen, setSourcePaste, showToast } =
+  useAnalysisStore.getState();
 
 function filterValidFiles(fileList: FileList | File[] | null | undefined): File[] {
   if (!fileList || fileList.length === 0) return [];

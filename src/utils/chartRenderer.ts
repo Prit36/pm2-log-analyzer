@@ -8,6 +8,8 @@ export type ChartImageResults = {
   dailyTrend?: string | undefined;
 };
 
+export type ChartTheme = "light" | "dark";
+
 /** Setup High-DPI canvas with gridlines, title, and coordinate mappers */
 function initChart(
   width: number,
@@ -20,6 +22,7 @@ function initChart(
   formatYRight?: (val: number) => string,
   maxYRight?: number,
   isCategorical = false,
+  theme: ChartTheme = "light",
 ) {
   const doc = globalThis.document;
   if (!doc) return null;
@@ -32,14 +35,17 @@ function initChart(
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
+  const isDark = theme === "dark";
+
   ctx.scale(dpr, dpr);
   ctx.imageSmoothingEnabled = true;
 
   // Background & Header
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = isDark ? "#0f172a" : "#ffffff";
   ctx.fillRect(0, 0, width, height);
-  ctx.fillStyle = "#0f172a";
-  ctx.font = "600 15px Inter, system-ui, sans-serif";
+  ctx.fillStyle = isDark ? "#f8fafc" : "#0f172a";
+  ctx.font =
+    '600 15px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
   ctx.textBaseline = "middle";
   ctx.fillText(title, 18, 24);
 
@@ -55,23 +61,24 @@ function initChart(
 
   // Gridlines & Y-Axis Ticks
   const ySteps = 4;
-  ctx.font = "500 11px Inter, system-ui, sans-serif";
+  ctx.font =
+    '500 11px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
   ctx.lineWidth = 1;
 
   for (let i = 0; i <= ySteps; i++) {
     const y = padding.top + graphHeight - (i / ySteps) * graphHeight;
-    ctx.strokeStyle = "#f1f5f9";
+    ctx.strokeStyle = isDark ? "#334155" : "#f1f5f9";
     ctx.beginPath();
     ctx.moveTo(padding.left, y);
     ctx.lineTo(width - padding.right, y);
     ctx.stroke();
 
-    ctx.fillStyle = "#475569";
+    ctx.fillStyle = isDark ? "#94a3b8" : "#475569";
     ctx.textAlign = "right";
     ctx.fillText(formatY((maxY / ySteps) * i), padding.left - 8, y + 1);
 
     if (formatYRight && maxYRight) {
-      ctx.fillStyle = "#dc2626";
+      ctx.fillStyle = isDark ? "#f87171" : "#dc2626";
       ctx.textAlign = "left";
       ctx.fillText(formatYRight((maxYRight / ySteps) * i), width - padding.right + 8, y + 1);
     }
@@ -79,14 +86,14 @@ function initChart(
 
   // X-Axis Ticks
   ctx.textAlign = "center";
-  ctx.fillStyle = "#475569";
+  ctx.fillStyle = isDark ? "#94a3b8" : "#475569";
   const interval = Math.max(1, Math.floor(xLabels.length / 10));
   for (let i = 0; i < xLabels.length; i += interval) {
     const x = getX(i, xLabels.length);
     ctx.fillText(xLabels[i] ?? "", x, height - padding.bottom + 18);
   }
 
-  return { canvas, ctx, graphWidth, graphHeight, getX, getY };
+  return { canvas, ctx, graphWidth, graphHeight, getX, getY, isDark };
 }
 
 /** Helper to draw a filled line series */
@@ -120,7 +127,10 @@ function drawSeries(
 }
 
 /** Render Time vs Latency (P99, P95, Avg) */
-export function renderTimeVsLatencyChart(hourlyStats: HourlyBucket[]): string {
+export function renderTimeVsLatencyChart(
+  hourlyStats: HourlyBucket[],
+  theme: ChartTheme = "light",
+): string {
   if (!hourlyStats.length) return "";
   const maxMs =
     Math.ceil(Math.max(...hourlyStats.map((h) => Math.max(h.p99Ms, h.p95Ms, h.avgMs))) * 1.1) ||
@@ -133,10 +143,14 @@ export function renderTimeVsLatencyChart(hourlyStats: HourlyBucket[]): string {
     maxMs,
     formatMs,
     hourlyStats.map((h) => h.label),
+    undefined,
+    undefined,
+    false,
+    theme,
   );
   if (!chart) return "";
 
-  const { canvas, ctx, graphHeight, getX, getY } = chart;
+  const { canvas, ctx, graphHeight, getX, getY, isDark } = chart;
   const count = hourlyStats.length;
   const topY = 52;
   const bottomY = 52 + graphHeight;
@@ -144,15 +158,36 @@ export function renderTimeVsLatencyChart(hourlyStats: HourlyBucket[]): string {
   const getPts = (key: "p99Ms" | "p95Ms" | "avgMs") =>
     hourlyStats.map((h, i) => ({ x: getX(i, count), y: getY(h[key]) }));
 
-  drawSeries(ctx, getPts("p99Ms"), topY, bottomY, "#7c3aed", "rgba(124, 58, 237, 0.25)");
-  drawSeries(ctx, getPts("p95Ms"), topY, bottomY, "#2563eb", "rgba(37, 99, 235, 0.35)");
-  drawSeries(ctx, getPts("avgMs"), topY, bottomY, "#0d9488", "rgba(13, 148, 136, 0.3)");
+  drawSeries(
+    ctx,
+    getPts("p99Ms"),
+    topY,
+    bottomY,
+    isDark ? "#a78bfa" : "#7c3aed",
+    isDark ? "rgba(167, 139, 250, 0.3)" : "rgba(124, 58, 237, 0.25)",
+  );
+  drawSeries(
+    ctx,
+    getPts("p95Ms"),
+    topY,
+    bottomY,
+    isDark ? "#60a5fa" : "#2563eb",
+    isDark ? "rgba(96, 165, 250, 0.35)" : "rgba(37, 99, 235, 0.35)",
+  );
+  drawSeries(
+    ctx,
+    getPts("avgMs"),
+    topY,
+    bottomY,
+    isDark ? "#2dd4bf" : "#0d9488",
+    isDark ? "rgba(45, 212, 191, 0.3)" : "rgba(13, 148, 136, 0.3)",
+  );
 
   // Legend
   const legend = [
-    { label: "P99 Latency", color: "#7c3aed" },
-    { label: "P95 Latency", color: "#2563eb" },
-    { label: "Avg Latency", color: "#0d9488" },
+    { label: "P99 Latency", color: isDark ? "#a78bfa" : "#7c3aed" },
+    { label: "P95 Latency", color: isDark ? "#60a5fa" : "#2563eb" },
+    { label: "Avg Latency", color: isDark ? "#2dd4bf" : "#0d9488" },
   ];
   legend.forEach((item, i) => {
     const x = 340 + i * 90;
@@ -160,8 +195,9 @@ export function renderTimeVsLatencyChart(hourlyStats: HourlyBucket[]): string {
     ctx.beginPath();
     ctx.arc(x, 24, 4, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = "#334155";
-    ctx.font = "500 11px Inter, system-ui, sans-serif";
+    ctx.fillStyle = isDark ? "#cbd5e1" : "#334155";
+    ctx.font =
+      '500 11px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     ctx.textAlign = "left";
     ctx.fillText(item.label, x + 8, 25);
   });
@@ -170,7 +206,10 @@ export function renderTimeVsLatencyChart(hourlyStats: HourlyBucket[]): string {
 }
 
 /** Render Hourly Request Volume & Errors */
-export function renderHourlyVolumeChart(hourlyStats: HourlyBucket[]): string {
+export function renderHourlyVolumeChart(
+  hourlyStats: HourlyBucket[],
+  theme: ChartTheme = "light",
+): string {
   if (!hourlyStats.length) return "";
   const maxCount = Math.ceil(Math.max(...hourlyStats.map((h) => h.count)) * 1.15) || 10;
   const maxError = Math.ceil(Math.max(...hourlyStats.map((h) => h.errorCount)) * 1.2) || 5;
@@ -186,10 +225,11 @@ export function renderHourlyVolumeChart(hourlyStats: HourlyBucket[]): string {
     formatNum,
     maxError,
     true,
+    theme,
   );
   if (!chart) return "";
 
-  const { canvas, ctx, graphHeight, getX } = chart;
+  const { canvas, ctx, graphHeight, getX, isDark } = chart;
   const count = hourlyStats.length;
   const barW = Math.min(22, Math.max(4, (470 / count) * 0.6));
 
@@ -198,7 +238,7 @@ export function renderHourlyVolumeChart(hourlyStats: HourlyBucket[]): string {
     const xCenter = getX(i, count);
     const barH = (h.count / maxCount) * graphHeight;
     const barY = 52 + graphHeight - barH;
-    ctx.fillStyle = "#3b82f6";
+    ctx.fillStyle = isDark ? "#60a5fa" : "#3b82f6";
     ctx.beginPath();
     if ("roundRect" in CanvasRenderingContext2D.prototype) {
       ctx.roundRect(xCenter - barW / 2, barY, barW, barH, [3, 3, 0, 0]);
@@ -215,25 +255,26 @@ export function renderHourlyVolumeChart(hourlyStats: HourlyBucket[]): string {
   }));
   ctx.beginPath();
   errPts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-  ctx.strokeStyle = "#ef4444";
+  ctx.strokeStyle = isDark ? "#f87171" : "#ef4444";
   ctx.lineWidth = 2;
   ctx.stroke();
   errPts.forEach((p) => {
-    ctx.fillStyle = "#ef4444";
+    ctx.fillStyle = isDark ? "#f87171" : "#ef4444";
     ctx.beginPath();
     ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
     ctx.fill();
   });
 
   // Legend
-  ctx.fillStyle = "#3b82f6";
+  ctx.fillStyle = isDark ? "#60a5fa" : "#3b82f6";
   ctx.fillRect(390, 18, 12, 10);
-  ctx.fillStyle = "#334155";
-  ctx.font = "500 11px Inter, system-ui, sans-serif";
+  ctx.fillStyle = isDark ? "#cbd5e1" : "#334155";
+  ctx.font =
+    '500 11px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
   ctx.textAlign = "left";
   ctx.fillText("Total Requests", 406, 25);
 
-  ctx.fillStyle = "#ef4444";
+  ctx.fillStyle = isDark ? "#f87171" : "#ef4444";
   ctx.beginPath();
   ctx.arc(505, 24, 4, 0, Math.PI * 2);
   ctx.fill();
@@ -243,7 +284,10 @@ export function renderHourlyVolumeChart(hourlyStats: HourlyBucket[]): string {
 }
 
 /** Render Daily Trend (Requests, Errors, P95 Latency) */
-export function renderDailyTrendChart(dailyStats: DaySummary[]): string {
+export function renderDailyTrendChart(
+  dailyStats: DaySummary[],
+  theme: ChartTheme = "light",
+): string {
   if (!dailyStats.length) return "";
   const maxCount = Math.ceil(Math.max(...dailyStats.map((d) => d.count)) * 1.15) || 10;
   const maxP95 = Math.ceil(Math.max(...dailyStats.map((d) => d.p95Ms)) * 1.2) || 100;
@@ -259,10 +303,11 @@ export function renderDailyTrendChart(dailyStats: DaySummary[]): string {
     formatMs,
     maxP95,
     true,
+    theme,
   );
   if (!chart) return "";
 
-  const { canvas, ctx, graphHeight, getX } = chart;
+  const { canvas, ctx, graphHeight, getX, isDark } = chart;
   const count = dailyStats.length;
   const barW = Math.min(32, Math.max(6, (470 / count) * 0.6));
 
@@ -271,7 +316,7 @@ export function renderDailyTrendChart(dailyStats: DaySummary[]): string {
     const xCenter = getX(i, count);
     const barH = (d.count / maxCount) * graphHeight;
     const barY = 52 + graphHeight - barH;
-    ctx.fillStyle = "#3b82f6";
+    ctx.fillStyle = isDark ? "#60a5fa" : "#3b82f6";
     ctx.beginPath();
     if ("roundRect" in CanvasRenderingContext2D.prototype) {
       ctx.roundRect(xCenter - barW / 2, barY, barW, barH, [3, 3, 0, 0]);
@@ -288,25 +333,26 @@ export function renderDailyTrendChart(dailyStats: DaySummary[]): string {
   }));
   ctx.beginPath();
   p95Pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-  ctx.strokeStyle = "#7c3aed";
+  ctx.strokeStyle = isDark ? "#a78bfa" : "#7c3aed";
   ctx.lineWidth = 2;
   ctx.stroke();
   p95Pts.forEach((p) => {
-    ctx.fillStyle = "#7c3aed";
+    ctx.fillStyle = isDark ? "#a78bfa" : "#7c3aed";
     ctx.beginPath();
     ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
     ctx.fill();
   });
 
   // Legend
-  ctx.fillStyle = "#3b82f6";
+  ctx.fillStyle = isDark ? "#60a5fa" : "#3b82f6";
   ctx.fillRect(360, 18, 12, 10);
-  ctx.fillStyle = "#334155";
-  ctx.font = "500 11px Inter, system-ui, sans-serif";
+  ctx.fillStyle = isDark ? "#cbd5e1" : "#334155";
+  ctx.font =
+    '500 11px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
   ctx.textAlign = "left";
   ctx.fillText("Total Requests", 376, 25);
 
-  ctx.fillStyle = "#7c3aed";
+  ctx.fillStyle = isDark ? "#a78bfa" : "#7c3aed";
   ctx.beginPath();
   ctx.arc(475, 24, 4, 0, Math.PI * 2);
   ctx.fill();
@@ -316,7 +362,10 @@ export function renderDailyTrendChart(dailyStats: DaySummary[]): string {
 }
 
 /** Render Latency Distribution Breakdown */
-export function renderDistributionChart(rows: AggregatedEndpoint[]): string {
+export function renderDistributionChart(
+  rows: AggregatedEndpoint[],
+  theme: ChartTheme = "light",
+): string {
   const buckets = [
     { label: "<50ms", count: 0, fill: "#22c55e" },
     { label: "50-100ms", count: 0, fill: "#84cc16" },
@@ -356,10 +405,11 @@ export function renderDistributionChart(rows: AggregatedEndpoint[]): string {
     undefined,
     undefined,
     true,
+    theme,
   );
   if (!chart) return "";
 
-  const { canvas, ctx, graphHeight, getX } = chart;
+  const { canvas, ctx, graphHeight, getX, isDark } = chart;
   const count = buckets.length;
   const barW = Math.min(42, (508 / count) * 0.65);
 
@@ -378,8 +428,9 @@ export function renderDistributionChart(rows: AggregatedEndpoint[]): string {
     ctx.fill();
 
     if (b.count > 0) {
-      ctx.fillStyle = "#0f172a";
-      ctx.font = "600 11px Inter, system-ui, sans-serif";
+      ctx.fillStyle = isDark ? "#f8fafc" : "#0f172a";
+      ctx.font =
+        '600 11px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       ctx.textAlign = "center";
       ctx.fillText(formatNum(b.count), xCenter, barY - 5);
     }
@@ -392,12 +443,13 @@ export async function generateAllChartImages(
   rows: AggregatedEndpoint[],
   hourlyStats: HourlyBucket[] = [],
   dailyStats: DaySummary[] = [],
+  theme: ChartTheme = "light",
 ): Promise<ChartImageResults> {
   await new Promise((resolve) => setTimeout(resolve, 0));
   return {
-    timeVsLatency: renderTimeVsLatencyChart(hourlyStats),
-    hourlyVolume: renderHourlyVolumeChart(hourlyStats),
-    distribution: renderDistributionChart(rows),
-    dailyTrend: dailyStats.length > 1 ? renderDailyTrendChart(dailyStats) : undefined,
+    timeVsLatency: renderTimeVsLatencyChart(hourlyStats, theme),
+    hourlyVolume: renderHourlyVolumeChart(hourlyStats, theme),
+    distribution: renderDistributionChart(rows, theme),
+    dailyTrend: dailyStats.length > 1 ? renderDailyTrendChart(dailyStats, theme) : undefined,
   };
 }

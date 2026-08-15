@@ -150,8 +150,7 @@ function CronSortHeader({
 const { setFilters, showToast } = useAnalysisStore.getState();
 
 function handleCronSort(key: CronSortKey) {
-  const { cronSortKey: currentKey, cronSortDir: currentDir } =
-    useAnalysisStore.getState().filters;
+  const { cronSortKey: currentKey, cronSortDir: currentDir } = useAnalysisStore.getState().filters;
   if (currentKey === key) {
     setFilters({ cronSortDir: currentDir === "asc" ? "desc" : "asc" });
   } else {

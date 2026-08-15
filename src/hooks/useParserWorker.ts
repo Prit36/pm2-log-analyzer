@@ -47,15 +47,8 @@ function ensureBench(partial?: Partial<Pm2Bench>): Pm2Bench {
   return w.__PM2_BENCH__;
 }
 
-const {
-  clearAnalysis,
-  setError,
-  setParsing,
-  setProgress,
-  setResult,
-  setWorkerReady,
-  showToast,
-} = useAnalysisStore.getState();
+const { clearAnalysis, setError, setParsing, setProgress, setResult, setWorkerReady, showToast } =
+  useAnalysisStore.getState();
 
 let worker: Worker | null = null;
 let resolveFn: (() => void) | null = null;
