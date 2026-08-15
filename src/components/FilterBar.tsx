@@ -179,7 +179,7 @@ export function FilterBar() {
       </div>
 
       {(dates.length > 1 || methods.length > 0) && (
-        <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-2.5 dark:border-slate-800/80">
+        <div className="mt-2.5 flex flex-wrap items-center gap-3">
           {dates.length > 1 && (
             <div data-testid="filter-date" className="flex flex-wrap items-center gap-1.5">
               <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">

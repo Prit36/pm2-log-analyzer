@@ -12,6 +12,35 @@ type RowProps = {
   rows: AggregatedEndpoint[];
 };
 
+function getMethodClass(method: string): string {
+  switch (method) {
+    case "GET":
+      return "bg-sky-50 text-sky-700 ring-sky-200 dark:border dark:border-sky-600/60 dark:bg-[#062238] dark:text-[#38bdf8]";
+    case "POST":
+      return "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:border dark:border-emerald-600/60 dark:bg-[#06261c] dark:text-[#34d399]";
+    case "PUT":
+    case "PATCH":
+      return "bg-amber-50 text-amber-700 ring-amber-200 dark:border dark:border-amber-600/60 dark:bg-[#381a06] dark:text-[#fbbf24]";
+    case "DELETE":
+      return "bg-rose-50 text-rose-700 ring-rose-200 dark:border dark:border-rose-600/60 dark:bg-[#3d0818] dark:text-[#fb7185]";
+    default:
+      return "bg-slate-50 text-slate-600 ring-slate-200 dark:border dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-400";
+  }
+}
+
+function MethodBadge({ method }: { method: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-block shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 dark:ring-0",
+        getMethodClass(method),
+      )}
+    >
+      {method}
+    </span>
+  );
+}
+
 function ApiRow({ index, style, rows }: RowComponentProps<RowProps>) {
   const row = rows[index];
   if (!row) return null;
@@ -20,33 +49,16 @@ function ApiRow({ index, style, rows }: RowComponentProps<RowProps>) {
     <div
       style={style}
       className={cn(
-        "grid grid-cols-[80px_1fr_90px_90px_90px_90px_80px_70px] items-center border-b border-slate-100 px-3 text-xs dark:border-slate-800",
+        "grid grid-cols-[minmax(0,1fr)_56px_58px_58px_58px_58px_56px] items-center border-b border-slate-100 px-3 text-xs dark:border-slate-800",
         index % 2 === 0 ? "bg-white dark:bg-slate-900" : "bg-slate-50/50 dark:bg-slate-950/40",
       )}
     >
-      <div>
-        <span
-          className={cn(
-            "rounded px-1.5 py-0.5 text-[10px] font-bold uppercase",
-            row.method === "GET"
-              ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-              : row.method === "POST"
-                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-                : row.method === "PUT" || row.method === "PATCH"
-                  ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-                  : row.method === "DELETE"
-                    ? "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
-                    : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-          )}
-        >
-          {row.method}
-        </span>
-      </div>
-      <div className="flex min-w-0 items-center gap-1.5 pr-2">
+      <div className="flex min-w-0 items-center gap-2 pr-2">
+        <MethodBadge method={row.method} />
         <button
           type="button"
           onClick={() => void copyApiPath(row.path)}
-          className="group flex min-w-0 flex-1 items-center gap-1 text-left font-mono text-[11px] text-slate-800 hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400"
+          className="group flex min-w-0 flex-1 items-center gap-1.5 text-left font-mono text-[11px] text-slate-800 hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400"
           title={`Click to copy: ${row.path}`}
         >
           <span className="truncate">{row.path}</span>
@@ -68,14 +80,14 @@ function ApiRow({ index, style, rows }: RowComponentProps<RowProps>) {
       <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">
         {formatMs(row.p99Ms)}
       </div>
-      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">
+      <div className="text-right tabular-nums font-semibold text-amber-700 dark:text-amber-400">
         {formatMs(row.maxMs)}
       </div>
       <div
         className={cn(
           "text-right tabular-nums",
           row.errorCount > 0
-            ? "font-semibold text-rose-600 dark:text-rose-400"
+            ? "font-semibold text-rose-600 dark:text-rose-500"
             : "text-slate-400 dark:text-slate-600",
         )}
       >
@@ -174,7 +186,7 @@ function handleApiSort(key: ApiSortKey) {
   } else {
     setFilters({
       sortKey: key,
-      sortDir: key === "path" ? "asc" : "desc",
+      sortDir: "desc",
     });
   }
 }
@@ -221,17 +233,9 @@ export function ApiTable({ rows }: { rows: AggregatedEndpoint[] }) {
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <div className="min-w-[700px]">
-            <div className="grid grid-cols-[80px_1fr_90px_90px_90px_90px_80px_70px] border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
-              <div>Method</div>
-              <ApiSortHeader
-                label="Endpoint"
-                colKey="path"
-                currentKey={sortKey}
-                currentDir={sortDir}
-                onSort={handleApiSort}
-                align="left"
-              />
+          <div className="min-w-[680px]">
+            <div className="grid grid-cols-[minmax(0,1fr)_56px_58px_58px_58px_58px_56px] border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+              <div>Endpoint</div>
               <ApiSortHeader
                 label="Count"
                 colKey="count"
