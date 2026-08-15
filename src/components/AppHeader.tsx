@@ -3,7 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useAnalysisStore } from "../store/analysisStore";
 import { clear } from "../hooks/useParserWorker";
 import { exportSpreadsheetData } from "../utils/exportSpreadsheet";
-import { formatBytes } from "../utils/format";
+import { formatBytes, formatDate } from "../utils/format";
 import { cn } from "../utils/cn";
 
 const { toggleTheme } = useAnalysisStore.getState();
@@ -17,8 +17,8 @@ export function AppHeader() {
           !dates || dates.length === 0
             ? null
             : dates.length > 1
-              ? `${dates[0]} → ${dates[dates.length - 1]} (${dates.length} days)`
-              : dates[0];
+              ? `${formatDate(dates[0])} → ${formatDate(dates[dates.length - 1])} (${dates.length} days)`
+              : formatDate(dates[0]);
         const sourceLabel =
           s.sourceKind === "file" && s.fileName
             ? `${s.fileName}${s.fileSize != null ? ` · ${formatBytes(s.fileSize)}` : ""}`

@@ -15,13 +15,9 @@ import {
 } from "recharts";
 import { useShallow } from "zustand/react/shallow";
 import type { AggregatedEndpoint } from "../parser";
-import { formatMs, formatNum } from "../utils/format";
+import { formatDate, formatMs, formatNum } from "../utils/format";
 import { Activity, BarChart3, CalendarDays, Clock, Flame } from "lucide-react";
-import {
-  EMPTY_DAILY,
-  EMPTY_HOURLY,
-  useAnalysisStore,
-} from "../store/analysisStore";
+import { EMPTY_DAILY, EMPTY_HOURLY, useAnalysisStore } from "../store/analysisStore";
 
 type ChartMode = "dailyTrend" | "timeOfDay" | "throughput" | "distribution" | "topP95";
 
@@ -112,7 +108,7 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
           </h2>
           {dateFilter !== "all" && (
             <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
-              {dateFilter}
+              {formatDate(dateFilter)}
             </span>
           )}
         </div>
@@ -197,7 +193,11 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
             {mode === "dailyTrend" ? (
               <ComposedChart data={dailyStats} margin={{ top: 10, right: 16, left: 0, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: tickColor }} />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 10, fill: tickColor }}
+                  tickFormatter={(v) => formatDate(String(v))}
+                />
                 <YAxis
                   yAxisId="left"
                   tick={{ fontSize: 10, fill: tickColor }}
@@ -216,7 +216,7 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
                       : formatNum(Number(val ?? 0)),
                     String(name),
                   ]}
-                  labelFormatter={(lbl) => `Date: ${String(lbl)}`}
+                  labelFormatter={(lbl) => `Date: ${formatDate(String(lbl))}`}
                   contentStyle={tooltipStyle}
                 />
                 <Legend

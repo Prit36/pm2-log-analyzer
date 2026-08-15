@@ -15,3 +15,9 @@ export function formatBytes(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${Number.parseFloat((bytes / k ** i).toFixed(1))} ${sizes[i]}`;
 }
+
+export function formatDate(date?: string): string {
+  if (!date) return "";
+  const [y, m, d] = date.split("-");
+  return y && m && d ? new Date(+y, +m - 1, +d).toLocaleDateString() : date;
+}

@@ -8,6 +8,7 @@ import {
 } from "../store/analysisStore";
 import { reaggregate } from "../hooks/useParserWorker";
 import type { NormalizeMode, StatusFamily } from "../parser";
+import { formatDate } from "../utils/format";
 import { cn } from "../utils/cn";
 
 const fieldClass =
@@ -215,7 +216,7 @@ export function FilterBar() {
                       : "bg-slate-50 text-slate-500 ring-slate-200 hover:bg-slate-100 dark:bg-slate-800/60 dark:text-slate-400 dark:ring-slate-700 dark:hover:bg-slate-800",
                   )}
                 >
-                  {d}
+                  {formatDate(d)}
                 </button>
               ))}
             </div>

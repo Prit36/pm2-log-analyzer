@@ -6,7 +6,7 @@ import type {
   LogSummary,
 } from "../parser";
 import { useAnalysisStore, type ApiSortKey, type CronSortKey } from "../store/analysisStore";
-import { formatMs, formatNum } from "./format";
+import { formatDate, formatMs, formatNum } from "./format";
 import { generateAllChartImages } from "./chartRenderer";
 import type ExcelJS from "exceljs";
 
@@ -128,7 +128,8 @@ function buildApiSheet(
   ];
 
   const generated = new Date().toLocaleString();
-  const dateMeta = dateFilter && dateFilter !== "all" ? `  |  Day Filter: ${dateFilter}` : "";
+  const dateMeta =
+    dateFilter && dateFilter !== "all" ? `  |  Day Filter: ${formatDate(dateFilter)}` : "";
   styleTitleMeta(
     ws,
     9,
@@ -198,7 +199,7 @@ function buildDailySummarySheet(wb: ExcelJS.Workbook, dailyStats: DaySummary[]) 
   );
 
   const tableRows = dailyStats.map((d) => [
-    d.date,
+    formatDate(d.date),
     d.count,
     d.avgMs,
     d.p95Ms,

@@ -1,5 +1,5 @@
 import type { AggregatedEndpoint, DaySummary, HourlyBucket } from "../parser";
-import { formatMs, formatNum } from "./format";
+import { formatDate, formatMs, formatNum } from "./format";
 
 export type ChartImageResults = {
   timeVsLatency?: string | undefined;
@@ -255,7 +255,7 @@ export function renderDailyTrendChart(dailyStats: DaySummary[]): string {
     { top: 52, right: 65, bottom: 48, left: 65 },
     maxCount,
     formatNum,
-    dailyStats.map((d) => d.date),
+    dailyStats.map((d) => formatDate(d.date)),
     formatMs,
     maxP95,
     true,
