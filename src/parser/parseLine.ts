@@ -52,7 +52,7 @@ function skipTimestampBytes(
   buf: Uint8Array,
   start: number,
   end: number,
-): { i: number; tsStart: number; tsEnd: number; hour: number } | null {
+): { i: number; tsStart: number; tsEnd: number; hour: number; dateStr: string } | null {
   if (end - start < 20) return null;
   const a = start;
   for (let k = 0; k < 10; k++) {
@@ -76,6 +76,7 @@ function skipTimestampBytes(
     tsStart: a,
     tsEnd: a + 19,
     hour: hour >= 0 && hour < 24 ? hour : 0,
+    dateStr: decodeAscii(buf, a, a + 10),
   };
 }
 
@@ -212,6 +213,7 @@ function tryHttpABytes(buf: Uint8Array, start: number, end: number, out: LineScr
   out.status = status;
   out.durationMs = dur.value;
   out.hour = ts ? ts.hour : -1;
+  out.dateStr = ts ? ts.dateStr : null;
   out.cron = null;
   return true;
 }
@@ -238,6 +240,7 @@ function tryHttpBBytes(buf: Uint8Array, start: number, end: number, out: LineScr
   out.status = 0;
   out.durationMs = dur.value;
   out.hour = -1;
+  out.dateStr = null;
   out.cron = null;
   return true;
 }
@@ -410,6 +413,7 @@ export type LineScratch = {
   status: number;
   durationMs: number;
   hour: number;
+  dateStr: string | null;
   cron: CronEventCompact | null;
 };
 
@@ -421,6 +425,7 @@ export function createLineScratch(): LineScratch {
     status: 0,
     durationMs: 0,
     hour: -1,
+    dateStr: null,
     cron: null,
   };
 }
@@ -471,6 +476,8 @@ export function parseLine(line: string): ParsedLine {
         path: out.path,
         status: out.status,
         durationMs: out.durationMs,
+        hour: out.hour >= 0 ? out.hour : undefined,
+        date: out.dateStr ?? undefined,
       },
     };
   }

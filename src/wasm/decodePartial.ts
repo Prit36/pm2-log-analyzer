@@ -1,6 +1,9 @@
-/** Decode Rust PM2P reagg partials and cron/unmatched wires. */
-
-import type { AggPartial, HourlyPartial, NormBucketWire } from "../parser/aggregate";
+import type {
+  AggPartial,
+  HourlyBucketPartial,
+  HourlyPartial,
+  NormBucketWire,
+} from "../parser/aggregate";
 import type { CronEventCompact, LogMethod } from "../parser";
 import type { RelHistWire } from "../parser/relHist";
 import { METHODS } from "../parser";
@@ -198,6 +201,80 @@ export function decodeUnmatchedWire(buf: Uint8Array): string[] {
     out.push(dec.decode(r.bytes));
   }
   return out;
+}
+
+export const DAILY_MAGIC = 0x504d3244; // PM2D
+
+export type DailyBucketPartial = {
+  date: string;
+  count: number;
+  errorCount: number;
+  slowCount: number;
+  sum: number;
+  max: number;
+  sketch: RelHistWire;
+  hourly: HourlyBucketPartial[];
+};
+
+export type DailyPartial = {
+  days: DailyBucketPartial[];
+};
+
+export function decodeDatesWire(buf: Uint8Array): string[] {
+  if (buf.byteLength < 4) return [];
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const count = u32(view, 0);
+  let o = 4;
+  const dates: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const r = readBytes(buf, view, o);
+    o = r.next;
+    dates.push(dec.decode(r.bytes));
+  }
+  return dates;
+}
+
+export function decodeDailyWire(buf: Uint8Array): DailyPartial {
+  if (buf.byteLength === 0) return { days: [] };
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  if (buf.byteLength < 8 || u32(view, 0) !== DAILY_MAGIC) throw new Error("bad PM2D magic");
+  const version = view.getUint16(4, true);
+  if (version !== 1) throw new Error(`unsupported PM2D version ${version}`);
+  const dayCount = view.getUint16(6, true);
+
+  const days: DailyBucketPartial[] = [];
+  let o = 8;
+  for (let i = 0; i < dayCount; i++) {
+    const dateBytes = buf.subarray(o, o + 10);
+    const date = dec.decode(dateBytes);
+    o += 12; // 10 bytes date + 2 bytes pad
+    const count = u32(view, o);
+    const errorCount = u32(view, o + 4);
+    const slowCount = u32(view, o + 8);
+    const sum = f64(view, o + 12);
+    const max = f32(view, o + 20);
+    const sketchLength = u32(view, o + 24);
+    o += 28;
+    const sketch = decodeSketch(buf.subarray(o, o + sketchLength));
+    o += sketchLength;
+
+    const hourly: HourlyBucketPartial[] = [];
+    for (let h = 0; h < 24; h++) {
+      const hCount = u32(view, o);
+      const hError = u32(view, o + 4);
+      const hSum = f64(view, o + 8);
+      const hMax = f32(view, o + 16);
+      const hSkLen = u32(view, o + 20);
+      o += 24;
+      const hSketch = decodeSketch(buf.subarray(o, o + hSkLen));
+      o += hSkLen;
+      hourly.push({ count: hCount, errorCount: hError, sum: hSum, max: hMax, sketch: hSketch });
+    }
+
+    days.push({ date, count, errorCount, slowCount, sum, max, sketch, hourly });
+  }
+
+  return { days };
 }
 
 export function methodsFromMask(mask: number): LogMethod[] {

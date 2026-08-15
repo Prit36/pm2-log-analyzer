@@ -326,9 +326,9 @@ assert(parseLine("   ").kind === "empty", "empty");
   eng.finalize_paths();
   assert(eng.hit_count() === 3, `wasm hits ${eng.hit_count()}`);
   assert(eng.unmatched_count() === 1, "wasm unmatched");
-  const { decodeHourlyWire, decodePm2Partial, decodeCronWire } =
+  const { decodeHourlyWire, decodePm2Partial, decodeCronWire, decodeDatesWire, decodeDailyWire } =
     await import("../wasm/decodePartial");
-  const wire = eng.reaggregate(2, 0, 0, true); // collapseIds, all
+  const wire = eng.reaggregate(2, 0, 0, new Uint8Array(), true); // collapseIds, all, no date filter
   const { matched, unmatched, partial } = decodePm2Partial(wire);
   assert(matched === 3, "partial matched");
   assert(unmatched === 1, "partial unmatched");
@@ -336,6 +336,27 @@ assert(parseLine("   ").kind === "empty", "empty");
   const health = partial.buckets.find((b) => b.path === "/api/health" && b.method === "GET");
   assert(health !== undefined && health.count === 2, "health count");
   assert(health!.errorCount === 1, "health errors");
+
+  // Dates and daily wire check
+  const dates = decodeDatesWire(eng.dates_wire());
+  assert(dates.length === 1 && dates[0] === "2026-07-24", "wasm dates wire");
+  const dailyPartial = decodeDailyWire(eng.daily_wire());
+  assert(
+    dailyPartial.days.length === 1 && dailyPartial.days[0]!.date === "2026-07-24",
+    "wasm daily wire",
+  );
+  assert(dailyPartial.days[0]!.count === 3, "daily count");
+
+  // Reaggregate with matching date
+  const wireDate = eng.reaggregate(2, 0, 0, new TextEncoder().encode("2026-07-24"), true);
+  const dateRes = decodePm2Partial(wireDate);
+  assert(dateRes.matched === 3, "date matched");
+
+  // Reaggregate with non-matching date
+  const wireOtherDate = eng.reaggregate(2, 0, 0, new TextEncoder().encode("2026-08-01"), true);
+  const otherRes = decodePm2Partial(wireOtherDate);
+  assert(otherRes.matched === 0, "other date matched 0");
+
   const hourlyPartial = decodeHourlyWire(eng.hourly_wire());
   const hourlyStats = finalizeHourlyStats(hourlyPartial);
   assert(hourlyStats[0]!.count === 3, "wasm hour 0 count");

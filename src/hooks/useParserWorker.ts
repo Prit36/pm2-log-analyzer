@@ -173,6 +173,45 @@ export function useParserWorker() {
     [run, showToast],
   );
 
+  const parseFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return;
+      if (files.length === 1) {
+        return parseFile(files[0]!);
+      }
+      const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
+      const options = workerParseOptions(useAnalysisStore.getState().filters);
+      skipNextReagg.current = true;
+      ensureBench({
+        at: new Date().toISOString(),
+        source: "files",
+        fileName: `${files.length} files`,
+        fileBytes: totalBytes,
+        crossOriginIsolated: window.crossOriginIsolated,
+        reaggTimes: [],
+        reaggStages: [],
+        parseWallMs: 0,
+        workerWasmHeapMB: 0,
+      });
+      const t0 = performance.now();
+      await run({ type: "PARSE_FILES", payload: { files, options } });
+      const ms = Math.round(performance.now() - t0);
+      const result = useAnalysisStore.getState().result;
+      ensureBench({
+        parseWallMs: ms,
+        matched: result?.summary.matched ?? 0,
+        unmatched: result?.summary.unmatched ?? 0,
+        apiEndpoints: result?.api.length ?? 0,
+        cronJobs: result?.cron.length ?? 0,
+        p95Ms: result?.summary.p95Ms ?? 0,
+      });
+      showToast(
+        `Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests across ${files.length} files in ${ms}ms`,
+      );
+    },
+    [parseFile, run, showToast],
+  );
+
   const parseText = useCallback(
     async (text: string) => {
       const options = workerParseOptions(useAnalysisStore.getState().filters);
@@ -225,6 +264,7 @@ export function useParserWorker() {
   const normalizeMode = useAnalysisStore((s) => s.filters.normalizeMode);
   const statusFamily = useAnalysisStore((s) => s.filters.statusFamily);
   const minMs = useAnalysisStore((s) => s.filters.minMs);
+  const dateFilter = useAnalysisStore((s) => s.filters.dateFilter);
   const cronQuery = useAnalysisStore((s) => s.filters.cronQuery);
   const cronMinMs = useAnalysisStore((s) => s.filters.cronMinMs);
   const cronShowFailedOnly = useAnalysisStore((s) => s.filters.cronShowFailedOnly);
@@ -245,13 +285,14 @@ export function useParserWorker() {
     normalizeMode,
     statusFamily,
     minMs,
+    dateFilter,
     cronQuery,
     cronMinMs,
     cronShowFailedOnly,
     reaggregate,
   ]);
 
-  return { parseFile, parseText, reaggregate, cancel, clear };
+  return { parseFile, parseFiles, parseText, reaggregate, cancel, clear };
 }
 
 export function useDebouncedValue<T>(value: T, delay: number): T {

@@ -30,7 +30,9 @@ pub struct PackedEntry {
     pub duration: f32,
     pub status: u16,
     pub method: u8,
-    pub _pad: u8,
+    pub hour: u8,
+    pub date_id: u16,
+    pub _pad: [u8; 2],
 }
 
 #[derive(Clone)]
@@ -52,12 +54,24 @@ struct EndpointAcc {
     error_count: u32,
 }
 
+#[derive(Clone)]
 struct HourlyAcc {
     count: u32,
     error_count: u32,
     sum: f64,
     max: f32,
     sketch: RelHist,
+}
+
+struct DailyAcc {
+    date: [u8; 10],
+    count: u32,
+    error_count: u32,
+    slow_count: u32,
+    sum: f64,
+    max: f32,
+    sketch: RelHist,
+    hourly: [HourlyAcc; 24],
 }
 
 pub struct Engine {
@@ -72,6 +86,10 @@ pub struct Engine {
     path_index: ByteMap<u32>,
 
     entries: Vec<PackedEntry>,
+
+    dates: Vec<[u8; 10]>,
+    last_date: [u8; 10],
+    last_date_id: u16,
 
     unmatched_count: u32,
     unmatched_sample: Vec<Vec<u8>>,
@@ -112,6 +130,9 @@ impl Engine {
             path_len: Vec::new(),
             path_index: new_byte_map(),
             entries: Vec::new(),
+            dates: Vec::new(),
+            last_date: [0u8; 10],
+            last_date_id: 0,
             unmatched_count: 0,
             unmatched_sample: Vec::new(),
             cron_events: Vec::new(),
@@ -193,6 +214,9 @@ impl Engine {
         self.path_len.clear();
         self.path_index.clear();
         self.entries.clear();
+        self.dates.clear();
+        self.last_date = [0u8; 10];
+        self.last_date_id = 0;
         self.unmatched_count = 0;
         self.unmatched_sample.clear();
         self.cron_events.clear();
@@ -453,7 +477,7 @@ impl Engine {
             .collect();
 
         for entry in &self.entries {
-            let Some(bucket) = buckets.get_mut(entry._pad as usize) else {
+            let Some(bucket) = buckets.get_mut(entry.hour as usize) else {
                 continue;
             };
             bucket.count += 1;
@@ -470,6 +494,81 @@ impl Engine {
         encode_hourly_vec(&buckets)
     }
 
+    /// Encode list of unique dates seen in logs.
+    pub fn dates_wire(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&(self.dates.len() as u32).to_le_bytes());
+        for d in &self.dates {
+            write_bytes(&mut out, d);
+        }
+        out
+    }
+
+    /// Encode daily summary stats and per-date hourly breakdown.
+    pub fn daily_wire(&self) -> Vec<u8> {
+        if self.dates.is_empty() {
+            return Vec::new();
+        }
+        let mut accs: Vec<DailyAcc> = self
+            .dates
+            .iter()
+            .map(|&d| DailyAcc {
+                date: d,
+                count: 0,
+                error_count: 0,
+                slow_count: 0,
+                sum: 0.0,
+                max: 0.0,
+                sketch: RelHist::new(),
+                hourly: std::array::from_fn(|_| HourlyAcc {
+                    count: 0,
+                    error_count: 0,
+                    sum: 0.0,
+                    max: 0.0,
+                    sketch: RelHist::new(),
+                }),
+            })
+            .collect();
+
+        for entry in &self.entries {
+            if entry.date_id == 0 {
+                continue;
+            }
+            let idx = (entry.date_id - 1) as usize;
+            if let Some(acc) = accs.get_mut(idx) {
+                let d = entry.duration;
+                let st = entry.status;
+                acc.count += 1;
+                acc.sum += d as f64;
+                if d > acc.max {
+                    acc.max = d;
+                }
+                if st >= 400 {
+                    acc.error_count += 1;
+                }
+                if d >= 3000.0 {
+                    acc.slow_count += 1;
+                }
+                acc.sketch.accept(d);
+
+                if (entry.hour as usize) < 24 {
+                    let h_bucket = &mut acc.hourly[entry.hour as usize];
+                    h_bucket.count += 1;
+                    h_bucket.sum += d as f64;
+                    if d > h_bucket.max {
+                        h_bucket.max = d;
+                    }
+                    if st >= 400 {
+                        h_bucket.error_count += 1;
+                    }
+                    h_bucket.sketch.accept(d);
+                }
+            }
+        }
+
+        encode_daily_vec(&accs)
+    }
+
     /// Summary wire for coordinator cache (same fields as PM2P summary block).
     pub fn summary_wire(&self) -> Vec<u8> {
         let mut out = Vec::new();
@@ -481,6 +580,21 @@ impl Engine {
         out.extend_from_slice(&(wire.len() as u32).to_le_bytes());
         out.extend_from_slice(&wire);
         out
+    }
+
+    fn intern_date(&mut self, d: [u8; 10]) -> u16 {
+        if let Some(pos) = self.dates.iter().position(|&x| x == d) {
+            let id = (pos + 1) as u16;
+            self.last_date = d;
+            self.last_date_id = id;
+            id
+        } else {
+            self.dates.push(d);
+            let id = self.dates.len() as u16;
+            self.last_date = d;
+            self.last_date_id = id;
+            id
+        }
     }
 
     fn accept_line(&mut self, buf: &[u8], line_start: usize, line_end: usize) {
@@ -506,15 +620,28 @@ impl Engine {
                 status,
                 duration_ms,
                 hour,
+                date,
             } => {
                 let path = &buf[path_start..path_end];
                 let pid = self.intern_path(path);
+                let date_id = match date {
+                    Some(d) => {
+                        if d == self.last_date && self.last_date_id != 0 {
+                            self.last_date_id
+                        } else {
+                            self.intern_date(d)
+                        }
+                    }
+                    None => 0,
+                };
                 self.entries.push(PackedEntry {
                     path_id: pid,
                     duration: duration_ms,
                     status,
                     method: method as u8,
-                    _pad: hour.unwrap_or(255),
+                    hour: hour.unwrap_or(255),
+                    date_id,
+                    _pad: [0, 0],
                 });
                 self.methods_mask |= 1u8 << (method as u8);
             }
@@ -685,6 +812,7 @@ impl Engine {
         normalize_mode: u8,
         status_family: u8,
         min_ms: f32,
+        date_filter: &[u8],
         need_summary: bool,
     ) -> Vec<u8> {
         self.ensure_mode(normalize_mode);
@@ -695,6 +823,15 @@ impl Engine {
             4 => 4,
             5 => 5,
             _ => -1,
+        };
+        let target_date_id: u16 = if date_filter.is_empty() {
+            0
+        } else {
+            self.dates
+                .iter()
+                .position(|d| d == date_filter)
+                .map(|p| (p + 1) as u16)
+                .unwrap_or(u16::MAX)
         };
 
         // Dense slots for low-cardinality modes: (norm_id << 3) | method.
@@ -724,26 +861,46 @@ impl Engine {
             HashMap::with_capacity((self.path_off.len() / 4).max(64))
         };
 
+        let mut custom_summary = RelHist::new();
         let mut sum_max = 0.0f32;
         let mut sum_sum = 0.0f64;
         let mut sum_errors = 0u32;
         let mut sum_slow = 0u32;
-        let summary_ref: Option<&RelHist> = if need_summary && self.summary_ready {
+        let use_cached_summary = target_date_id == 0 && need_summary && self.summary_ready;
+        if use_cached_summary {
             sum_sum = self.summary_sum;
             sum_max = self.summary_max;
             sum_errors = self.summary_errors;
             sum_slow = self.summary_slow;
-            Some(&self.summary_sketch)
-        } else {
-            None
-        };
+        }
 
         let n = self.entries.len();
         let path_to_norm = &self.path_to_norm[mode];
+        let mut matched_count = 0u32;
+
         for i in 0..n {
             let e = self.entries[i];
+            if target_date_id != 0 && e.date_id != target_date_id {
+                continue;
+            }
+            matched_count += 1;
+
             let duration_ms = e.duration;
             let status = e.status;
+
+            if !use_cached_summary && need_summary {
+                sum_sum += duration_ms as f64;
+                if duration_ms > sum_max {
+                    sum_max = duration_ms;
+                }
+                if status >= 400 {
+                    sum_errors += 1;
+                }
+                if duration_ms >= 3000.0 {
+                    sum_slow += 1;
+                }
+                custom_summary.accept(duration_ms);
+            }
 
             if duration_ms < min_ms {
                 continue;
@@ -836,6 +993,14 @@ impl Engine {
             }
         }
 
+        let summary_ref: Option<&RelHist> = if !need_summary {
+            None
+        } else if use_cached_summary {
+            Some(&self.summary_sketch)
+        } else {
+            Some(&custom_summary)
+        };
+
         encode_partial_vec(
             mode as u8,
             &endpoints,
@@ -844,8 +1009,12 @@ impl Engine {
             sum_max,
             sum_errors,
             sum_slow,
-            self.entries.len() as u32,
-            self.unmatched_count,
+            matched_count,
+            if target_date_id == 0 {
+                self.unmatched_count
+            } else {
+                0
+            },
         )
     }
 
@@ -896,6 +1065,36 @@ fn encode_hourly_vec(buckets: &[HourlyAcc]) -> Vec<u8> {
         let wire = bucket.sketch.to_wire();
         out.extend_from_slice(&(wire.len() as u32).to_le_bytes());
         out.extend_from_slice(&wire);
+    }
+    out
+}
+
+fn encode_daily_vec(accs: &[DailyAcc]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(16 + accs.len() * (32 + 24 * 32));
+    out.extend_from_slice(&0x504D3244u32.to_le_bytes()); // PM2D
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&(accs.len() as u16).to_le_bytes());
+    for acc in accs {
+        out.extend_from_slice(&acc.date); // 10 bytes
+        out.extend_from_slice(&[0u8; 2]); // pad to 12 bytes
+        out.extend_from_slice(&acc.count.to_le_bytes());
+        out.extend_from_slice(&acc.error_count.to_le_bytes());
+        out.extend_from_slice(&acc.slow_count.to_le_bytes());
+        out.extend_from_slice(&acc.sum.to_le_bytes());
+        out.extend_from_slice(&acc.max.to_le_bytes());
+        let sk_wire = acc.sketch.to_wire();
+        out.extend_from_slice(&(sk_wire.len() as u32).to_le_bytes());
+        out.extend_from_slice(&sk_wire);
+        // 24 hourly buckets for this day
+        for h in &acc.hourly {
+            out.extend_from_slice(&h.count.to_le_bytes());
+            out.extend_from_slice(&h.error_count.to_le_bytes());
+            out.extend_from_slice(&h.sum.to_le_bytes());
+            out.extend_from_slice(&h.max.to_le_bytes());
+            let h_wire = h.sketch.to_wire();
+            out.extend_from_slice(&(h_wire.len() as u32).to_le_bytes());
+            out.extend_from_slice(&h_wire);
+        }
     }
     out
 }
@@ -1029,6 +1228,34 @@ socket connected\n\
         assert_eq!(records[0].0, 0);
 
         assert_eq!(offset, wire.len());
+    }
+
+    #[test]
+    fn multi_day_dates_and_reaggregate() {
+        let sample = b"2026-08-14T10:00:00: GET /api/users 200 50 ms - 100\n\
+2026-08-14T11:00:00: POST /api/orders 201 120 ms - 200\n\
+2026-08-15T09:00:00: GET /api/users 200 40 ms - 100\n\
+2026-08-15T10:00:00: GET /api/health 200 5 ms - 20\n";
+        let mut engine = Engine::new();
+        engine.parse_shard(sample, 0, sample.len(), sample.len());
+
+        assert_eq!(engine.hit_count(), 4);
+        assert_eq!(engine.dates.len(), 2);
+        assert_eq!(engine.dates[0], *b"2026-08-14");
+        assert_eq!(engine.dates[1], *b"2026-08-15");
+
+        // reaggregate all days
+        let all_wire = engine.reaggregate(0, 0, 0.0, b"", true);
+        assert!(!all_wire.is_empty());
+
+        // reaggregate day 1 only
+        let day1_wire = engine.reaggregate(0, 0, 0.0, b"2026-08-14", true);
+        assert!(!day1_wire.is_empty());
+
+        // daily wire
+        let d_wire = engine.daily_wire();
+        assert!(!d_wire.is_empty());
+        assert_eq!(&d_wire[0..4], &0x504D3244u32.to_le_bytes());
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, type DragEvent } from "react";
-import { ClipboardPaste, Upload } from "lucide-react";
+import { ClipboardPaste, FilePlus, Plus, RefreshCw, Upload, X } from "lucide-react";
 import { useAnalysisStore } from "../store/analysisStore";
 import { formatBytes } from "../utils/format";
 import { cn } from "../utils/cn";
@@ -9,48 +9,115 @@ export const PASTE_WARN_BYTES = 8 * 1024 * 1024;
 
 type Props = {
   onFile: (file: File) => void;
+  onFiles?: (files: File[]) => void;
   onPaste: (text: string) => void;
   onCancel: () => void;
 };
 
-export function IngestPanel({ onFile, onPaste, onCancel }: Props) {
+export function IngestPanel({ onFile, onFiles, onPaste, onCancel }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [uploadMode, setUploadMode] = useState<"replace" | "append">("replace");
+  const [pendingDrop, setPendingDrop] = useState<File[] | null>(null);
   const [pasteText, setPasteText] = useState("");
   const isParsing = useAnalysisStore((s) => s.isParsing);
   const isWorkerReady = useAnalysisStore((s) => s.isWorkerReady);
   const progress = useAnalysisStore((s) => s.progress);
   const hasData = useAnalysisStore((s) => s.hasData);
+  const loadedFiles = useAnalysisStore((s) => s.loadedFiles);
+  const setLoadedFiles = useAnalysisStore((s) => s.setLoadedFiles);
+  const appendLoadedFiles = useAnalysisStore((s) => s.appendLoadedFiles);
   const pasteOpen = useAnalysisStore((s) => s.pasteOpen);
   const setPasteOpen = useAnalysisStore((s) => s.setPasteOpen);
-  const setSourceFile = useAnalysisStore((s) => s.setSourceFile);
   const setSourcePaste = useAnalysisStore((s) => s.setSourcePaste);
   const showToast = useAnalysisStore((s) => s.showToast);
 
   const busy = isParsing || !isWorkerReady;
 
-  const acceptFile = useCallback(
-    (file: File | undefined) => {
-      if (!file || busy) return;
-      const ok =
+  const filterValidFiles = (fileList: FileList | File[] | null | undefined): File[] => {
+    if (!fileList || fileList.length === 0) return [];
+    return Array.from(fileList).filter((file) => {
+      return (
         file.name.endsWith(".log") ||
         file.name.endsWith(".txt") ||
         file.type === "text/plain" ||
-        file.type === "";
-      if (!ok) {
-        showToast("Please upload a .log or .txt file");
+        file.type === ""
+      );
+    });
+  };
+
+  const executeAppend = useCallback(
+    (files: File[]) => {
+      setPendingDrop(null);
+      const existingCount = loadedFiles.length;
+      const combined = appendLoadedFiles(files);
+      if (combined.length === existingCount) {
         return;
       }
-      setSourceFile(file.name, file.size);
-      onFile(file);
+      if (onFiles) {
+        onFiles(combined);
+      } else if (combined.length === 1) {
+        onFile(combined[0]!);
+      }
     },
-    [busy, onFile, setSourceFile, showToast],
+    [appendLoadedFiles, loadedFiles.length, onFile, onFiles],
+  );
+
+  const executeReplace = useCallback(
+    (files: File[]) => {
+      setPendingDrop(null);
+      const unique = setLoadedFiles(files);
+      if (unique.length === 0) return;
+      if (unique.length === 1) {
+        onFile(unique[0]!);
+      } else if (onFiles) {
+        onFiles(unique);
+      } else {
+        onFile(unique[0]!);
+      }
+    },
+    [onFile, onFiles, setLoadedFiles],
   );
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    acceptFile(e.dataTransfer.files[0]);
+    if (busy) return;
+    const validFiles = filterValidFiles(e.dataTransfer.files);
+    if (validFiles.length === 0) {
+      showToast("Please upload .log or .txt files");
+      return;
+    }
+    if (hasData && loadedFiles.length > 0) {
+      setPendingDrop(validFiles);
+    } else {
+      executeReplace(validFiles);
+    }
+  };
+
+  const handleAppendClick = () => {
+    setUploadMode("append");
+    inputRef.current?.click();
+  };
+
+  const handleReplaceClick = () => {
+    setUploadMode("replace");
+    inputRef.current?.click();
+  };
+
+  const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const validFiles = filterValidFiles(e.target.files);
+    if (validFiles.length === 0) {
+      showToast("Please upload .log or .txt files");
+      e.target.value = "";
+      return;
+    }
+    if (uploadMode === "append" && hasData && loadedFiles.length > 0) {
+      executeAppend(validFiles);
+    } else {
+      executeReplace(validFiles);
+    }
+    e.target.value = "";
   };
 
   const handlePasteAnalyze = () => {
@@ -88,21 +155,86 @@ export function IngestPanel({ onFile, onPaste, onCancel }: Props) {
         <Upload className="size-8 text-slate-400 dark:text-slate-500" aria-hidden />
         <div>
           <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
-            {hasData ? "Drop a new file to replace" : "Drop a PM2 log file"}
+            {hasData
+              ? `${loadedFiles.length > 0 ? `${loadedFiles.length} file(s) loaded` : "Logs loaded"} — add more or replace`
+              : "Drop PM2 log file(s)"}
           </p>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            .log / .txt — streamed off the main thread for large dumps
+            .log / .txt — multi-file &amp; multi-day log analysis supported
           </p>
         </div>
+
+        {pendingDrop && (
+          <div className="mx-auto my-1 w-full max-w-md rounded-lg border border-blue-200 bg-blue-50/90 p-3.5 text-left shadow-xs dark:border-blue-900 dark:bg-slate-800">
+            <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+              You dropped {pendingDrop.length} file{pendingDrop.length > 1 ? "s" : ""}
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
+              {loadedFiles.length} file
+              {loadedFiles.length > 1 ? "s currently loaded" : " currently loaded"}. How would you
+              like to proceed?
+            </p>
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => executeAppend(pendingDrop)}
+                className="inline-flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700"
+              >
+                <Plus className="size-3.5" />
+                Append to current
+              </button>
+              <button
+                type="button"
+                onClick={() => executeReplace(pendingDrop)}
+                className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
+              >
+                <RefreshCw className="size-3.5" />
+                Replace current
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingDrop(null)}
+                className="rounded p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                title="Cancel"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center justify-center gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => inputRef.current?.click()}
-            className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-          >
-            Browse files
-          </button>
+          {hasData && loadedFiles.length > 0 ? (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={handleAppendClick}
+                className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+              >
+                <FilePlus className="size-3.5" aria-hidden />
+                Add / Append files
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={handleReplaceClick}
+                className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              >
+                <RefreshCw className="size-3.5" aria-hidden />
+                Replace files
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={handleReplaceClick}
+              className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+            >
+              Browse files
+            </button>
+          )}
           <button
             type="button"
             disabled={busy}
@@ -125,13 +257,11 @@ export function IngestPanel({ onFile, onPaste, onCancel }: Props) {
         <input
           ref={inputRef}
           type="file"
+          multiple
           accept=".log,.txt,text/plain"
           className="hidden"
           data-testid="log-file-input"
-          onChange={(e) => {
-            acceptFile(e.target.files?.[0]);
-            e.target.value = "";
-          }}
+          onChange={onInputChange}
         />
         {isParsing && progress && (
           <div className="w-full max-w-md">

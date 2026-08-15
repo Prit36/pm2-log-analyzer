@@ -1,5 +1,5 @@
 import { Download, Eraser, FileText, Moon, Sun } from "lucide-react";
-import { useAnalysisStore } from "../store/analysisStore";
+import { EMPTY_DATES, EMPTY_FILE_NAMES, useAnalysisStore } from "../store/analysisStore";
 import { formatBytes } from "../utils/format";
 import { cn } from "../utils/cn";
 
@@ -12,10 +12,19 @@ export function AppHeader({ onExport, onClear }: Props) {
   const hasData = useAnalysisStore((s) => s.hasData);
   const sourceKind = useAnalysisStore((s) => s.sourceKind);
   const fileName = useAnalysisStore((s) => s.fileName);
+  const fileNames = useAnalysisStore((s) => s.fileNames ?? EMPTY_FILE_NAMES);
   const fileSize = useAnalysisStore((s) => s.fileSize);
+  const dates = useAnalysisStore((s) => s.result?.dates ?? EMPTY_DATES);
   const isParsing = useAnalysisStore((s) => s.isParsing);
   const theme = useAnalysisStore((s) => s.theme);
   const toggleTheme = useAnalysisStore((s) => s.toggleTheme);
+
+  const dateRangeBadge =
+    dates.length > 1
+      ? `${dates[0]} → ${dates[dates.length - 1]} (${dates.length} days)`
+      : dates.length === 1
+        ? dates[0]
+        : null;
 
   const sourceLabel =
     sourceKind === "file" && fileName
@@ -33,9 +42,17 @@ export function AppHeader({ onExport, onClear }: Props) {
             <h1 className="truncate text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100">
               PM2 Log Analyzer
             </h1>
+            {dateRangeBadge && (
+              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
+                {dateRangeBadge}
+              </span>
+            )}
           </div>
           {sourceLabel ? (
-            <p className="mt-0.5 truncate font-mono-data text-xs text-slate-500 dark:text-slate-400">
+            <p
+              className="mt-0.5 truncate font-mono-data text-xs text-slate-500 dark:text-slate-400"
+              title={fileNames && fileNames.length > 1 ? fileNames.join("\n") : undefined}
+            >
               {sourceLabel}
             </p>
           ) : (

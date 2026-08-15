@@ -13,6 +13,8 @@ export class Pm2Engine {
     begin_shard(start: number, end: number, file_size: number): void;
     clear(): void;
     cron_wire(): Uint8Array;
+    daily_wire(): Uint8Array;
+    dates_wire(): Uint8Array;
     /**
      * Finish shard (flush carry). Call after all feeds.
      */
@@ -41,7 +43,7 @@ export class Pm2Engine {
     parse_shard(buf: Uint8Array, shard_start: number, shard_end: number, file_size: number): number;
     path_bytes(path_id: number): Uint8Array | undefined;
     path_count(): number;
-    reaggregate(normalize_mode: number, status_family: number, min_ms: number, need_summary: boolean): Uint8Array;
+    reaggregate(normalize_mode: number, status_family: number, min_ms: number, date_filter: Uint8Array, need_summary: boolean): Uint8Array;
     summary_wire(): Uint8Array;
     unmatched_count(): number;
     unmatched_sample_wire(): Uint8Array;
@@ -55,6 +57,8 @@ export interface InitOutput {
     readonly pm2engine_begin_shard: (a: number, b: number, c: number, d: number) => void;
     readonly pm2engine_clear: (a: number) => void;
     readonly pm2engine_cron_wire: (a: number) => [number, number];
+    readonly pm2engine_daily_wire: (a: number) => [number, number];
+    readonly pm2engine_dates_wire: (a: number) => [number, number];
     readonly pm2engine_end_shard: (a: number) => void;
     readonly pm2engine_ensure_mode: (a: number, b: number) => void;
     readonly pm2engine_feed: (a: number, b: number, c: number) => number;
@@ -68,7 +72,7 @@ export interface InitOutput {
     readonly pm2engine_parse_shard: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly pm2engine_path_bytes: (a: number, b: number) => [number, number];
     readonly pm2engine_path_count: (a: number) => number;
-    readonly pm2engine_reaggregate: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly pm2engine_reaggregate: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
     readonly pm2engine_summary_wire: (a: number) => [number, number];
     readonly pm2engine_unmatched_count: (a: number) => number;
     readonly pm2engine_unmatched_sample_wire: (a: number) => [number, number];

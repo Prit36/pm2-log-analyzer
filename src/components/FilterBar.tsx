@@ -1,5 +1,10 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { EMPTY_METHODS, useAnalysisStore, type ApiSortKey } from "../store/analysisStore";
+import {
+  EMPTY_DATES,
+  EMPTY_METHODS,
+  useAnalysisStore,
+  type ApiSortKey,
+} from "../store/analysisStore";
 import type { NormalizeMode, StatusFamily } from "../parser";
 import { cn } from "../utils/cn";
 
@@ -35,6 +40,7 @@ export function FilterBar() {
   const toggleMethod = useAnalysisStore((s) => s.toggleMethod);
   const setMethodFilter = useAnalysisStore((s) => s.setMethodFilter);
   const methods = useAnalysisStore((s) => s.result?.methods ?? EMPTY_METHODS);
+  const dates = useAnalysisStore((s) => s.result?.dates ?? EMPTY_DATES);
   const hasData = useAnalysisStore((s) => s.hasData);
 
   useEffect(() => {
@@ -61,6 +67,23 @@ export function FilterBar() {
   return (
     <section className="rounded border border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-end gap-3">
+        {dates.length > 1 && (
+          <Field label="Day">
+            <select
+              data-testid="filter-date"
+              value={filters.dateFilter}
+              onChange={(e) => setFilters({ dateFilter: e.target.value })}
+              className={fieldClass}
+            >
+              <option value="all">All Days ({dates.length})</option>
+              {dates.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Normalize">
           <select
             value={filters.normalizeMode}
@@ -144,8 +167,43 @@ export function FilterBar() {
         </Field>
       </div>
 
+      {dates.length > 1 && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2.5 dark:border-slate-800/80">
+          <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Day Filter
+          </span>
+          <button
+            type="button"
+            onClick={() => setFilters({ dateFilter: "all" })}
+            className={cn(
+              "rounded px-2 py-0.5 text-[10px] font-medium tracking-wide ring-1 transition-colors",
+              filters.dateFilter === "all"
+                ? "bg-indigo-50 text-indigo-700 ring-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:ring-indigo-800"
+                : "bg-slate-50 text-slate-500 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-400 dark:ring-slate-700",
+            )}
+          >
+            All Days ({dates.length})
+          </button>
+          {dates.map((d) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => setFilters({ dateFilter: d })}
+              className={cn(
+                "rounded px-2 py-0.5 font-mono-data text-[10px] tracking-wide ring-1 transition-colors",
+                filters.dateFilter === d
+                  ? "bg-indigo-50 text-indigo-700 ring-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:ring-indigo-800"
+                  : "bg-slate-50 text-slate-500 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-400 dark:ring-slate-700",
+              )}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+      )}
+
       {methods.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2.5 dark:border-slate-800/80">
           <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Methods
           </span>

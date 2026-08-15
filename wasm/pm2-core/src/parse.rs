@@ -45,6 +45,7 @@ pub enum LineKind {
         status: u16,
         duration_ms: f32,
         hour: Option<u8>,
+        date: Option<[u8; 10]>,
     },
     Cron {
         event: u8, // 0=start 1=done 2=fail
@@ -95,7 +96,7 @@ fn only_space_ansi_left(buf: &[u8], i: usize, end: usize) -> bool {
     skip_space_ansi(buf, i, end) >= end
 }
 
-fn skip_timestamp(buf: &[u8], start: usize, end: usize) -> Option<(usize, usize, usize, u8)> {
+fn skip_timestamp(buf: &[u8], start: usize, end: usize) -> Option<(usize, usize, usize, u8, [u8; 10])> {
     if end - start < 20 {
         return None;
     }
@@ -116,7 +117,9 @@ fn skip_timestamp(buf: &[u8], start: usize, end: usize) -> Option<(usize, usize,
         return None;
     }
     let hour = (b[11] - b'0') * 10 + (b[12] - b'0');
-    Some((skip_space_ansi(buf, a + 20, end), a, a + 19, hour))
+    let mut date = [0u8; 10];
+    date.copy_from_slice(&b[0..10]);
+    Some((skip_space_ansi(buf, a + 20, end), a, a + 19, hour, date))
 }
 
 fn parse_method(buf: &[u8], mut i: usize, end: usize) -> Option<(Method, usize)> {
@@ -229,7 +232,7 @@ fn has_non_space(buf: &[u8], start: usize, end: usize) -> bool {
 /// Line content after the optional PM2 timestamp + leading whitespace.
 fn noise_body<'a>(buf: &'a [u8], start: usize, end: usize) -> &'a [u8] {
     let mut i = skip_space_ansi(buf, start, end);
-    if let Some((ni, _, _, _)) = skip_timestamp(buf, i, end) {
+    if let Some((ni, _, _, _, _)) = skip_timestamp(buf, i, end) {
         if ni != i {
             i = ni;
         }
@@ -325,13 +328,13 @@ fn strip_ansi_bytes(buf: &[u8]) -> Vec<u8> {
 
 fn try_http_a(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
     let mut i = skip_space_ansi(buf, start, end);
-    let hour = if let Some((ni, _, _, hour)) = skip_timestamp(buf, i, end) {
+    let (hour, date) = if let Some((ni, _, _, hour, date_bytes)) = skip_timestamp(buf, i, end) {
         if ni != i {
             i = ni;
         }
-        (hour < 24).then_some(hour)
+        ((hour < 24).then_some(hour), Some(date_bytes))
     } else {
-        None
+        (None, None)
     };
     let (method, ni) = parse_method(buf, i, end)?;
     i = ni;
@@ -383,6 +386,7 @@ fn try_http_a(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
         status,
         duration_ms: dur,
         hour,
+        date,
     })
 }
 
@@ -407,13 +411,14 @@ fn try_http_b(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
         status: 0,
         duration_ms: dur,
         hour: None,
+        date: None,
     })
 }
 
 fn try_cron(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
     let mut i = skip_space_ansi(buf, start, end);
     let ts = skip_timestamp(buf, i, end);
-    if let Some((ni, _, _, _)) = ts {
+    if let Some((ni, _, _, _, _)) = ts {
         i = ni;
     }
     let cron_idx = find_cron_mark(buf, i, end)?;
@@ -491,7 +496,7 @@ fn try_cron(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
             }
         }
     }
-    let ts_bytes = ts.map(|(_, a, b, _)| buf[a..b].to_vec());
+    let ts_bytes = ts.map(|(_, a, b, _, _)| buf[a..b].to_vec());
     Some(LineKind::Cron {
         event,
         name,
@@ -579,12 +584,14 @@ mod tests {
                 status,
                 duration_ms,
                 hour,
+                date,
             } => {
                 assert_eq!(method, Method::Get);
                 assert_eq!(&s[path_start..path_end], b"/api/health");
                 assert_eq!(status, 200);
                 assert!((duration_ms - 12.5).abs() < 0.01);
                 assert_eq!(hour, Some(0));
+                assert_eq!(date, Some(*b"2026-07-24"));
             }
             other => panic!("unexpected {other:?}"),
         }
@@ -601,12 +608,14 @@ mod tests {
                 status,
                 duration_ms,
                 hour,
+                date,
             } => {
                 assert_eq!(method, Method::Post);
                 assert_eq!(&s[path_start..path_end], b"/api/admin/dashboard/dashboarddata");
                 assert_eq!(status, 200);
                 assert!((duration_ms - 71.197).abs() < 0.01);
                 assert_eq!(hour, None);
+                assert_eq!(date, None);
             }
             other => panic!("unexpected {other:?}"),
         }

@@ -87,10 +87,11 @@ impl Pm2Engine {
         normalize_mode: u8,
         status_family: u8,
         min_ms: f32,
+        date_filter: &[u8],
         need_summary: bool,
     ) -> Vec<u8> {
         self.inner
-            .reaggregate(normalize_mode, status_family, min_ms, need_summary)
+            .reaggregate(normalize_mode, status_family, min_ms, date_filter, need_summary)
     }
 
     pub fn path_bytes(&self, path_id: u32) -> Option<Vec<u8>> {
@@ -115,6 +116,14 @@ impl Pm2Engine {
 
     pub fn hourly_wire(&self) -> Vec<u8> {
         self.inner.hourly_wire()
+    }
+
+    pub fn dates_wire(&self) -> Vec<u8> {
+        self.inner.dates_wire()
+    }
+
+    pub fn daily_wire(&self) -> Vec<u8> {
+        self.inner.daily_wire()
     }
 
     pub fn methods_mask(&self) -> u8 {

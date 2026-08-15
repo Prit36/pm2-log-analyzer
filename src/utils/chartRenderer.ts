@@ -1,10 +1,11 @@
-import type { AggregatedEndpoint, HourlyBucket } from "../parser";
+import type { AggregatedEndpoint, DaySummary, HourlyBucket } from "../parser";
 import { formatMs, formatNum } from "./format";
 
 export type ChartImageResults = {
-  timeVsLatency?: string;
-  hourlyVolume?: string;
-  distribution?: string;
+  timeVsLatency?: string | undefined;
+  hourlyVolume?: string | undefined;
+  distribution?: string | undefined;
+  dailyTrend?: string | undefined;
 };
 
 /** Setup High-DPI canvas with gridlines, title, and coordinate mappers */
@@ -241,6 +242,79 @@ export function renderHourlyVolumeChart(hourlyStats: HourlyBucket[]): string {
   return canvas.toDataURL("image/png");
 }
 
+/** Render Daily Trend (Requests, Errors, P95 Latency) */
+export function renderDailyTrendChart(dailyStats: DaySummary[]): string {
+  if (!dailyStats.length) return "";
+  const maxCount = Math.ceil(Math.max(...dailyStats.map((d) => d.count)) * 1.15) || 10;
+  const maxP95 = Math.ceil(Math.max(...dailyStats.map((d) => d.p95Ms)) * 1.2) || 100;
+
+  const chart = initChart(
+    600,
+    320,
+    "Daily Trend: Requests & Latency",
+    { top: 52, right: 65, bottom: 48, left: 65 },
+    maxCount,
+    formatNum,
+    dailyStats.map((d) => d.date),
+    formatMs,
+    maxP95,
+    true,
+  );
+  if (!chart) return "";
+
+  const { canvas, ctx, graphHeight, getX } = chart;
+  const count = dailyStats.length;
+  const barW = Math.min(32, Math.max(6, (470 / count) * 0.6));
+
+  // Request Bars
+  dailyStats.forEach((d, i) => {
+    const xCenter = getX(i, count);
+    const barH = (d.count / maxCount) * graphHeight;
+    const barY = 52 + graphHeight - barH;
+    ctx.fillStyle = "#3b82f6";
+    ctx.beginPath();
+    if ("roundRect" in CanvasRenderingContext2D.prototype) {
+      ctx.roundRect(xCenter - barW / 2, barY, barW, barH, [3, 3, 0, 0]);
+    } else {
+      ctx.fillRect(xCenter - barW / 2, barY, barW, barH);
+    }
+    ctx.fill();
+  });
+
+  // P95 Latency Line (Right Y-axis)
+  const p95Pts = dailyStats.map((d, i) => ({
+    x: getX(i, count),
+    y: 52 + graphHeight - (d.p95Ms / maxP95) * graphHeight,
+  }));
+  ctx.beginPath();
+  p95Pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+  ctx.strokeStyle = "#7c3aed";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  p95Pts.forEach((p) => {
+    ctx.fillStyle = "#7c3aed";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Legend
+  ctx.fillStyle = "#3b82f6";
+  ctx.fillRect(360, 18, 12, 10);
+  ctx.fillStyle = "#334155";
+  ctx.font = "500 11px Inter, system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText("Total Requests", 376, 25);
+
+  ctx.fillStyle = "#7c3aed";
+  ctx.beginPath();
+  ctx.arc(475, 24, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillText("P95 Latency", 485, 25);
+
+  return canvas.toDataURL("image/png");
+}
+
 /** Render Latency Distribution Breakdown */
 export function renderDistributionChart(rows: AggregatedEndpoint[]): string {
   const buckets = [
@@ -317,11 +391,13 @@ export function renderDistributionChart(rows: AggregatedEndpoint[]): string {
 export async function generateAllChartImages(
   rows: AggregatedEndpoint[],
   hourlyStats: HourlyBucket[] = [],
+  dailyStats: DaySummary[] = [],
 ): Promise<ChartImageResults> {
   await new Promise((resolve) => setTimeout(resolve, 0));
   return {
     timeVsLatency: renderTimeVsLatencyChart(hourlyStats),
     hourlyVolume: renderHourlyVolumeChart(hourlyStats),
     distribution: renderDistributionChart(rows),
+    dailyTrend: dailyStats.length > 1 ? renderDailyTrendChart(dailyStats) : undefined,
   };
 }

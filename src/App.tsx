@@ -14,7 +14,7 @@ import { downloadExcel } from "./utils/exportSpreadsheet";
 
 export function App() {
   const theme = useAnalysisStore((s) => s.theme);
-  const { parseFile, parseText, cancel, clear } = useParserWorker();
+  const { parseFile, parseFiles, parseText, cancel, clear } = useParserWorker();
   const showToast = useAnalysisStore((s) => s.showToast);
 
   useEffect(() => {
@@ -24,7 +24,9 @@ export function App() {
   const cronRows = useFilteredCronRows();
   const apiSortKey = useAnalysisStore((s) => s.filters.sortKey);
   const cronSortKey = useAnalysisStore((s) => s.filters.cronSortKey);
+  const dateFilter = useAnalysisStore((s) => s.filters.dateFilter);
   const hourlyStats = useAnalysisStore((s) => s.result?.hourlyStats);
+  const dailyStats = useAnalysisStore((s) => s.result?.dailyStats);
   const summary = useAnalysisStore((s) => s.result?.summary);
   const hasCron = useAnalysisStore((s) => {
     const c = s.result?.cronSummary;
@@ -43,6 +45,8 @@ export function App() {
         { api: apiSortKey, cron: cronSortKey },
         hourlyStats,
         summary,
+        dailyStats,
+        dateFilter,
       );
       showToast(
         cronRows.length > 0
@@ -60,6 +64,7 @@ export function App() {
       <main className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4">
         <IngestPanel
           onFile={(file) => void parseFile(file)}
+          onFiles={(files) => void parseFiles(files)}
           onPaste={(text) => void parseText(text)}
           onCancel={cancel}
         />
@@ -70,7 +75,7 @@ export function App() {
             <ApiTable rows={apiRows} />
           </div>
           <div className="lg:col-span-2">
-            <LatencyChart rows={apiRows} hourlyStats={hourlyStats} />
+            <LatencyChart rows={apiRows} hourlyStats={hourlyStats} dailyStats={dailyStats} />
           </div>
         </div>
         {hasCron && <CronTable rows={cronRows} />}

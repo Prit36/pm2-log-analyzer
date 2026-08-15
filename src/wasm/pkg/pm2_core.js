@@ -36,6 +36,24 @@ export class Pm2Engine {
         return v1;
     }
     /**
+     * @returns {Uint8Array}
+     */
+    daily_wire() {
+        const ret = wasm.pm2engine_daily_wire(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    dates_wire() {
+        const ret = wasm.pm2engine_dates_wire(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
      * Finish shard (flush carry). Call after all feeds.
      */
     end_shard() {
@@ -151,14 +169,17 @@ export class Pm2Engine {
      * @param {number} normalize_mode
      * @param {number} status_family
      * @param {number} min_ms
+     * @param {Uint8Array} date_filter
      * @param {boolean} need_summary
      * @returns {Uint8Array}
      */
-    reaggregate(normalize_mode, status_family, min_ms, need_summary) {
-        const ret = wasm.pm2engine_reaggregate(this.__wbg_ptr, normalize_mode, status_family, min_ms, need_summary);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    reaggregate(normalize_mode, status_family, min_ms, date_filter, need_summary) {
+        const ptr0 = passArray8ToWasm0(date_filter, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pm2engine_reaggregate(this.__wbg_ptr, normalize_mode, status_family, min_ms, ptr0, len0, need_summary);
+        var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        return v1;
+        return v2;
     }
     /**
      * @returns {Uint8Array}

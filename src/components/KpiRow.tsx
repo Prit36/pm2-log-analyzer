@@ -1,8 +1,10 @@
-import { useAnalysisStore } from "../store/analysisStore";
+import { EMPTY_DATES, useAnalysisStore } from "../store/analysisStore";
 import { formatMs, formatNum } from "../utils/format";
 
 export function KpiRow() {
   const summary = useAnalysisStore((s) => s.result?.summary);
+  const dates = useAnalysisStore((s) => s.result?.dates ?? EMPTY_DATES);
+  const dateFilter = useAnalysisStore((s) => s.filters.dateFilter);
   const cronJobs = useAnalysisStore((s) => s.result?.cronSummary.jobs ?? 0);
   const hasCronEvents = useAnalysisStore((s) => {
     const c = s.result?.cronSummary;
@@ -12,13 +14,22 @@ export function KpiRow() {
 
   if (!hasData || !summary) return null;
 
-  const items: { label: string; value: string; accent?: boolean; danger?: boolean }[] = [
+  const items: { label: string; value: string; accent?: boolean; danger?: boolean }[] = [];
+
+  if (dates.length > 1) {
+    items.push({
+      label: dateFilter === "all" ? "Days Analyzed" : "Active Day",
+      value: dateFilter === "all" ? `${dates.length} Days` : dateFilter,
+    });
+  }
+
+  items.push(
     { label: "Requests", value: formatNum(summary.matched) },
     { label: "Avg", value: formatMs(summary.avg) },
     { label: "p95", value: formatMs(summary.p95Ms), accent: true },
     { label: "Errors", value: formatNum(summary.errors), danger: summary.errors > 0 },
     { label: "Slow ≥3s", value: formatNum(summary.slow) },
-  ];
+  );
   if (hasCronEvents) items.push({ label: "Cron jobs", value: formatNum(cronJobs) });
 
   return (

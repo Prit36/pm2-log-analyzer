@@ -37,6 +37,7 @@ export type ShardRequest =
       normalizeMode: string;
       statusFamily: string;
       minMs: number;
+      dateFilter?: string | null | undefined;
       needSummary: boolean;
     };
 
@@ -61,6 +62,8 @@ export type ShardParsed = {
   cronWire: ArrayBuffer;
   unmatchedWire: ArrayBuffer;
   hourlyWire: ArrayBuffer;
+  datesWire: ArrayBuffer;
+  dailyWire: ArrayBuffer;
   partialWire?: ArrayBuffer;
   /** Debug probe: current Wasm linear memory size. */
   wasmHeapBytes?: number;
@@ -200,12 +203,16 @@ type ShardMetaBuffers = {
   cronWire: ArrayBuffer;
   unmatchedWire: ArrayBuffer;
   hourlyWire: ArrayBuffer;
+  datesWire: ArrayBuffer;
+  dailyWire: ArrayBuffer;
 };
 
 function metaBuffers(): ShardMetaBuffers {
   const cron = engine!.cron_wire();
   const unmatched = engine!.unmatched_sample_wire();
   const hourly = engine!.hourly_wire();
+  const dates = engine!.dates_wire();
+  const daily = engine!.daily_wire();
   // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
   const cronWire = cron.buffer.slice(
     cron.byteOffset,
@@ -221,7 +228,17 @@ function metaBuffers(): ShardMetaBuffers {
     hourly.byteOffset,
     hourly.byteOffset + hourly.byteLength,
   ) as ArrayBuffer;
-  return { cronWire, unmatchedWire, hourlyWire };
+  // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
+  const datesWire = dates.buffer.slice(
+    dates.byteOffset,
+    dates.byteOffset + dates.byteLength,
+  ) as ArrayBuffer;
+  // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
+  const dailyWire = daily.buffer.slice(
+    daily.byteOffset,
+    daily.byteOffset + daily.byteLength,
+  ) as ArrayBuffer;
+  return { cronWire, unmatchedWire, hourlyWire, datesWire, dailyWire };
 }
 
 self.onmessage = async (e: MessageEvent<ShardRequest>) => {
@@ -253,14 +270,14 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
       const timing = await parseFileRange(file, start, end);
       const modeCode = normalizeModeCode(normalizeMode ?? "collapseIds");
       engine.ensure_mode(modeCode);
-      const partialWireU8 = engine.reaggregate(modeCode, 0, 0, true);
+      const partialWireU8 = engine.reaggregate(modeCode, 0, 0, new Uint8Array(), true);
       // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
       const partialWire = partialWireU8.buffer.slice(
         partialWireU8.byteOffset,
         partialWireU8.byteOffset + partialWireU8.byteLength,
       ) as ArrayBuffer;
       const tMeta = performance.now();
-      const { cronWire, unmatchedWire, hourlyWire } = metaBuffers();
+      const { cronWire, unmatchedWire, hourlyWire, datesWire, dailyWire } = metaBuffers();
       timing.metaWireMs = performance.now() - tMeta;
       timing.shardWallMs =
         timing.readMs + timing.copyIngestMs + timing.feedMs + timing.endShardMs + timing.metaWireMs;
@@ -274,12 +291,21 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         cronWire,
         unmatchedWire,
         hourlyWire,
+        datesWire,
+        dailyWire,
         partialWire,
         wasmHeapBytes: wasmMemory!.buffer.byteLength,
         pathCount: engine.path_count(),
         timing,
       };
-      self.postMessage(result, [cronWire, unmatchedWire, hourlyWire, partialWire]);
+      self.postMessage(result, [
+        cronWire,
+        unmatchedWire,
+        hourlyWire,
+        datesWire,
+        dailyWire,
+        partialWire,
+      ]);
       return;
     }
 
@@ -305,7 +331,7 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
       engine.end_shard();
       const endShardMs = performance.now() - tEnd;
       const tMeta = performance.now();
-      const { cronWire, unmatchedWire, hourlyWire } = metaBuffers();
+      const { cronWire, unmatchedWire, hourlyWire, datesWire, dailyWire } = metaBuffers();
       const metaWireMs = performance.now() - tMeta;
       const timing: ShardTiming = {
         readMs: 0,
@@ -325,18 +351,25 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         cronWire,
         unmatchedWire,
         hourlyWire,
+        datesWire,
+        dailyWire,
         timing,
       };
-      self.postMessage(result, [cronWire, unmatchedWire, hourlyWire]);
+      self.postMessage(result, [cronWire, unmatchedWire, hourlyWire, datesWire, dailyWire]);
       return;
     }
 
     if (msg.type === "REAGGREGATE") {
       const t0 = performance.now();
+      const dateFilterBytes =
+        msg.dateFilter && msg.dateFilter !== "all"
+          ? new TextEncoder().encode(msg.dateFilter)
+          : new Uint8Array();
       const partial = engine.reaggregate(
         normalizeModeCode(msg.normalizeMode),
         statusFamilyCode(msg.statusFamily),
         msg.minMs,
+        dateFilterBytes,
         msg.needSummary,
       );
       const reaggMs = performance.now() - t0;

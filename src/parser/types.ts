@@ -53,6 +53,18 @@ export type CronSummary = {
   slowestRun: number;
 };
 
+export type DaySummary = {
+  date: string;
+  count: number;
+  errorCount: number;
+  avgMs: number;
+  p95Ms: number;
+  p99Ms: number;
+  maxMs: number;
+  slowCount: number;
+  hourlyStats: HourlyBucket[];
+};
+
 export type ParseOptions = {
   normalizeMode: NormalizeMode;
   methodFilter: string[] | null;
@@ -61,6 +73,7 @@ export type ParseOptions = {
   cronQuery: string;
   cronMinMs: number;
   cronShowFailedOnly: boolean;
+  dateFilter?: string | null | undefined;
 };
 
 export type HourlyBucket = {
@@ -83,13 +96,15 @@ export type AggregatedResult = {
   methods: string[];
   unmatchedSample: string[];
   unmatchedCount: number;
+  dates: string[];
+  dailyStats: DaySummary[];
 };
 
 export type CronEventCompact = {
-  ts?: string;
+  ts?: string | undefined;
   event: "start" | "done" | "fail";
   name: string;
-  durationMs?: number;
+  durationMs?: number | undefined;
 };
 
 export type HttpRequestHit = {
@@ -97,7 +112,8 @@ export type HttpRequestHit = {
   path: string;
   status: number;
   durationMs: number;
-  hour?: number;
+  hour?: number | undefined;
+  date?: string | undefined;
 };
 
 export type ParsedLine =
@@ -119,4 +135,6 @@ export const EMPTY_RESULT: AggregatedResult = {
   methods: [],
   unmatchedSample: [],
   unmatchedCount: 0,
+  dates: [],
+  dailyStats: [],
 };

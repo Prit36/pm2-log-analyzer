@@ -1,4 +1,10 @@
-import type { AggregatedEndpoint, CronAggregated, HourlyBucket, LogSummary } from "../parser";
+import type {
+  AggregatedEndpoint,
+  CronAggregated,
+  DaySummary,
+  HourlyBucket,
+  LogSummary,
+} from "../parser";
 import type { ApiSortKey, CronSortKey } from "../store/analysisStore";
 import { formatMs, formatNum } from "./format";
 import { generateAllChartImages } from "./chartRenderer";
@@ -100,7 +106,12 @@ function highlightErrors(ws: ExcelJS.Worksheet, colLetter: string, rowCount: num
   });
 }
 
-function buildApiSheet(wb: ExcelJS.Workbook, rows: AggregatedEndpoint[], sortKey: ApiSortKey) {
+function buildApiSheet(
+  wb: ExcelJS.Workbook,
+  rows: AggregatedEndpoint[],
+  sortKey: ApiSortKey,
+  dateFilter?: string | null,
+) {
   const ws = wb.addWorksheet("API Endpoints", {
     views: [{ state: "frozen", ySplit: TABLE_HEADER_ROW }],
   });
@@ -117,11 +128,12 @@ function buildApiSheet(wb: ExcelJS.Workbook, rows: AggregatedEndpoint[], sortKey
   ];
 
   const generated = new Date().toLocaleString();
+  const dateMeta = dateFilter && dateFilter !== "all" ? `  |  Day Filter: ${dateFilter}` : "";
   styleTitleMeta(
     ws,
     9,
     "PM2 Log Analyzer — API Endpoints",
-    `Generated: ${generated}  |  Endpoints: ${rows.length}  |  Sorted by: ${API_SORT_LABEL[sortKey]} (desc)`,
+    `Generated: ${generated}  |  Endpoints: ${rows.length}  |  Sorted by: ${API_SORT_LABEL[sortKey]} (desc)${dateMeta}`,
   );
 
   const tableRows = rows.map((r) => [
@@ -159,6 +171,64 @@ function buildApiSheet(wb: ExcelJS.Workbook, rows: AggregatedEndpoint[], sortKey
   applyMethodBadges(ws, rows.length);
   applyMsFmt(ws, [4, 5, 6, 7, 8], rows.length);
   highlightErrors(ws, "I", rows.length);
+}
+
+function buildDailySummarySheet(wb: ExcelJS.Workbook, dailyStats: DaySummary[]) {
+  if (!dailyStats.length) return;
+  const ws = wb.addWorksheet("Daily Summary", {
+    views: [{ state: "frozen", ySplit: TABLE_HEADER_ROW }],
+  });
+  ws.columns = [
+    { width: 16 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 12 },
+    { width: 14 },
+  ];
+
+  const generated = new Date().toLocaleString();
+  styleTitleMeta(
+    ws,
+    8,
+    "PM2 Log Analyzer — Daily Summary",
+    `Generated: ${generated}  |  Days: ${dailyStats.length}`,
+  );
+
+  const tableRows = dailyStats.map((d) => [
+    d.date,
+    d.count,
+    d.avgMs,
+    d.p95Ms,
+    d.p99Ms,
+    d.maxMs,
+    d.errorCount,
+    d.slowCount,
+  ]);
+
+  ws.addTable({
+    name: "DailySummary",
+    ref: `A${TABLE_HEADER_ROW}`,
+    headerRow: true,
+    totalsRow: true,
+    style: { theme: "TableStyleMedium2", showRowStripes: true },
+    columns: [
+      { name: "Date", filterButton: true, totalsRowLabel: "Total" },
+      { name: "Requests", filterButton: true, totalsRowFunction: "sum" },
+      { name: "Avg", filterButton: true },
+      { name: "P95", filterButton: true },
+      { name: "P99", filterButton: true },
+      { name: "Max", filterButton: true },
+      { name: "Errors", filterButton: true, totalsRowFunction: "sum" },
+      { name: "Slow (≥3s)", filterButton: true, totalsRowFunction: "sum" },
+    ],
+    rows: tableRows,
+  });
+
+  applyMsFmt(ws, [3, 4, 5, 6], dailyStats.length);
+  highlightErrors(ws, "G", dailyStats.length);
 }
 
 function buildCronSheet(wb: ExcelJS.Workbook, rows: CronAggregated[], sortKey: CronSortKey) {
@@ -313,6 +383,7 @@ async function buildVisualAnalyticsSheet(
   apiRows: AggregatedEndpoint[],
   hourlyStats: HourlyBucket[],
   summary?: LogSummary | null,
+  dailyStats: DaySummary[] = [],
 ) {
   const ws = wb.addWorksheet("Visual Analytics");
   ws.columns = [
@@ -369,7 +440,7 @@ async function buildVisualAnalyticsSheet(
     vCell.alignment = { horizontal: "center", vertical: "middle" };
   });
 
-  const chartImages = await generateAllChartImages(apiRows, hourlyStats);
+  const chartImages = await generateAllChartImages(apiRows, hourlyStats, dailyStats);
 
   const addChart = (img?: string, range = "A8:G24") => {
     if (!img) return;
@@ -381,6 +452,9 @@ async function buildVisualAnalyticsSheet(
   addChart(chartImages.timeVsLatency, "A8:G24");
   addChart(chartImages.hourlyVolume, "I8:P24");
   addChart(chartImages.distribution, "A27:G43");
+  if (chartImages.dailyTrend) {
+    addChart(chartImages.dailyTrend, "I27:P43");
+  }
 }
 
 export function buildApiTsv(rows: AggregatedEndpoint[]): string {
@@ -443,6 +517,8 @@ export async function downloadExcel(
   sort: { api: ApiSortKey; cron: CronSortKey },
   hourlyStats: HourlyBucket[] = [],
   summary?: LogSummary | null,
+  dailyStats: DaySummary[] = [],
+  dateFilter?: string | null,
 ): Promise<void> {
   const ExcelJS = (await import("exceljs")).default;
   const wb = new ExcelJS.Workbook();
@@ -451,11 +527,12 @@ export async function downloadExcel(
   wb.title = "PM2 Log Analyzer Report";
 
   // API Endpoints is the default / first tab
-  buildApiSheet(wb, apiRows, sort.api);
+  buildApiSheet(wb, apiRows, sort.api, dateFilter);
+  if (dailyStats.length > 1) buildDailySummarySheet(wb, dailyStats);
   if (cronRows.length > 0) buildCronSheet(wb, cronRows, sort.cron);
   buildHourlyAndDistributionSheet(wb, hourlyStats, apiRows);
   // Analytics is the last tab
-  await buildVisualAnalyticsSheet(wb, apiRows, hourlyStats, summary);
+  await buildVisualAnalyticsSheet(wb, apiRows, hourlyStats, summary, dailyStats);
 
   wb.views = [
     {
