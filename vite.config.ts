@@ -27,7 +27,4 @@ export default defineConfig({
     format: "es",
     plugins: () => [],
   },
-  build: {
-    target: "esnext",
-  },
 });
