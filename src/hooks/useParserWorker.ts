@@ -82,8 +82,10 @@ export function useParserWorker() {
         }
         case "RESULT":
           setResult(msg.payload);
-          setProgress({ stage: "complete", processed: 100, total: 100, percent: 100 });
-          setParsing(false);
+          if (useAnalysisStore.getState().isParsing) {
+            setProgress({ stage: "complete", processed: 100, total: 100, percent: 100 });
+            setParsing(false);
+          }
           resolveRef.current?.();
           resolveRef.current = null;
           rejectRef.current = null;
@@ -122,7 +124,7 @@ export function useParserWorker() {
     };
   }, [setWorkerReady, setParsing, setProgress, setResult, setError, showToast]);
 
-  const run = useCallback(
+  const runParse = useCallback(
     (message: WorkerMessage): Promise<void> => {
       return new Promise<void>((resolve, reject) => {
         if (!workerRef.current) {
@@ -138,6 +140,22 @@ export function useParserWorker() {
       });
     },
     [setParsing, setError, setProgress],
+  );
+
+  const runReagg = useCallback(
+    (message: WorkerMessage): Promise<void> => {
+      return new Promise<void>((resolve, reject) => {
+        if (!workerRef.current) {
+          reject(new Error("Worker not ready"));
+          return;
+        }
+        setError(null);
+        resolveRef.current = resolve;
+        rejectRef.current = reject;
+        workerRef.current.postMessage(message);
+      });
+    },
+    [setError],
   );
 
   const parseFile = useCallback(
@@ -157,7 +175,7 @@ export function useParserWorker() {
         workerWasmHeapMB: 0,
       });
       const t0 = performance.now();
-      await run({ type: "PARSE_FILE", payload: { file, options } });
+      await runParse({ type: "PARSE_FILE", payload: { file, options } });
       const ms = Math.round(performance.now() - t0);
       const result = useAnalysisStore.getState().result;
       ensureBench({
@@ -170,7 +188,7 @@ export function useParserWorker() {
       });
       showToast(`Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests in ${ms}ms`);
     },
-    [run, showToast],
+    [runParse, showToast],
   );
 
   const parseFiles = useCallback(
@@ -194,7 +212,7 @@ export function useParserWorker() {
         workerWasmHeapMB: 0,
       });
       const t0 = performance.now();
-      await run({ type: "PARSE_FILES", payload: { files, options } });
+      await runParse({ type: "PARSE_FILES", payload: { files, options } });
       const ms = Math.round(performance.now() - t0);
       const result = useAnalysisStore.getState().result;
       ensureBench({
@@ -209,7 +227,7 @@ export function useParserWorker() {
         `Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests across ${files.length} files in ${ms}ms`,
       );
     },
-    [parseFile, run, showToast],
+    [parseFile, runParse, showToast],
   );
 
   const parseText = useCallback(
@@ -225,7 +243,7 @@ export function useParserWorker() {
         workerWasmHeapMB: 0,
       });
       const t0 = performance.now();
-      await run({ type: "PARSE_TEXT", payload: { text, options } });
+      await runParse({ type: "PARSE_TEXT", payload: { text, options } });
       const ms = Math.round(performance.now() - t0);
       const result = useAnalysisStore.getState().result;
       ensureBench({
@@ -238,18 +256,18 @@ export function useParserWorker() {
       });
       showToast(`Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests in ${ms}ms`);
     },
-    [run, showToast],
+    [runParse, showToast],
   );
 
   const reaggregate = useCallback(async () => {
     const options = workerParseOptions(useAnalysisStore.getState().filters);
     const t0 = performance.now();
-    await run({ type: "REAGGREGATE", payload: { options } });
+    await runReagg({ type: "REAGGREGATE", payload: { options } });
     const ms = Math.round(performance.now() - t0);
     const b = ensureBench();
     b.lastReaggMs = ms;
     b.reaggTimes = [...(b.reaggTimes ?? []), ms];
-  }, [run]);
+  }, [runReagg]);
 
   const cancel = useCallback(() => {
     workerRef.current?.postMessage({ type: "CANCEL" } satisfies WorkerMessage);

@@ -104,7 +104,7 @@ export function LatencyChart({
 
   return (
     <section className="flex flex-col rounded border border-slate-200 bg-white shadow-xs dark:border-slate-800/80 dark:bg-slate-900/80 dark:shadow-md dark:shadow-black/20">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+      <div className="flex flex-col gap-2 border-b border-slate-200 px-3.5 py-2.5 dark:border-slate-800">
         <div className="flex items-center gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
             API Visual Analytics
@@ -115,26 +115,26 @@ export function LatencyChart({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1 rounded bg-slate-100 p-0.5 text-xs dark:bg-slate-950">
+        <div className="flex w-full items-center gap-1 rounded bg-slate-100 p-0.5 text-xs dark:bg-slate-950">
           {dailyStats.length > 1 && (
             <button
               type="button"
               onClick={() => setMode("dailyTrend")}
-              className={`flex items-center gap-1.5 rounded px-2 py-1 font-medium transition-colors ${
+              className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors ${
                 mode === "dailyTrend"
                   ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white dark:shadow-md dark:shadow-blue-950/50"
                   : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
               }`}
-              title="Daily Trend (Requests, Latency, Errors)"
+              title="Daily Trend (Requests, Latency, Errors across all days)"
             >
               <CalendarDays className="h-3.5 w-3.5" />
-              <span>Daily Trend</span>
+              <span>Trend</span>
             </button>
           )}
           <button
             type="button"
             onClick={() => setMode("timeOfDay")}
-            className={`flex items-center gap-1.5 rounded px-2 py-1 font-medium transition-colors ${
+            className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors ${
               mode === "timeOfDay"
                 ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white dark:shadow-md dark:shadow-blue-950/50"
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
@@ -142,12 +142,12 @@ export function LatencyChart({
             title="Time of Day vs Latency Trend"
           >
             <Clock className="h-3.5 w-3.5" />
-            <span>Time vs Latency</span>
+            <span>{dailyStats.length > 1 ? "Latency" : "Time vs Latency"}</span>
           </button>
           <button
             type="button"
             onClick={() => setMode("throughput")}
-            className={`flex items-center gap-1.5 rounded px-2 py-1 font-medium transition-colors ${
+            className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors ${
               mode === "throughput"
                 ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white dark:shadow-md dark:shadow-blue-950/50"
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
@@ -155,12 +155,12 @@ export function LatencyChart({
             title="Hourly Request Volume & Error Rate"
           >
             <BarChart3 className="h-3.5 w-3.5" />
-            <span>Hourly Volume</span>
+            <span>{dailyStats.length > 1 ? "Volume" : "Hourly Volume"}</span>
           </button>
           <button
             type="button"
             onClick={() => setMode("distribution")}
-            className={`flex items-center gap-1.5 rounded px-2 py-1 font-medium transition-colors ${
+            className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors ${
               mode === "distribution"
                 ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white dark:shadow-md dark:shadow-blue-950/50"
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
@@ -168,12 +168,12 @@ export function LatencyChart({
             title="Latency Distribution Buckets"
           >
             <Activity className="h-3.5 w-3.5" />
-            <span>Distribution</span>
+            <span>{dailyStats.length > 1 ? "Dist" : "Distribution"}</span>
           </button>
           <button
             type="button"
             onClick={() => setMode("topP95")}
-            className={`flex items-center gap-1.5 rounded px-2 py-1 font-medium transition-colors ${
+            className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors ${
               mode === "topP95"
                 ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white dark:shadow-md dark:shadow-blue-950/50"
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
@@ -181,7 +181,7 @@ export function LatencyChart({
             title="Top p95 Slowest Endpoints"
           >
             <Flame className="h-3.5 w-3.5" />
-            <span>Top Slowest</span>
+            <span>{dailyStats.length > 1 ? "Slowest" : "Top Slowest"}</span>
           </button>
         </div>
       </div>

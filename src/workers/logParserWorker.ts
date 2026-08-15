@@ -354,11 +354,6 @@ async function reaggregateShards(
     };
   }
 
-  self.postMessage({
-    type: "PROGRESS",
-    payload: { stage: "aggregating", processed: 0, total: 100, percent: 0 },
-  } satisfies WorkerResponse);
-
   const t0 = performance.now();
   let tasks: Promise<ShardPartial>[];
   if (

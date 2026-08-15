@@ -139,33 +139,194 @@ export function IngestPanel({ onFile, onFiles, onPaste, onCancel }: Props) {
 
   return (
     <section className="rounded border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-      <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          if (!busy) setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
-        className={cn(
-          "flex flex-col items-center justify-center gap-3 px-6 py-10 text-center transition-colors",
-          dragOver ? "bg-blue-50 dark:bg-blue-950/40" : "bg-white dark:bg-slate-900",
-          busy && "opacity-60",
-        )}
-      >
-        <Upload className="size-8 text-slate-400 dark:text-slate-500" aria-hidden />
-        <div>
-          <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
-            {hasData
-              ? `${loadedFiles.length > 0 ? `${loadedFiles.length} file(s) loaded` : "Logs loaded"} — add more or replace`
-              : "Drop PM2 log file(s)"}
-          </p>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            .log / .txt — multi-file &amp; multi-day log analysis supported
-          </p>
-        </div>
+      {hasData ? (
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (!busy) setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
+          className={cn(
+            "relative flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 transition-colors",
+            dragOver ? "bg-blue-50/80 dark:bg-blue-950/40" : "bg-white dark:bg-slate-900",
+            busy && "opacity-60",
+          )}
+        >
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <Upload className="size-4 shrink-0 text-slate-400 dark:text-slate-500" aria-hidden />
+            {loadedFiles.length > 0 ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  {loadedFiles.length} file{loadedFiles.length > 1 ? "s" : ""}:
+                </span>
+                {loadedFiles.slice(0, 5).map((f) => (
+                  <span
+                    key={`${f.name}-${f.size}`}
+                    className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 font-mono-data text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                    title={`${f.name} (${formatBytes(f.size)})`}
+                  >
+                    <span className="max-w-[150px] truncate">{f.name}</span>
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                      {formatBytes(f.size)}
+                    </span>
+                  </span>
+                ))}
+                {loadedFiles.length > 5 && (
+                  <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    +{loadedFiles.length - 5} more
+                  </span>
+                )}
+              </div>
+            ) : (
+              <span className="truncate text-xs font-medium text-slate-700 dark:text-slate-300">
+                Logs loaded
+              </span>
+            )}
+          </div>
 
-        {pendingDrop && (
-          <div className="mx-auto my-1 w-full max-w-md rounded-lg border border-blue-200 bg-blue-50/90 p-3.5 text-left shadow-xs dark:border-blue-900 dark:bg-slate-800">
+          <div className="flex shrink-0 items-center gap-2">
+            {isParsing ? (
+              <div className="flex items-center gap-3">
+                {progress && (
+                  <div className="flex items-center gap-2 font-mono-data text-xs text-slate-600 dark:text-slate-300">
+                    <span className="capitalize">{progress.stage}</span>
+                    <span className="font-semibold text-blue-600 dark:text-blue-400">
+                      {progress.percent}%
+                    </span>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={handleAppendClick}
+                  className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+                >
+                  <FilePlus className="size-3.5" aria-hidden />
+                  Add / Append
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={handleReplaceClick}
+                  className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                >
+                  <RefreshCw className="size-3.5" aria-hidden />
+                  Replace
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setPasteOpen(!pasteOpen)}
+                  className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                >
+                  <ClipboardPaste className="size-3.5" aria-hidden />
+                  Paste
+                </button>
+              </>
+            )}
+          </div>
+          {isParsing && progress && (
+            <div className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-slate-100 dark:bg-slate-800">
+              <div
+                className="h-full bg-blue-600 transition-[width] duration-150"
+                style={{ width: `${progress.percent}%` }}
+              />
+            </div>
+          )}
+        </div>
+      ) : (
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (!busy) setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
+          className={cn(
+            "flex flex-col items-center justify-center gap-3 px-6 py-10 text-center transition-colors",
+            dragOver ? "bg-blue-50 dark:bg-blue-950/40" : "bg-white dark:bg-slate-900",
+            busy && "opacity-60",
+          )}
+        >
+          <Upload className="size-8 text-slate-400 dark:text-slate-500" aria-hidden />
+          <div>
+            <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+              {isParsing ? "Parsing PM2 log file(s)…" : "Drop PM2 log file(s)"}
+            </p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              .log / .txt — multi-file &amp; multi-day log analysis supported
+            </p>
+          </div>
+
+          {isParsing ? (
+            <div className="w-full max-w-md space-y-3">
+              {progress && (
+                <div>
+                  <div className="mb-1.5 flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                    <span className="capitalize">{progress.stage}</span>
+                    <span className="font-mono-data font-semibold text-blue-600 dark:text-blue-400">
+                      {progress.percent}%
+                    </span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                    <div
+                      className="h-full bg-blue-600 transition-[width] duration-150"
+                      style={{ width: `${progress.percent}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={onCancel}
+                className="rounded border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={handleReplaceClick}
+                  className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+                >
+                  Browse files
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setPasteOpen(!pasteOpen)}
+                  className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                >
+                  <ClipboardPaste className="size-3.5" aria-hidden />
+                  Paste logs
+                </button>
+              </div>
+              <p className="max-w-lg font-mono-data text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
+                Example: 2026-07-24T00:00:10: GET /api/health 200 12.5 ms - 42
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
+      {pendingDrop && (
+        <div className="border-t border-blue-200 bg-blue-50/90 p-3.5 text-left dark:border-blue-900 dark:bg-slate-800">
+          <div className="mx-auto max-w-md">
             <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
               You dropped {pendingDrop.length} file{pendingDrop.length > 1 ? "s" : ""}
             </p>
@@ -201,88 +362,18 @@ export function IngestPanel({ onFile, onFiles, onPaste, onCancel }: Props) {
               </button>
             </div>
           </div>
-        )}
-
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          {hasData && loadedFiles.length > 0 ? (
-            <>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={handleAppendClick}
-                className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-              >
-                <FilePlus className="size-3.5" aria-hidden />
-                Add / Append files
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={handleReplaceClick}
-                className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                <RefreshCw className="size-3.5" aria-hidden />
-                Replace files
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={handleReplaceClick}
-              className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-            >
-              Browse files
-            </button>
-          )}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setPasteOpen(!pasteOpen)}
-            className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-          >
-            <ClipboardPaste className="size-3.5" aria-hidden />
-            Paste logs
-          </button>
-          {isParsing && (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="rounded border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300"
-            >
-              Cancel
-            </button>
-          )}
         </div>
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          accept=".log,.txt,text/plain"
-          className="hidden"
-          data-testid="log-file-input"
-          onChange={onInputChange}
-        />
-        {isParsing && progress && (
-          <div className="w-full max-w-md">
-            <div className="mb-1 flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
-              <span className="capitalize">{progress.stage}</span>
-              <span>{progress.percent}%</span>
-            </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-              <div
-                className="h-full bg-blue-600 transition-[width] duration-150"
-                style={{ width: `${progress.percent}%` }}
-              />
-            </div>
-          </div>
-        )}
-        {!hasData && !isParsing && (
-          <p className="max-w-lg font-mono-data text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
-            Example: 2026-07-24T00:00:10: GET /api/health 200 12.5 ms - 42
-          </p>
-        )}
-      </div>
+      )}
+
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept=".log,.txt,text/plain"
+        className="hidden"
+        data-testid="log-file-input"
+        onChange={onInputChange}
+      />
 
       {pasteOpen && (
         <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">

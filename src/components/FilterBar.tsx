@@ -67,23 +67,16 @@ export function FilterBar() {
   return (
     <section className="rounded border border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-end gap-3">
-        {dates.length > 1 && (
-          <Field label="Day">
-            <select
-              data-testid="filter-date"
-              value={filters.dateFilter}
-              onChange={(e) => setFilters({ dateFilter: e.target.value })}
-              className={fieldClass}
-            >
-              <option value="all">All Days ({dates.length})</option>
-              {dates.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </Field>
-        )}
+        <Field label="Search" className="min-w-[14rem] flex-1">
+          <input
+            ref={searchRef}
+            type="search"
+            value={filters.query}
+            onChange={(e) => setFilters({ query: e.target.value })}
+            placeholder="Filter endpoints… (/)"
+            className={cn(fieldClass, "w-full")}
+          />
+        </Field>
         <Field label="Normalize">
           <select
             value={filters.normalizeMode}
@@ -155,78 +148,76 @@ export function FilterBar() {
             className={cn(fieldClass, "w-20")}
           />
         </Field>
-        <Field label="Search" className="min-w-[12rem] flex-1">
-          <input
-            ref={searchRef}
-            type="search"
-            value={filters.query}
-            onChange={(e) => setFilters({ query: e.target.value })}
-            placeholder="Filter endpoints… (/)"
-            className={cn(fieldClass, "w-full")}
-          />
-        </Field>
       </div>
 
-      {dates.length > 1 && (
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2.5 dark:border-slate-800/80">
-          <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Day Filter
-          </span>
-          <button
-            type="button"
-            onClick={() => setFilters({ dateFilter: "all" })}
-            className={cn(
-              "rounded px-2 py-0.5 text-[10px] font-medium tracking-wide ring-1 transition-colors",
-              filters.dateFilter === "all"
-                ? "bg-indigo-50 text-indigo-700 ring-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:ring-indigo-800"
-                : "bg-slate-50 text-slate-500 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-400 dark:ring-slate-700",
-            )}
-          >
-            All Days ({dates.length})
-          </button>
-          {dates.map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setFilters({ dateFilter: d })}
-              className={cn(
-                "rounded px-2 py-0.5 font-mono-data text-[10px] tracking-wide ring-1 transition-colors",
-                filters.dateFilter === d
-                  ? "bg-indigo-50 text-indigo-700 ring-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:ring-indigo-800"
-                  : "bg-slate-50 text-slate-500 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-400 dark:ring-slate-700",
-              )}
-            >
-              {d}
-            </button>
-          ))}
-        </div>
-      )}
+      {(dates.length > 1 || methods.length > 0) && (
+        <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-2.5 dark:border-slate-800/80">
+          {dates.length > 1 && (
+            <div data-testid="filter-date" className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Day
+              </span>
+              <button
+                type="button"
+                onClick={() => setFilters({ dateFilter: "all" })}
+                className={cn(
+                  "rounded px-2 py-0.5 text-[10px] font-medium tracking-wide ring-1 transition-colors",
+                  filters.dateFilter === "all"
+                    ? "bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:ring-blue-800"
+                    : "bg-slate-50 text-slate-500 ring-slate-200 hover:bg-slate-100 dark:bg-slate-800/60 dark:text-slate-400 dark:ring-slate-700 dark:hover:bg-slate-800",
+                )}
+              >
+                All Days ({dates.length})
+              </button>
+              {dates.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setFilters({ dateFilter: d })}
+                  className={cn(
+                    "rounded px-2 py-0.5 font-mono-data text-[10px] tracking-wide ring-1 transition-colors",
+                    filters.dateFilter === d
+                      ? "bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:ring-blue-800"
+                      : "bg-slate-50 text-slate-500 ring-slate-200 hover:bg-slate-100 dark:bg-slate-800/60 dark:text-slate-400 dark:ring-slate-700 dark:hover:bg-slate-800",
+                  )}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+          )}
 
-      {methods.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2.5 dark:border-slate-800/80">
-          <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Methods
-          </span>
-          <MethodChip label="All" active={allSelected} onClick={() => setMethodFilter([])} />
-          {methods.map((m) => (
-            <MethodChip
-              key={m}
-              label={m}
-              active={allSelected || selected.has(m)}
-              onClick={() => {
-                if (allSelected) setMethodFilter([m]);
-                else toggleMethod(m);
-              }}
-            />
-          ))}
-          {!allSelected && (
-            <button
-              type="button"
-              onClick={() => setMethodFilter([])}
-              className="text-[11px] text-slate-500 underline-offset-2 hover:underline dark:text-slate-400"
-            >
-              Reset
-            </button>
+          {dates.length > 1 && methods.length > 0 && (
+            <div className="hidden h-4 w-px bg-slate-200 sm:block dark:bg-slate-700" />
+          )}
+
+          {methods.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Methods
+              </span>
+              <MethodChip label="All" active={allSelected} onClick={() => setMethodFilter([])} />
+              {methods.map((m) => (
+                <MethodChip
+                  key={m}
+                  label={m}
+                  active={allSelected || selected.has(m)}
+                  onClick={() => {
+                    if (allSelected) setMethodFilter([m]);
+                    else toggleMethod(m);
+                  }}
+                />
+              ))}
+              {!allSelected && (
+                <button
+                  type="button"
+                  onClick={() => setMethodFilter([])}
+                  className="text-[11px] text-slate-500 underline-offset-2 hover:underline dark:text-slate-400"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}
