@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   ParsePerfStages,
   ReaggPerfStages,
@@ -48,22 +47,23 @@ function ensureBench(partial?: Partial<Pm2Bench>): Pm2Bench {
   return w.__PM2_BENCH__;
 }
 
-export function useParserWorker() {
-  const workerRef = useRef<Worker | null>(null);
-  const resolveRef = useRef<(() => void) | null>(null);
-  const rejectRef = useRef<((reason: Error) => void) | null>(null);
-  const skipNextReagg = useRef(false);
+const {
+  clearAnalysis,
+  setError,
+  setParsing,
+  setProgress,
+  setResult,
+  setWorkerReady,
+  showToast,
+} = useAnalysisStore.getState();
 
-  const setWorkerReady = useAnalysisStore((s) => s.setWorkerReady);
-  const setParsing = useAnalysisStore((s) => s.setParsing);
-  const setProgress = useAnalysisStore((s) => s.setProgress);
-  const setResult = useAnalysisStore((s) => s.setResult);
-  const setError = useAnalysisStore((s) => s.setError);
-  const showToast = useAnalysisStore((s) => s.showToast);
+let worker: Worker | null = null;
+let resolveFn: (() => void) | null = null;
+let rejectFn: ((reason: Error) => void) | null = null;
 
-  useEffect(() => {
-    const worker = new LogParserWorker();
-    workerRef.current = worker;
+export function getOrCreateWorker(): Worker {
+  if (!worker) {
+    worker = new LogParserWorker();
 
     worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
       const msg = e.data;
@@ -86,17 +86,17 @@ export function useParserWorker() {
             setProgress({ stage: "complete", processed: 100, total: 100, percent: 100 });
             setParsing(false);
           }
-          resolveRef.current?.();
-          resolveRef.current = null;
-          rejectRef.current = null;
+          resolveFn?.();
+          resolveFn = null;
+          rejectFn = null;
           break;
         case "ERROR":
           setError(msg.payload.message);
           setParsing(false);
           showToast(msg.payload.message);
-          rejectRef.current?.(new Error(msg.payload.message));
-          resolveRef.current = null;
-          rejectRef.current = null;
+          rejectFn?.(new Error(msg.payload.message));
+          resolveFn = null;
+          rejectFn = null;
           break;
         case "DONE":
           if (msg.payload?.workerWasmHeapMB != null) {
@@ -111,213 +111,145 @@ export function useParserWorker() {
       setError(message);
       setParsing(false);
       showToast(message);
-      rejectRef.current?.(new Error(message));
-      resolveRef.current = null;
-      rejectRef.current = null;
+      rejectFn?.(new Error(message));
+      resolveFn = null;
+      rejectFn = null;
     };
 
     setWorkerReady(true);
-    return () => {
-      worker.terminate();
-      workerRef.current = null;
-      setWorkerReady(false);
-    };
-  }, [setWorkerReady, setParsing, setProgress, setResult, setError, showToast]);
-
-  const runParse = useCallback(
-    (message: WorkerMessage): Promise<void> => {
-      return new Promise<void>((resolve, reject) => {
-        if (!workerRef.current) {
-          reject(new Error("Worker not ready"));
-          return;
-        }
-        setParsing(true);
-        setError(null);
-        setProgress({ stage: "parsing", processed: 0, total: 100, percent: 0 });
-        resolveRef.current = resolve;
-        rejectRef.current = reject;
-        workerRef.current.postMessage(message);
-      });
-    },
-    [setParsing, setError, setProgress],
-  );
-
-  const runReagg = useCallback(
-    (message: WorkerMessage): Promise<void> => {
-      return new Promise<void>((resolve, reject) => {
-        if (!workerRef.current) {
-          reject(new Error("Worker not ready"));
-          return;
-        }
-        setError(null);
-        resolveRef.current = resolve;
-        rejectRef.current = reject;
-        workerRef.current.postMessage(message);
-      });
-    },
-    [setError],
-  );
-
-  const parseFile = useCallback(
-    async (file: File) => {
-      const options = workerParseOptions(useAnalysisStore.getState().filters);
-      skipNextReagg.current = true;
-      // Create before PARSE so PERF messages can land stages.
-      ensureBench({
-        at: new Date().toISOString(),
-        source: "file",
-        fileName: file.name,
-        fileBytes: file.size,
-        crossOriginIsolated: window.crossOriginIsolated,
-        reaggTimes: [],
-        reaggStages: [],
-        parseWallMs: 0,
-        workerWasmHeapMB: 0,
-      });
-      const t0 = performance.now();
-      await runParse({ type: "PARSE_FILE", payload: { file, options } });
-      const ms = Math.round(performance.now() - t0);
-      const result = useAnalysisStore.getState().result;
-      ensureBench({
-        parseWallMs: ms,
-        matched: result?.summary.matched ?? 0,
-        unmatched: result?.summary.unmatched ?? 0,
-        apiEndpoints: result?.api.length ?? 0,
-        cronJobs: result?.cron.length ?? 0,
-        p95Ms: result?.summary.p95Ms ?? 0,
-      });
-      showToast(`Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests in ${ms}ms`);
-    },
-    [runParse, showToast],
-  );
-
-  const parseFiles = useCallback(
-    async (files: File[]) => {
-      if (files.length === 0) return;
-      if (files.length === 1) {
-        return parseFile(files[0]!);
-      }
-      const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
-      const options = workerParseOptions(useAnalysisStore.getState().filters);
-      skipNextReagg.current = true;
-      ensureBench({
-        at: new Date().toISOString(),
-        source: "files",
-        fileName: `${files.length} files`,
-        fileBytes: totalBytes,
-        crossOriginIsolated: window.crossOriginIsolated,
-        reaggTimes: [],
-        reaggStages: [],
-        parseWallMs: 0,
-        workerWasmHeapMB: 0,
-      });
-      const t0 = performance.now();
-      await runParse({ type: "PARSE_FILES", payload: { files, options } });
-      const ms = Math.round(performance.now() - t0);
-      const result = useAnalysisStore.getState().result;
-      ensureBench({
-        parseWallMs: ms,
-        matched: result?.summary.matched ?? 0,
-        unmatched: result?.summary.unmatched ?? 0,
-        apiEndpoints: result?.api.length ?? 0,
-        cronJobs: result?.cron.length ?? 0,
-        p95Ms: result?.summary.p95Ms ?? 0,
-      });
-      showToast(
-        `Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests across ${files.length} files in ${ms}ms`,
-      );
-    },
-    [parseFile, runParse, showToast],
-  );
-
-  const parseText = useCallback(
-    async (text: string) => {
-      const options = workerParseOptions(useAnalysisStore.getState().filters);
-      skipNextReagg.current = true;
-      ensureBench({
-        at: new Date().toISOString(),
-        source: "text",
-        reaggTimes: [],
-        reaggStages: [],
-        parseWallMs: 0,
-        workerWasmHeapMB: 0,
-      });
-      const t0 = performance.now();
-      await runParse({ type: "PARSE_TEXT", payload: { text, options } });
-      const ms = Math.round(performance.now() - t0);
-      const result = useAnalysisStore.getState().result;
-      ensureBench({
-        parseWallMs: ms,
-        matched: result?.summary.matched ?? 0,
-        unmatched: result?.summary.unmatched ?? 0,
-        apiEndpoints: result?.api.length ?? 0,
-        cronJobs: result?.cron.length ?? 0,
-        p95Ms: result?.summary.p95Ms ?? 0,
-      });
-      showToast(`Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests in ${ms}ms`);
-    },
-    [runParse, showToast],
-  );
-
-  const reaggregate = useCallback(async () => {
-    const options = workerParseOptions(useAnalysisStore.getState().filters);
-    const t0 = performance.now();
-    await runReagg({ type: "REAGGREGATE", payload: { options } });
-    const ms = Math.round(performance.now() - t0);
-    const b = ensureBench();
-    b.lastReaggMs = ms;
-    b.reaggTimes = [...(b.reaggTimes ?? []), ms];
-  }, [runReagg]);
-
-  const cancel = useCallback(() => {
-    workerRef.current?.postMessage({ type: "CANCEL" } satisfies WorkerMessage);
-    setParsing(false);
-  }, [setParsing]);
-
-  const clear = useCallback(() => {
-    workerRef.current?.postMessage({ type: "CLEAR" } satisfies WorkerMessage);
-    useAnalysisStore.getState().clearAnalysis();
-  }, []);
-
-  const normalizeMode = useAnalysisStore((s) => s.filters.normalizeMode);
-  const statusFamily = useAnalysisStore((s) => s.filters.statusFamily);
-  const minMs = useAnalysisStore((s) => s.filters.minMs);
-  const dateFilter = useAnalysisStore((s) => s.filters.dateFilter);
-  const cronQuery = useAnalysisStore((s) => s.filters.cronQuery);
-  const cronMinMs = useAnalysisStore((s) => s.filters.cronMinMs);
-  const cronShowFailedOnly = useAnalysisStore((s) => s.filters.cronShowFailedOnly);
-  const hasData = useAnalysisStore((s) => s.hasData);
-
-  useEffect(() => {
-    if (!hasData) return;
-    if (skipNextReagg.current) {
-      skipNextReagg.current = false;
-      return;
-    }
-    const id = setTimeout(() => {
-      void reaggregate();
-    }, 150);
-    return () => clearTimeout(id);
-  }, [
-    hasData,
-    normalizeMode,
-    statusFamily,
-    minMs,
-    dateFilter,
-    cronQuery,
-    cronMinMs,
-    cronShowFailedOnly,
-    reaggregate,
-  ]);
-
-  return { parseFile, parseFiles, parseText, reaggregate, cancel, clear };
+  }
+  return worker;
 }
 
-export function useDebouncedValue<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const id = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(id);
-  }, [value, delay]);
-  return debounced;
+export function runParse(message: WorkerMessage): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const w = getOrCreateWorker();
+    setParsing(true);
+    setError(null);
+    setProgress({ stage: "parsing", processed: 0, total: 100, percent: 0 });
+    resolveFn = resolve;
+    rejectFn = reject;
+    w.postMessage(message);
+  });
 }
+
+export function runReagg(message: WorkerMessage): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const w = getOrCreateWorker();
+    setError(null);
+    resolveFn = resolve;
+    rejectFn = reject;
+    w.postMessage(message);
+  });
+}
+
+export async function parseFile(file: File): Promise<void> {
+  const options = workerParseOptions(useAnalysisStore.getState().filters);
+  // Create before PARSE so PERF messages can land stages.
+  ensureBench({
+    at: new Date().toISOString(),
+    source: "file",
+    fileName: file.name,
+    fileBytes: file.size,
+    crossOriginIsolated: window.crossOriginIsolated,
+    reaggTimes: [],
+    reaggStages: [],
+    parseWallMs: 0,
+    workerWasmHeapMB: 0,
+  });
+  const t0 = performance.now();
+  await runParse({ type: "PARSE_FILE", payload: { file, options } });
+  const ms = Math.round(performance.now() - t0);
+  const result = useAnalysisStore.getState().result;
+  ensureBench({
+    parseWallMs: ms,
+    matched: result?.summary.matched ?? 0,
+    unmatched: result?.summary.unmatched ?? 0,
+    apiEndpoints: result?.api.length ?? 0,
+    cronJobs: result?.cron.length ?? 0,
+    p95Ms: result?.summary.p95Ms ?? 0,
+  });
+  showToast(`Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests in ${ms}ms`);
+}
+
+export async function parseFiles(files: File[]): Promise<void> {
+  if (files.length === 0) return;
+  if (files.length === 1) {
+    return parseFile(files[0]!);
+  }
+  const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
+  const options = workerParseOptions(useAnalysisStore.getState().filters);
+  ensureBench({
+    at: new Date().toISOString(),
+    source: "files",
+    fileName: `${files.length} files`,
+    fileBytes: totalBytes,
+    crossOriginIsolated: window.crossOriginIsolated,
+    reaggTimes: [],
+    reaggStages: [],
+    parseWallMs: 0,
+    workerWasmHeapMB: 0,
+  });
+  const t0 = performance.now();
+  await runParse({ type: "PARSE_FILES", payload: { files, options } });
+  const ms = Math.round(performance.now() - t0);
+  const result = useAnalysisStore.getState().result;
+  ensureBench({
+    parseWallMs: ms,
+    matched: result?.summary.matched ?? 0,
+    unmatched: result?.summary.unmatched ?? 0,
+    apiEndpoints: result?.api.length ?? 0,
+    cronJobs: result?.cron.length ?? 0,
+    p95Ms: result?.summary.p95Ms ?? 0,
+  });
+  showToast(
+    `Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests across ${files.length} files in ${ms}ms`,
+  );
+}
+
+export async function parseText(text: string): Promise<void> {
+  const options = workerParseOptions(useAnalysisStore.getState().filters);
+  ensureBench({
+    at: new Date().toISOString(),
+    source: "text",
+    reaggTimes: [],
+    reaggStages: [],
+    parseWallMs: 0,
+    workerWasmHeapMB: 0,
+  });
+  const t0 = performance.now();
+  await runParse({ type: "PARSE_TEXT", payload: { text, options } });
+  const ms = Math.round(performance.now() - t0);
+  const result = useAnalysisStore.getState().result;
+  ensureBench({
+    parseWallMs: ms,
+    matched: result?.summary.matched ?? 0,
+    unmatched: result?.summary.unmatched ?? 0,
+    apiEndpoints: result?.api.length ?? 0,
+    cronJobs: result?.cron.length ?? 0,
+    p95Ms: result?.summary.p95Ms ?? 0,
+  });
+  showToast(`Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests in ${ms}ms`);
+}
+
+export async function reaggregate(): Promise<void> {
+  const options = workerParseOptions(useAnalysisStore.getState().filters);
+  const t0 = performance.now();
+  await runReagg({ type: "REAGGREGATE", payload: { options } });
+  const ms = Math.round(performance.now() - t0);
+  const b = ensureBench();
+  b.lastReaggMs = ms;
+  b.reaggTimes = [...(b.reaggTimes ?? []), ms];
+}
+
+export function cancel(): void {
+  worker?.postMessage({ type: "CANCEL" } satisfies WorkerMessage);
+  setParsing(false);
+}
+
+export function clear(): void {
+  worker?.postMessage({ type: "CLEAR" } satisfies WorkerMessage);
+  clearAnalysis();
+}
+
+getOrCreateWorker();

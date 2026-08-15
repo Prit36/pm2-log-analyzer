@@ -1,16 +1,20 @@
+import { useShallow } from "zustand/react/shallow";
 import { useAnalysisStore } from "../store/analysisStore";
 import { formatMs, formatNum } from "../utils/format";
 
 export function KpiRow() {
-  const summary = useAnalysisStore((s) => s.result?.summary);
-  const cronJobs = useAnalysisStore((s) => s.result?.cronSummary.jobs ?? 0);
-  const hasCronEvents = useAnalysisStore((s) => {
-    const c = s.result?.cronSummary;
-    return !!c && c.starts + c.dones + c.fails > 0;
-  });
-  const hasData = useAnalysisStore((s) => s.hasData);
+  const { summary, cronJobs, hasCronEvents } = useAnalysisStore(
+    useShallow((s) => {
+      const c = s.result?.cronSummary;
+      return {
+        summary: s.result?.summary,
+        cronJobs: c?.jobs ?? 0,
+        hasCronEvents: !!c && c.starts + c.dones + c.fails > 0,
+      };
+    }),
+  );
 
-  if (!hasData || !summary) return null;
+  if (!summary) return null;
 
   const items: { label: string; value: string; accent?: boolean; danger?: boolean }[] = [
     { label: "Requests", value: formatNum(summary.matched) },

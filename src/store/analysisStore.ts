@@ -5,6 +5,7 @@ import type {
   AggregatedResult,
   CronAggregated,
   DaySummary,
+  HourlyBucket,
   NormalizeMode,
   ParseOptions,
   StatusFamily,
@@ -18,6 +19,7 @@ export const EMPTY_METHODS: string[] = [];
 export const EMPTY_SAMPLES: string[] = [];
 export const EMPTY_DATES: string[] = [];
 export const EMPTY_DAILY: DaySummary[] = [];
+export const EMPTY_HOURLY: HourlyBucket[] = [];
 export const EMPTY_FILE_NAMES: string[] = [];
 
 export type SortDirection = "asc" | "desc";
@@ -117,6 +119,8 @@ type AnalysisState = {
   clearAnalysis: () => void;
 };
 
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
 export const useAnalysisStore = create<AnalysisState>()(
   persist(
     (set, get) => ({
@@ -136,8 +140,15 @@ export const useAnalysisStore = create<AnalysisState>()(
       toast: null,
       pasteOpen: false,
 
-      toggleTheme: () => set({ theme: get().theme === "light" ? "dark" : "light" }),
-      setTheme: (theme) => set({ theme }),
+      toggleTheme: () => {
+        const next = get().theme === "light" ? "dark" : "light";
+        document.documentElement.classList.toggle("dark", next === "dark");
+        set({ theme: next });
+      },
+      setTheme: (theme) => {
+        document.documentElement.classList.toggle("dark", theme === "dark");
+        set({ theme });
+      },
       setWorkerReady: (ready) => set({ isWorkerReady: ready }),
       setParsing: (parsing) => set({ isParsing: parsing }),
       setProgress: (progress) => set({ progress }),
@@ -260,8 +271,17 @@ export const useAnalysisStore = create<AnalysisState>()(
           : [...methods, method];
         set({ filters: { ...get().filters, methods: next } });
       },
-      showToast: (message) => set({ toast: message }),
-      clearToast: () => set({ toast: null }),
+      showToast: (message) => {
+        if (toastTimer) clearTimeout(toastTimer);
+        set({ toast: message });
+        toastTimer = setTimeout(() => {
+          set({ toast: null });
+        }, 3200);
+      },
+      clearToast: () => {
+        if (toastTimer) clearTimeout(toastTimer);
+        set({ toast: null });
+      },
       setPasteOpen: (open) => set({ pasteOpen: open }),
       clearAnalysis: () =>
         set({

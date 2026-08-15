@@ -161,9 +161,9 @@ Boris Cherny (creator of Claude Code) keeps his team's file around 100 lines. Un
 - Build: `<package-manager> run build`
 - Test (all): `TODO` (no test script in package.json)
 - Test (single file): `TODO`
-- Lint: `<package-manager> run lint` (`oxlint`); fix: `<package-manager> run lint:fix`
+- Lint: `<package-manager> run lint` (`oxlint && tsc --noEmit`); fix: `<package-manager> run lint:fix`
 - Format: `<package-manager> run fmt` (`oxfmt`); check: `<package-manager> run fmt:check`
-- Typecheck: `TODO` (TypeScript present; no dedicated script in package.json)
+- Typecheck: `<package-manager> run typecheck` (`tsc --noEmit`)
 - Run locally: `<package-manager> run dev`
 - Preview build: `<package-manager> run preview`
 
@@ -175,13 +175,20 @@ Prefer single-file or single-test runs during iteration. Full suites are for the
 - Do not modify: `node_modules/`, `dist/` (generated build output)
 
 ### Conventions specific to this repo
-- Naming: PascalCase React components (`FileDrop.tsx`); camelCase utils/hooks (`pm2LogParser.ts`, `useLogParserWorker.ts`)
+- Naming: PascalCase React components (`FileDrop.tsx`); camelCase utils/hooks (`pm2LogParser.ts`, `useParserWorker.ts`)
 - Import style: relative imports (`../utils/...`); `import type` for type-only imports (`verbatimModuleSyntax`); `@` path alias exists in `vite.config.ts` but is unused in source today
-- Error handling pattern: `TODO`
-- Testing pattern and framework: `TODO` (none configured)
+- React & Zustand code pattern:
+  - **Module-level action extraction**: Do NOT export individual action functions from store definitions. In consumers, extract actions at module scope: `const { action1, action2 } = useAnalysisStore.getState();` instead of inline selector hooks or repetitive inline `getState()` calls.
+  - **Standalone functions outside React**: Define business logic, parser operations (`parseFile`, `parseFiles`, `parseText`, `reaggregate`, `cancel`, `clear`), data exports (`exportSpreadsheetData`), copy helpers (`copyApiPath`, `copyCronTsv`), and sorting handlers outside React components as pure standalone exports.
+  - **Zero `useEffect` for state sync or workers**: Initialize singletons (workers) at module load. Execute DOM effects (e.g. theme toggle `document.documentElement.classList.toggle`) directly inside store actions. Trigger operational effects (`reaggregate()`) directly in event handlers without intermediate timeouts, `scheduleReaggregate` wrappers, or store `subscribe` loops.
+  - **Grouped `useShallow` selectors**: When a component needs multiple reactive state properties, use a single `useAnalysisStore(useShallow((s) => ({ ... })))` to avoid fragmented multi-hook subscriptions and spurious re-renders.
+  - **On-demand snapshot reads**: If a state value is only needed inside a click handler (e.g., current sort direction or table rows during copy), read it on demand via `useAnalysisStore.getState().prop` rather than subscribing the component to it.
+- Anti-slop: Do NOT use `typeof window !== "undefined"` or `typeof document !== "undefined"` in client-only code; access them directly. Do NOT create custom listener registration abstractions (`onWorkerFilterChange`) when direct function calls suffice.
 
 ### Forbidden
-- `TODO`: things that look reasonable but will break this project.
+- No `useEffect` for worker lifecycles, timer debounce loops, or theme toggling.
+- No exporting action functions individually from store files.
+- No synthetic event bus / listener registration abstractions where direct calls work.
 
 ---
 
@@ -191,6 +198,9 @@ Prefer single-file or single-test runs during iteration. Full suites are for the
 
 When the user corrects your approach, append a one-line rule here before ending the session. Write it concretely ("Always use X for Y"), never abstractly ("be careful with Y"). If an existing line already covers the correction, tighten it instead of adding a new one. Remove lines when the underlying issue goes away (model upgrades, refactors, process changes).
 
+- React/Zustand architecture (2026-08-15): extract store actions at module scope (`const { ... } = useStore.getState()`), keep operations (`parseFile`, `reaggregate`, `exportSpreadsheetData`, copy/sort handlers) as pure standalone exports outside React, and avoid wrapping direct calls in `useEffect`, custom observer callbacks (`onWorkerFilterChange`), or artificial timeout debounce wrappers.
+- Direct DOM & action side-effects (2026-08-15): toggle DOM classes (e.g. `.dark`) directly in store actions (`toggleTheme`, `setTheme`) and trigger consequence actions (`reaggregate()`) directly in caller event handlers without `useStore.subscribe` loops.
+- Multi-prop selectors (2026-08-15): group component reactive state with `useShallow((s) => ({ ... }))`; read event-only values on demand via `useStore.getState().prop`.
 - Rust/Wasm persistent shards (2026-07-25): ship when ingest writes into an 8 MiB reusable Wasm window (`ingest_ptr` + `feed`), columns stay in-shard, summary is built once at `end_shard`, and reagg uses dense slots + HashMap RelHist. Full-shard TypedArray→Rust copies + dual JS/Wasm residency fail parse/RSS gates.
 - Rust/Wasm opt pass (2026-07-25): keep required `wasm-opt -O3` + `memchr` empty-carry newline scan; revert RelHist-in-`accept_line` and hash→arena path intern (those regress). Prefer a quiet manual `npm run wasm:build` + bench session for gates — agent back-to-back Chromium runs can read ~100–150ms slower than a fresh user shell (session 31 manual: ~1.33s / 97ms vs agent ~1.48s).
 - Rust deps (2026-07-25): use `hashbrown` 0.17 (default foldhash) instead of `ahash` on Wasm (no AES-NI); pin `wasm-bindgen`/`wasm-bindgen-cli` to the same version (0.2.126); `memchr` 2.8. On Windows prefer the GitHub release tarball for the CLI if `cargo install` fails on `dlltool.exe`.

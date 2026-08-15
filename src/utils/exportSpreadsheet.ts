@@ -5,7 +5,7 @@ import type {
   HourlyBucket,
   LogSummary,
 } from "../parser";
-import type { ApiSortKey, CronSortKey } from "../store/analysisStore";
+import { useAnalysisStore, type ApiSortKey, type CronSortKey } from "../store/analysisStore";
 import { formatMs, formatNum } from "./format";
 import { generateAllChartImages } from "./chartRenderer";
 import type ExcelJS from "exceljs";
@@ -559,4 +559,39 @@ export async function downloadExcel(
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+export async function exportSpreadsheetData(
+  explicitApiRows?: AggregatedEndpoint[],
+  explicitCronRows?: CronAggregated[],
+) {
+  const state = useAnalysisStore.getState();
+  const api = explicitApiRows ?? state.result?.api ?? [];
+  const cron = explicitCronRows ?? state.result?.cron ?? [];
+  if (api.length === 0 && cron.length === 0) {
+    state.showToast("Nothing to export yet");
+    return;
+  }
+  const { sortKey: apiSortKey, cronSortKey, dateFilter } = state.filters;
+  const summary = state.result?.summary;
+  const hourlyStats = state.result?.hourlyStats;
+  const dailyStats = state.result?.dailyStats;
+  try {
+    await downloadExcel(
+      api,
+      cron,
+      { api: apiSortKey, cron: cronSortKey },
+      hourlyStats,
+      summary,
+      dailyStats,
+      dateFilter,
+    );
+    state.showToast(
+      cron.length > 0
+        ? "Excel downloaded — Visual Analytics + Data sheets"
+        : "Excel downloaded — Visual Analytics + API sheets",
+    );
+  } catch {
+    state.showToast("Excel export failed");
+  }
 }

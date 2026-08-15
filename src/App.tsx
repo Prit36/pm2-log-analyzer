@@ -1,5 +1,3 @@
-import { useEffect } from "react";
-import { useParserWorker } from "./hooks/useParserWorker";
 import { useAnalysisStore } from "./store/analysisStore";
 import { AppHeader } from "./components/AppHeader";
 import { IngestPanel } from "./components/IngestPanel";
@@ -10,64 +8,20 @@ import { LatencyChart } from "./components/LatencyChart";
 import { CronTable, useFilteredCronRows } from "./components/CronTable";
 import { SkippedDisclosure } from "./components/SkippedDisclosure";
 import { Toast } from "./components/Toast";
-import { downloadExcel } from "./utils/exportSpreadsheet";
 
 export function App() {
-  const theme = useAnalysisStore((s) => s.theme);
-  const { parseFile, parseFiles, parseText, cancel, clear } = useParserWorker();
-  const showToast = useAnalysisStore((s) => s.showToast);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-  }, [theme]);
-  const apiRows = useFilteredApiRows();
-  const cronRows = useFilteredCronRows();
-  const apiSortKey = useAnalysisStore((s) => s.filters.sortKey);
-  const cronSortKey = useAnalysisStore((s) => s.filters.cronSortKey);
-  const dateFilter = useAnalysisStore((s) => s.filters.dateFilter);
-  const hourlyStats = useAnalysisStore((s) => s.result?.hourlyStats);
-  const dailyStats = useAnalysisStore((s) => s.result?.dailyStats);
-  const summary = useAnalysisStore((s) => s.result?.summary);
   const hasCron = useAnalysisStore((s) => {
     const c = s.result?.cronSummary;
     return !!c && c.starts + c.dones + c.fails > 0;
   });
-
-  const onExport = async () => {
-    if (apiRows.length === 0 && cronRows.length === 0) {
-      showToast("Nothing to export yet");
-      return;
-    }
-    try {
-      await downloadExcel(
-        apiRows,
-        cronRows,
-        { api: apiSortKey, cron: cronSortKey },
-        hourlyStats,
-        summary,
-        dailyStats,
-        dateFilter,
-      );
-      showToast(
-        cronRows.length > 0
-          ? "Excel downloaded — Visual Analytics + Data sheets"
-          : "Excel downloaded — Visual Analytics + API sheets",
-      );
-    } catch {
-      showToast("Excel export failed");
-    }
-  };
+  const apiRows = useFilteredApiRows();
+  const cronRows = useFilteredCronRows();
 
   return (
     <div className="min-h-full">
-      <AppHeader onExport={onExport} onClear={clear} />
+      <AppHeader />
       <main className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4">
-        <IngestPanel
-          onFile={(file) => void parseFile(file)}
-          onFiles={(files) => void parseFiles(files)}
-          onPaste={(text) => void parseText(text)}
-          onCancel={cancel}
-        />
+        <IngestPanel />
         <KpiRow />
         <FilterBar />
         <div className="grid gap-4 lg:grid-cols-5">
@@ -75,7 +29,7 @@ export function App() {
             <ApiTable rows={apiRows} />
           </div>
           <div className="lg:col-span-2">
-            <LatencyChart rows={apiRows} hourlyStats={hourlyStats} dailyStats={dailyStats} />
+            <LatencyChart rows={apiRows} />
           </div>
         </div>
         {hasCron && <CronTable rows={cronRows} />}

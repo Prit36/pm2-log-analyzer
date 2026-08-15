@@ -1,10 +1,12 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   EMPTY_DATES,
   EMPTY_METHODS,
   useAnalysisStore,
   type ApiSortKey,
 } from "../store/analysisStore";
+import { reaggregate } from "../hooks/useParserWorker";
 import type { NormalizeMode, StatusFamily } from "../parser";
 import { cn } from "../utils/cn";
 
@@ -33,45 +35,62 @@ function isApiSortKey(value: string): value is ApiSortKey {
   );
 }
 
-export function FilterBar() {
-  const searchRef = useRef<HTMLInputElement>(null);
-  const filters = useAnalysisStore((s) => s.filters);
-  const setFilters = useAnalysisStore((s) => s.setFilters);
-  const toggleMethod = useAnalysisStore((s) => s.toggleMethod);
-  const setMethodFilter = useAnalysisStore((s) => s.setMethodFilter);
-  const methods = useAnalysisStore((s) => s.result?.methods ?? EMPTY_METHODS);
-  const dates = useAnalysisStore((s) => s.result?.dates ?? EMPTY_DATES);
-  const hasData = useAnalysisStore((s) => s.hasData);
+const { setFilters, setMethodFilter, toggleMethod } = useAnalysisStore.getState();
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
-      const t = e.target;
-      if (
-        t instanceof HTMLElement &&
-        (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)
-      )
-        return;
-      e.preventDefault();
-      searchRef.current?.focus();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+window.addEventListener("keydown", (e: KeyboardEvent) => {
+  if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target;
+  if (
+    t instanceof HTMLElement &&
+    (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)
+  )
+    return;
+  const input = document.querySelector<HTMLInputElement>("input[data-filter-search]");
+  if (input) {
+    e.preventDefault();
+    input.focus();
+  }
+});
+
+export function FilterBar() {
+  const {
+    query,
+    normalizeMode,
+    statusFamily,
+    minMs,
+    sortKey,
+    topN,
+    dateFilter,
+    allSelected,
+    methods,
+    dates,
+    hasData,
+  } = useAnalysisStore(
+    useShallow((s) => ({
+      query: s.filters.query,
+      normalizeMode: s.filters.normalizeMode,
+      statusFamily: s.filters.statusFamily,
+      minMs: s.filters.minMs,
+      sortKey: s.filters.sortKey,
+      topN: s.filters.topN,
+      dateFilter: s.filters.dateFilter,
+      allSelected: s.filters.methods.length === 0,
+      methods: s.result?.methods ?? EMPTY_METHODS,
+      dates: s.result?.dates ?? EMPTY_DATES,
+      hasData: s.hasData,
+    })),
+  );
 
   if (!hasData) return null;
-
-  const selected = new Set(filters.methods);
-  const allSelected = filters.methods.length === 0;
 
   return (
     <section className="rounded border border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Search" className="min-w-[14rem] flex-1">
           <input
-            ref={searchRef}
+            data-filter-search
             type="search"
-            value={filters.query}
+            value={query}
             onChange={(e) => setFilters({ query: e.target.value })}
             placeholder="Filter endpoints… (/)"
             className={cn(fieldClass, "w-full")}
@@ -79,10 +98,13 @@ export function FilterBar() {
         </Field>
         <Field label="Normalize">
           <select
-            value={filters.normalizeMode}
+            value={normalizeMode}
             onChange={(e) => {
               const value = e.target.value;
-              if (isNormalizeMode(value)) setFilters({ normalizeMode: value });
+              if (isNormalizeMode(value)) {
+                setFilters({ normalizeMode: value });
+                void reaggregate();
+              }
             }}
             className={fieldClass}
           >
@@ -94,10 +116,13 @@ export function FilterBar() {
         <Field label="Status">
           <select
             data-testid="filter-status"
-            value={filters.statusFamily}
+            value={statusFamily}
             onChange={(e) => {
               const value = e.target.value;
-              if (isStatusFamily(value)) setFilters({ statusFamily: value });
+              if (isStatusFamily(value)) {
+                setFilters({ statusFamily: value });
+                void reaggregate();
+              }
             }}
             className={fieldClass}
           >
@@ -113,14 +138,17 @@ export function FilterBar() {
             data-testid="filter-min-ms"
             type="number"
             min={0}
-            value={filters.minMs}
-            onChange={(e) => setFilters({ minMs: Math.max(0, Number(e.target.value) || 0) })}
+            value={minMs}
+            onChange={(e) => {
+              setFilters({ minMs: Math.max(0, Number(e.target.value) || 0) });
+              void reaggregate();
+            }}
             className={cn(fieldClass, "w-20")}
           />
         </Field>
         <Field label="Sort">
           <select
-            value={filters.sortKey}
+            value={sortKey}
             onChange={(e) => {
               const value = e.target.value;
               if (isApiSortKey(value)) setFilters({ sortKey: value });
@@ -141,7 +169,7 @@ export function FilterBar() {
             type="number"
             min={1}
             max={500}
-            value={filters.topN}
+            value={topN}
             onChange={(e) =>
               setFilters({ topN: Math.min(500, Math.max(1, Number(e.target.value) || 1)) })
             }
@@ -159,10 +187,13 @@ export function FilterBar() {
               </span>
               <button
                 type="button"
-                onClick={() => setFilters({ dateFilter: "all" })}
+                onClick={() => {
+                  setFilters({ dateFilter: "all" });
+                  void reaggregate();
+                }}
                 className={cn(
                   "rounded px-2 py-0.5 text-[10px] font-medium tracking-wide ring-1 transition-colors",
-                  filters.dateFilter === "all"
+                  dateFilter === "all"
                     ? "bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:ring-blue-800"
                     : "bg-slate-50 text-slate-500 ring-slate-200 hover:bg-slate-100 dark:bg-slate-800/60 dark:text-slate-400 dark:ring-slate-700 dark:hover:bg-slate-800",
                 )}
@@ -173,10 +204,13 @@ export function FilterBar() {
                 <button
                   key={d}
                   type="button"
-                  onClick={() => setFilters({ dateFilter: d })}
+                  onClick={() => {
+                    setFilters({ dateFilter: d });
+                    void reaggregate();
+                  }}
                   className={cn(
                     "rounded px-2 py-0.5 font-mono-data text-[10px] tracking-wide ring-1 transition-colors",
-                    filters.dateFilter === d
+                    dateFilter === d
                       ? "bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:ring-blue-800"
                       : "bg-slate-50 text-slate-500 ring-slate-200 hover:bg-slate-100 dark:bg-slate-800/60 dark:text-slate-400 dark:ring-slate-700 dark:hover:bg-slate-800",
                   )}
@@ -196,17 +230,9 @@ export function FilterBar() {
               <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Methods
               </span>
-              <MethodChip label="All" active={allSelected} onClick={() => setMethodFilter([])} />
+              <MethodChip label="All" allSelected={allSelected} />
               {methods.map((m) => (
-                <MethodChip
-                  key={m}
-                  label={m}
-                  active={allSelected || selected.has(m)}
-                  onClick={() => {
-                    if (allSelected) setMethodFilter([m]);
-                    else toggleMethod(m);
-                  }}
-                />
+                <MethodChip key={m} method={m} label={m} allSelected={allSelected} />
               ))}
               {!allSelected && (
                 <button
@@ -245,18 +271,31 @@ function Field({
 }
 
 function MethodChip({
+  method,
   label,
-  active,
-  onClick,
+  allSelected,
 }: {
+  method?: string;
   label: string;
-  active: boolean;
-  onClick: () => void;
+  allSelected: boolean;
 }) {
+  const isSelected = useAnalysisStore((s) => (method ? s.filters.methods.includes(method) : false));
+  const active = allSelected || isSelected;
+
+  const handleClick = () => {
+    if (!method) {
+      setMethodFilter([]);
+    } else if (allSelected) {
+      setMethodFilter([method]);
+    } else {
+      toggleMethod(method);
+    }
+  };
+
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={handleClick}
       className={cn(
         "rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 transition-colors",
         active

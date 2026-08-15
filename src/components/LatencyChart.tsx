@@ -13,27 +13,28 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { AggregatedEndpoint, DaySummary, HourlyBucket } from "../parser";
+import { useShallow } from "zustand/react/shallow";
+import type { AggregatedEndpoint } from "../parser";
 import { formatMs, formatNum } from "../utils/format";
 import { Activity, BarChart3, CalendarDays, Clock, Flame } from "lucide-react";
-
-import { useAnalysisStore } from "../store/analysisStore";
+import {
+  EMPTY_DAILY,
+  EMPTY_HOURLY,
+  useAnalysisStore,
+} from "../store/analysisStore";
 
 type ChartMode = "dailyTrend" | "timeOfDay" | "throughput" | "distribution" | "topP95";
 
-export function LatencyChart({
-  rows,
-  hourlyStats = [],
-  dailyStats = [],
-}: {
-  rows: AggregatedEndpoint[];
-  hourlyStats?: HourlyBucket[] | undefined;
-  dailyStats?: DaySummary[] | undefined;
-}) {
+export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
+  const { hourlyStats, dailyStats, isDark, dateFilter } = useAnalysisStore(
+    useShallow((s) => ({
+      hourlyStats: s.result?.hourlyStats ?? EMPTY_HOURLY,
+      dailyStats: s.result?.dailyStats ?? EMPTY_DAILY,
+      isDark: s.theme === "dark",
+      dateFilter: s.filters.dateFilter,
+    })),
+  );
   const [mode, setMode] = useState<ChartMode>(dailyStats.length > 1 ? "dailyTrend" : "timeOfDay");
-  const theme = useAnalysisStore((s) => s.theme);
-  const dateFilter = useAnalysisStore((s) => s.filters.dateFilter);
-  const isDark = theme === "dark";
 
   const gridStroke = isDark ? "#1e293b" : "#f1f5f9";
   const tickColor = isDark ? "#94a3b8" : "#64748b";

@@ -1,12 +1,16 @@
+import { useShallow } from "zustand/react/shallow";
 import { EMPTY_SAMPLES, useAnalysisStore } from "../store/analysisStore";
 import { formatNum } from "../utils/format";
 
 export function SkippedDisclosure() {
-  const unmatchedCount = useAnalysisStore((s) => s.result?.unmatchedCount ?? 0);
-  const sample = useAnalysisStore((s) => s.result?.unmatchedSample ?? EMPTY_SAMPLES);
-  const hasData = useAnalysisStore((s) => s.hasData);
+  const { unmatchedCount, sample } = useAnalysisStore(
+    useShallow((s) => ({
+      unmatchedCount: s.hasData ? s.result?.unmatchedCount ?? 0 : 0,
+      sample: s.result?.unmatchedSample ?? EMPTY_SAMPLES,
+    })),
+  );
 
-  if (!hasData || unmatchedCount === 0) return null;
+  if (unmatchedCount === 0) return null;
 
   return (
     <details className="rounded border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">

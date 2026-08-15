@@ -1,8 +1,10 @@
 import { useMemo } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Copy } from "lucide-react";
 import { List, type RowComponentProps } from "react-window";
+import { useShallow } from "zustand/react/shallow";
 import type { CronAggregated } from "../parser";
 import { EMPTY_CRON, useAnalysisStore, type CronSortKey } from "../store/analysisStore";
+import { reaggregate } from "../hooks/useParserWorker";
 import { formatMs, formatNum } from "../utils/format";
 import { buildCronTsv } from "../utils/exportSpreadsheet";
 import { cn } from "../utils/cn";
@@ -13,20 +15,18 @@ const fieldClass =
 type CronRowProps = { rows: CronAggregated[] };
 
 function CronRow({ index, style, rows }: RowComponentProps<CronRowProps>) {
-  const row = rows[index]!;
-  const isEven = index % 2 === 0;
+  const row = rows[index];
+  if (!row) return null;
+
   return (
     <div
       style={style}
       className={cn(
-        "grid grid-cols-[minmax(0,1.2fr)_56px_56px_56px_64px_64px_64px_64px_64px] items-center gap-1 border-b border-slate-100 px-3 text-xs transition-colors dark:border-slate-800/60 hover:dark:bg-blue-950/30",
-        isEven ? "bg-white dark:bg-slate-900" : "bg-slate-50/80 dark:bg-[rgb(11,18,37)]",
+        "grid grid-cols-[minmax(0,1.2fr)_56px_56px_56px_64px_64px_64px_64px_64px] items-center gap-1 border-b border-slate-100 px-3 text-xs dark:border-slate-800",
+        index % 2 === 0 ? "bg-white dark:bg-slate-900" : "bg-slate-50/50 dark:bg-slate-950/40",
       )}
     >
-      <div
-        className="truncate font-mono-data text-[11px] text-slate-800 dark:text-slate-200"
-        title={row.name}
-      >
+      <div className="truncate font-mono-data text-[11px] text-slate-800 dark:text-slate-200">
         {row.name}
       </div>
       <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">
@@ -39,7 +39,7 @@ function CronRow({ index, style, rows }: RowComponentProps<CronRowProps>) {
         className={cn(
           "text-right tabular-nums",
           row.fails > 0
-            ? "font-bold text-rose-600 dark:text-rose-500"
+            ? "font-semibold text-rose-600 dark:text-rose-400"
             : "text-slate-400 dark:text-slate-600",
         )}
       >
@@ -48,13 +48,13 @@ function CronRow({ index, style, rows }: RowComponentProps<CronRowProps>) {
       <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">
         {formatMs(row.avgMs)}
       </div>
-      <div className="text-right font-bold tabular-nums text-blue-600 dark:text-blue-400">
+      <div className="text-right tabular-nums font-semibold text-blue-600 dark:text-blue-400">
         {formatMs(row.p95Ms)}
       </div>
       <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">
         {formatMs(row.p99Ms)}
       </div>
-      <div className="text-right font-bold tabular-nums text-amber-700 dark:text-amber-400">
+      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">
         {formatMs(row.maxMs)}
       </div>
       <div className="text-right tabular-nums text-slate-400 dark:text-slate-500">
@@ -79,9 +79,13 @@ function isCronSortKey(value: string): value is CronSortKey {
 }
 
 export function useFilteredCronRows(): CronAggregated[] {
-  const cron = useAnalysisStore((s) => s.result?.cron ?? EMPTY_CRON);
-  const sortKey = useAnalysisStore((s) => s.filters.cronSortKey);
-  const sortDir = useAnalysisStore((s) => s.filters.cronSortDir);
+  const { cron, sortKey, sortDir } = useAnalysisStore(
+    useShallow((s) => ({
+      cron: s.result?.cron ?? EMPTY_CRON,
+      sortKey: s.filters.cronSortKey,
+      sortDir: s.filters.cronSortDir,
+    })),
+  );
   return useMemo(() => {
     return [...cron].sort((a, b) => {
       let cmp = 0;
@@ -143,29 +147,39 @@ function CronSortHeader({
   );
 }
 
+const { setFilters, showToast } = useAnalysisStore.getState();
+
+function handleCronSort(key: CronSortKey) {
+  const { cronSortKey: currentKey, cronSortDir: currentDir } =
+    useAnalysisStore.getState().filters;
+  if (currentKey === key) {
+    setFilters({ cronSortDir: currentDir === "asc" ? "desc" : "asc" });
+  } else {
+    setFilters({
+      cronSortKey: key,
+      cronSortDir: key === "name" ? "asc" : "desc",
+    });
+  }
+}
+
+async function copyCronTsv(rows: CronAggregated[]) {
+  if (rows.length === 0) return;
+  await navigator.clipboard.writeText(buildCronTsv(rows));
+  showToast("Cron table copied — paste into Excel");
+}
+
 export function CronTable({ rows }: { rows: CronAggregated[] }) {
-  const filters = useAnalysisStore((s) => s.filters);
-  const setFilters = useAnalysisStore((s) => s.setFilters);
-  const showToast = useAnalysisStore((s) => s.showToast);
+  const { cronQuery, cronMinMs, cronShowFailedOnly, cronSortKey, cronSortDir } = useAnalysisStore(
+    useShallow((s) => ({
+      cronQuery: s.filters.cronQuery,
+      cronMinMs: s.filters.cronMinMs,
+      cronShowFailedOnly: s.filters.cronShowFailedOnly,
+      cronSortKey: s.filters.cronSortKey,
+      cronSortDir: s.filters.cronSortDir,
+    })),
+  );
 
   const height = Math.min(360, Math.max(120, rows.length * 32 + 36));
-
-  const handleSort = (key: CronSortKey) => {
-    if (filters.cronSortKey === key) {
-      setFilters({ cronSortDir: filters.cronSortDir === "asc" ? "desc" : "asc" });
-    } else {
-      setFilters({
-        cronSortKey: key,
-        cronSortDir: key === "name" ? "asc" : "desc",
-      });
-    }
-  };
-
-  const copyTsv = async () => {
-    if (rows.length === 0) return;
-    await navigator.clipboard.writeText(buildCronTsv(rows));
-    showToast("Cron table copied — paste into Excel");
-  };
 
   return (
     <section className="overflow-hidden rounded border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
@@ -176,16 +190,22 @@ export function CronTable({ rows }: { rows: CronAggregated[] }) {
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="search"
-            value={filters.cronQuery}
-            onChange={(e) => setFilters({ cronQuery: e.target.value })}
+            value={cronQuery}
+            onChange={(e) => {
+              setFilters({ cronQuery: e.target.value });
+              void reaggregate();
+            }}
             placeholder="Filter jobs…"
             className={cn(fieldClass, "w-40")}
           />
           <input
             type="number"
             min={0}
-            value={filters.cronMinMs}
-            onChange={(e) => setFilters({ cronMinMs: Math.max(0, Number(e.target.value) || 0) })}
+            value={cronMinMs}
+            onChange={(e) => {
+              setFilters({ cronMinMs: Math.max(0, Number(e.target.value) || 0) });
+              void reaggregate();
+            }}
             title="Min duration ms"
             className={cn(fieldClass, "w-20")}
             placeholder="Min ms"
@@ -193,13 +213,16 @@ export function CronTable({ rows }: { rows: CronAggregated[] }) {
           <label className="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-400">
             <input
               type="checkbox"
-              checked={filters.cronShowFailedOnly}
-              onChange={(e) => setFilters({ cronShowFailedOnly: e.target.checked })}
+              checked={cronShowFailedOnly}
+              onChange={(e) => {
+                setFilters({ cronShowFailedOnly: e.target.checked });
+                void reaggregate();
+              }}
             />
             Failures only
           </label>
           <select
-            value={filters.cronSortKey}
+            value={cronSortKey}
             onChange={(e) => {
               const value = e.target.value;
               if (isCronSortKey(value)) setFilters({ cronSortKey: value });
@@ -218,7 +241,7 @@ export function CronTable({ rows }: { rows: CronAggregated[] }) {
           </select>
           <button
             type="button"
-            onClick={() => void copyTsv()}
+            onClick={() => void copyCronTsv(rows)}
             disabled={rows.length === 0}
             className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-800 disabled:opacity-40 dark:text-slate-400 dark:hover:text-slate-200"
           >
@@ -237,66 +260,66 @@ export function CronTable({ rows }: { rows: CronAggregated[] }) {
             <CronSortHeader
               label="Job"
               colKey="name"
-              currentKey={filters.cronSortKey}
-              currentDir={filters.cronSortDir}
-              onSort={handleSort}
+              currentKey={cronSortKey}
+              currentDir={cronSortDir}
+              onSort={handleCronSort}
               align="left"
             />
             <CronSortHeader
               label="Runs"
               colKey="runs"
-              currentKey={filters.cronSortKey}
-              currentDir={filters.cronSortDir}
-              onSort={handleSort}
+              currentKey={cronSortKey}
+              currentDir={cronSortDir}
+              onSort={handleCronSort}
             />
             <CronSortHeader
               label="Starts"
               colKey="starts"
-              currentKey={filters.cronSortKey}
-              currentDir={filters.cronSortDir}
-              onSort={handleSort}
+              currentKey={cronSortKey}
+              currentDir={cronSortDir}
+              onSort={handleCronSort}
             />
             <CronSortHeader
               label="Fails"
               colKey="fails"
-              currentKey={filters.cronSortKey}
-              currentDir={filters.cronSortDir}
-              onSort={handleSort}
+              currentKey={cronSortKey}
+              currentDir={cronSortDir}
+              onSort={handleCronSort}
             />
             <CronSortHeader
               label="Avg"
               colKey="avgMs"
-              currentKey={filters.cronSortKey}
-              currentDir={filters.cronSortDir}
-              onSort={handleSort}
+              currentKey={cronSortKey}
+              currentDir={cronSortDir}
+              onSort={handleCronSort}
             />
             <CronSortHeader
               label="p95"
               colKey="p95Ms"
-              currentKey={filters.cronSortKey}
-              currentDir={filters.cronSortDir}
-              onSort={handleSort}
+              currentKey={cronSortKey}
+              currentDir={cronSortDir}
+              onSort={handleCronSort}
             />
             <CronSortHeader
               label="p99"
               colKey="p99Ms"
-              currentKey={filters.cronSortKey}
-              currentDir={filters.cronSortDir}
-              onSort={handleSort}
+              currentKey={cronSortKey}
+              currentDir={cronSortDir}
+              onSort={handleCronSort}
             />
             <CronSortHeader
               label="Max"
               colKey="maxMs"
-              currentKey={filters.cronSortKey}
-              currentDir={filters.cronSortDir}
-              onSort={handleSort}
+              currentKey={cronSortKey}
+              currentDir={cronSortDir}
+              onSort={handleCronSort}
             />
             <CronSortHeader
               label="Last"
               colKey="lastDurationMs"
-              currentKey={filters.cronSortKey}
-              currentDir={filters.cronSortDir}
-              onSort={handleSort}
+              currentKey={cronSortKey}
+              currentDir={cronSortDir}
+              onSort={handleCronSort}
             />
           </div>
           <div style={{ height: height - 36 }}>

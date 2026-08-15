@@ -1,83 +1,66 @@
-import { useCallback, useRef, useState, type DragEvent } from "react";
+import { useRef, useState, type DragEvent } from "react";
 import { ClipboardPaste, FilePlus, Plus, RefreshCw, Upload, X } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { useAnalysisStore } from "../store/analysisStore";
+import { cancel, parseFiles, parseText } from "../hooks/useParserWorker";
 import { formatBytes } from "../utils/format";
 import { cn } from "../utils/cn";
 
 /** Soft guard for paste path — large dumps should use file upload. */
 export const PASTE_WARN_BYTES = 8 * 1024 * 1024;
 
-type Props = {
-  onFile: (file: File) => void;
-  onFiles?: (files: File[]) => void;
-  onPaste: (text: string) => void;
-  onCancel: () => void;
-};
+const {
+  appendLoadedFiles,
+  setLoadedFiles,
+  setPasteOpen,
+  setSourcePaste,
+  showToast,
+} = useAnalysisStore.getState();
 
-export function IngestPanel({ onFile, onFiles, onPaste, onCancel }: Props) {
+function filterValidFiles(fileList: FileList | File[] | null | undefined): File[] {
+  if (!fileList || fileList.length === 0) return [];
+  return Array.from(fileList).filter((file) => {
+    return (
+      file.name.endsWith(".log") ||
+      file.name.endsWith(".txt") ||
+      file.type === "text/plain" ||
+      file.type === ""
+    );
+  });
+}
+
+export function IngestPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploadMode, setUploadMode] = useState<"replace" | "append">("replace");
   const [pendingDrop, setPendingDrop] = useState<File[] | null>(null);
   const [pasteText, setPasteText] = useState("");
-  const isParsing = useAnalysisStore((s) => s.isParsing);
-  const isWorkerReady = useAnalysisStore((s) => s.isWorkerReady);
-  const progress = useAnalysisStore((s) => s.progress);
-  const hasData = useAnalysisStore((s) => s.hasData);
-  const loadedFiles = useAnalysisStore((s) => s.loadedFiles);
-  const setLoadedFiles = useAnalysisStore((s) => s.setLoadedFiles);
-  const appendLoadedFiles = useAnalysisStore((s) => s.appendLoadedFiles);
-  const pasteOpen = useAnalysisStore((s) => s.pasteOpen);
-  const setPasteOpen = useAnalysisStore((s) => s.setPasteOpen);
-  const setSourcePaste = useAnalysisStore((s) => s.setSourcePaste);
-  const showToast = useAnalysisStore((s) => s.showToast);
 
-  const busy = isParsing || !isWorkerReady;
+  const { isParsing, busy, progress, hasData, loadedFiles, pasteOpen } = useAnalysisStore(
+    useShallow((s) => ({
+      isParsing: s.isParsing,
+      busy: s.isParsing || !s.isWorkerReady,
+      progress: s.progress,
+      hasData: s.hasData,
+      loadedFiles: s.loadedFiles,
+      pasteOpen: s.pasteOpen,
+    })),
+  );
 
-  const filterValidFiles = (fileList: FileList | File[] | null | undefined): File[] => {
-    if (!fileList || fileList.length === 0) return [];
-    return Array.from(fileList).filter((file) => {
-      return (
-        file.name.endsWith(".log") ||
-        file.name.endsWith(".txt") ||
-        file.type === "text/plain" ||
-        file.type === ""
-      );
-    });
+  const executeAppend = (files: File[]) => {
+    setPendingDrop(null);
+    const existingCount = useAnalysisStore.getState().loadedFiles.length;
+    const combined = appendLoadedFiles(files);
+    if (combined.length === existingCount) return;
+    void parseFiles(combined);
   };
 
-  const executeAppend = useCallback(
-    (files: File[]) => {
-      setPendingDrop(null);
-      const existingCount = loadedFiles.length;
-      const combined = appendLoadedFiles(files);
-      if (combined.length === existingCount) {
-        return;
-      }
-      if (onFiles) {
-        onFiles(combined);
-      } else if (combined.length === 1) {
-        onFile(combined[0]!);
-      }
-    },
-    [appendLoadedFiles, loadedFiles.length, onFile, onFiles],
-  );
-
-  const executeReplace = useCallback(
-    (files: File[]) => {
-      setPendingDrop(null);
-      const unique = setLoadedFiles(files);
-      if (unique.length === 0) return;
-      if (unique.length === 1) {
-        onFile(unique[0]!);
-      } else if (onFiles) {
-        onFiles(unique);
-      } else {
-        onFile(unique[0]!);
-      }
-    },
-    [onFile, onFiles, setLoadedFiles],
-  );
+  const executeReplace = (files: File[]) => {
+    setPendingDrop(null);
+    const unique = setLoadedFiles(files);
+    if (unique.length === 0) return;
+    void parseFiles(unique);
+  };
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
@@ -134,7 +117,7 @@ export function IngestPanel({ onFile, onFiles, onPaste, onCancel }: Props) {
       return;
     }
     setSourcePaste();
-    onPaste(text);
+    void parseText(text);
   };
 
   return (
@@ -198,7 +181,7 @@ export function IngestPanel({ onFile, onFiles, onPaste, onCancel }: Props) {
                 )}
                 <button
                   type="button"
-                  onClick={onCancel}
+                  onClick={cancel}
                   className="rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
                 >
                   Cancel
@@ -289,7 +272,7 @@ export function IngestPanel({ onFile, onFiles, onPaste, onCancel }: Props) {
               )}
               <button
                 type="button"
-                onClick={onCancel}
+                onClick={cancel}
                 className="rounded border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
               >
                 Cancel
