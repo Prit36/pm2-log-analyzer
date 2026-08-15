@@ -1,8 +1,8 @@
 import { useMemo } from "react";
-import { Copy } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Copy } from "lucide-react";
 import { List, type RowComponentProps } from "react-window";
 import type { AggregatedEndpoint } from "../parser";
-import { EMPTY_API, useAnalysisStore } from "../store/analysisStore";
+import { EMPTY_API, useAnalysisStore, type ApiSortKey } from "../store/analysisStore";
 import { useDebouncedValue } from "../hooks/useParserWorker";
 import { formatMs, formatNum } from "../utils/format";
 import { buildApiTsv } from "../utils/exportSpreadsheet";
@@ -100,6 +100,7 @@ export function useFilteredApiRows(): AggregatedEndpoint[] {
   const methods = useAnalysisStore((s) => s.filters.methods);
   const query = useAnalysisStore((s) => s.filters.query);
   const sortKey = useAnalysisStore((s) => s.filters.sortKey);
+  const sortDir = useAnalysisStore((s) => s.filters.sortDir);
   const topN = useAnalysisStore((s) => s.filters.topN);
   const debouncedQuery = useDebouncedValue(query, 200);
 
@@ -112,14 +113,81 @@ export function useFilteredApiRows(): AggregatedEndpoint[] {
       rows = rows.filter(
         (r) => r.path.toLowerCase().includes(q) || r.key.toLowerCase().includes(q),
       );
-    rows = [...rows].sort((a, b) => b[sortKey] - a[sortKey]);
+    rows = [...rows].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "path") {
+        cmp = a.path.localeCompare(b.path);
+      } else {
+        cmp = (a[sortKey] ?? 0) - (b[sortKey] ?? 0);
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
     return rows.slice(0, topN);
-  }, [api, methods, debouncedQuery, sortKey, topN]);
+  }, [api, methods, debouncedQuery, sortKey, sortDir, topN]);
+}
+
+function ApiSortHeader({
+  label,
+  colKey,
+  currentKey,
+  currentDir,
+  onSort,
+  align = "right",
+}: {
+  label: string;
+  colKey: ApiSortKey;
+  currentKey: ApiSortKey;
+  currentDir: "asc" | "desc";
+  onSort: (key: ApiSortKey) => void;
+  align?: "left" | "right";
+}) {
+  const isActive = currentKey === colKey;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(colKey)}
+      className={cn(
+        "group flex w-full items-center gap-1 cursor-pointer select-none transition-colors",
+        align === "right" ? "justify-end text-right" : "justify-start text-left",
+        isActive
+          ? "font-bold text-blue-600 dark:text-blue-400"
+          : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200",
+      )}
+      title={`Sort by ${label} (${isActive && currentDir === "desc" ? "descending" : "ascending"})`}
+    >
+      <span>{label}</span>
+      {isActive ? (
+        currentDir === "asc" ? (
+          <ArrowUp className="size-3 shrink-0" aria-hidden />
+        ) : (
+          <ArrowDown className="size-3 shrink-0" aria-hidden />
+        )
+      ) : (
+        <ArrowUpDown
+          className="size-2.5 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity"
+          aria-hidden
+        />
+      )}
+    </button>
+  );
 }
 
 export function ApiTable({ rows }: { rows: AggregatedEndpoint[] }) {
+  const filters = useAnalysisStore((s) => s.filters);
+  const setFilters = useAnalysisStore((s) => s.setFilters);
   const showToast = useAnalysisStore((s) => s.showToast);
   const height = Math.min(420, Math.max(120, rows.length * 32 + 36));
+
+  const handleSort = (key: ApiSortKey) => {
+    if (filters.sortKey === key) {
+      setFilters({ sortDir: filters.sortDir === "asc" ? "desc" : "asc" });
+    } else {
+      setFilters({
+        sortKey: key,
+        sortDir: key === "path" ? "asc" : "desc",
+      });
+    }
+  };
 
   const onCopyPath = async (path: string) => {
     await navigator.clipboard.writeText(path);
@@ -155,13 +223,56 @@ export function ApiTable({ rows }: { rows: AggregatedEndpoint[] }) {
       ) : (
         <div style={{ height }}>
           <div className="grid grid-cols-[minmax(0,1fr)_64px_64px_64px_64px_64px_56px] items-center gap-1 border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
-            <div>Endpoint</div>
-            <div className="text-right">Count</div>
-            <div className="text-right">Avg</div>
-            <div className="text-right">p95</div>
-            <div className="text-right">p99</div>
-            <div className="text-right">Max</div>
-            <div className="text-right">Err</div>
+            <ApiSortHeader
+              label="Endpoint"
+              colKey="path"
+              currentKey={filters.sortKey}
+              currentDir={filters.sortDir}
+              onSort={handleSort}
+              align="left"
+            />
+            <ApiSortHeader
+              label="Count"
+              colKey="count"
+              currentKey={filters.sortKey}
+              currentDir={filters.sortDir}
+              onSort={handleSort}
+            />
+            <ApiSortHeader
+              label="Avg"
+              colKey="avgMs"
+              currentKey={filters.sortKey}
+              currentDir={filters.sortDir}
+              onSort={handleSort}
+            />
+            <ApiSortHeader
+              label="p95"
+              colKey="p95Ms"
+              currentKey={filters.sortKey}
+              currentDir={filters.sortDir}
+              onSort={handleSort}
+            />
+            <ApiSortHeader
+              label="p99"
+              colKey="p99Ms"
+              currentKey={filters.sortKey}
+              currentDir={filters.sortDir}
+              onSort={handleSort}
+            />
+            <ApiSortHeader
+              label="Max"
+              colKey="maxMs"
+              currentKey={filters.sortKey}
+              currentDir={filters.sortDir}
+              onSort={handleSort}
+            />
+            <ApiSortHeader
+              label="Err"
+              colKey="errorCount"
+              currentKey={filters.sortKey}
+              currentDir={filters.sortDir}
+              onSort={handleSort}
+            />
           </div>
           <div style={{ height: height - 36 }}>
             <List

@@ -23,7 +23,8 @@ function isApiSortKey(value: string): value is ApiSortKey {
     value === "avgMs" ||
     value === "maxMs" ||
     value === "count" ||
-    value === "errorCount"
+    value === "errorCount" ||
+    value === "path"
   );
 }
 
@@ -116,6 +117,7 @@ export function FilterBar() {
             <option value="maxMs">max</option>
             <option value="count">count</option>
             <option value="errorCount">errors</option>
+            <option value="path">endpoint</option>
           </select>
         </Field>
         <Field label="Top N">

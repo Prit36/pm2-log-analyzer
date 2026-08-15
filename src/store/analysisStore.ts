@@ -16,8 +16,18 @@ export const EMPTY_CRON: CronAggregated[] = [];
 export const EMPTY_METHODS: string[] = [];
 export const EMPTY_SAMPLES: string[] = [];
 
-export type ApiSortKey = "p95Ms" | "p99Ms" | "avgMs" | "maxMs" | "count" | "errorCount";
-export type CronSortKey = "p95Ms" | "p99Ms" | "avgMs" | "maxMs" | "runs" | "fails";
+export type SortDirection = "asc" | "desc";
+export type ApiSortKey = "p95Ms" | "p99Ms" | "avgMs" | "maxMs" | "count" | "errorCount" | "path";
+export type CronSortKey =
+  | "p95Ms"
+  | "p99Ms"
+  | "avgMs"
+  | "maxMs"
+  | "runs"
+  | "fails"
+  | "starts"
+  | "lastDurationMs"
+  | "name";
 
 export type ParseProgress = {
   stage: "reading" | "parsing" | "aggregating" | "complete";
@@ -35,11 +45,13 @@ export type AnalysisFilters = {
   methods: string[];
   query: string;
   sortKey: ApiSortKey;
+  sortDir: SortDirection;
   topN: number;
   cronQuery: string;
   cronMinMs: number;
   cronShowFailedOnly: boolean;
   cronSortKey: CronSortKey;
+  cronSortDir: SortDirection;
 };
 
 const DEFAULT_FILTERS: AnalysisFilters = {
@@ -49,11 +61,13 @@ const DEFAULT_FILTERS: AnalysisFilters = {
   methods: [],
   query: "",
   sortKey: "p95Ms",
+  sortDir: "desc",
   topN: 50,
   cronQuery: "",
   cronMinMs: 0,
   cronShowFailedOnly: false,
   cronSortKey: "p95Ms",
+  cronSortDir: "desc",
 };
 
 export type Theme = "light" | "dark";

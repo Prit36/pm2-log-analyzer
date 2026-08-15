@@ -14,6 +14,7 @@ const API_SORT_LABEL = {
   maxMs: "max",
   count: "count",
   errorCount: "errors",
+  path: "endpoint",
 } satisfies Record<ApiSortKey, string>;
 
 const CRON_SORT_LABEL = {
@@ -23,6 +24,9 @@ const CRON_SORT_LABEL = {
   maxMs: "max",
   runs: "runs",
   fails: "fails",
+  starts: "starts",
+  lastDurationMs: "last duration",
+  name: "job",
 } satisfies Record<CronSortKey, string>;
 
 type MethodStyle = { argb: string; text: string };

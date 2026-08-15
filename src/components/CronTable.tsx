@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Copy } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Copy } from "lucide-react";
 import { List, type RowComponentProps } from "react-window";
 import type { CronAggregated } from "../parser";
 import { EMPTY_CRON, useAnalysisStore, type CronSortKey } from "../store/analysisStore";
@@ -71,16 +71,76 @@ function isCronSortKey(value: string): value is CronSortKey {
     value === "avgMs" ||
     value === "maxMs" ||
     value === "runs" ||
-    value === "fails"
+    value === "fails" ||
+    value === "starts" ||
+    value === "lastDurationMs" ||
+    value === "name"
   );
 }
 
 export function useFilteredCronRows(): CronAggregated[] {
   const cron = useAnalysisStore((s) => s.result?.cron ?? EMPTY_CRON);
   const sortKey = useAnalysisStore((s) => s.filters.cronSortKey);
+  const sortDir = useAnalysisStore((s) => s.filters.cronSortDir);
   return useMemo(() => {
-    return [...cron].sort((a, b) => b[sortKey] - a[sortKey]);
-  }, [cron, sortKey]);
+    return [...cron].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "name") {
+        cmp = a.name.localeCompare(b.name);
+      } else {
+        const valA = a[sortKey] ?? (sortDir === "asc" ? Infinity : -Infinity);
+        const valB = b[sortKey] ?? (sortDir === "asc" ? Infinity : -Infinity);
+        cmp = valA - valB;
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [cron, sortKey, sortDir]);
+}
+
+function CronSortHeader({
+  label,
+  colKey,
+  currentKey,
+  currentDir,
+  onSort,
+  align = "right",
+}: {
+  label: string;
+  colKey: CronSortKey;
+  currentKey: CronSortKey;
+  currentDir: "asc" | "desc";
+  onSort: (key: CronSortKey) => void;
+  align?: "left" | "right";
+}) {
+  const isActive = currentKey === colKey;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(colKey)}
+      className={cn(
+        "group flex w-full items-center gap-1 cursor-pointer select-none transition-colors",
+        align === "right" ? "justify-end text-right" : "justify-start text-left",
+        isActive
+          ? "font-bold text-blue-600 dark:text-blue-400"
+          : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200",
+      )}
+      title={`Sort by ${label} (${isActive && currentDir === "desc" ? "descending" : "ascending"})`}
+    >
+      <span>{label}</span>
+      {isActive ? (
+        currentDir === "asc" ? (
+          <ArrowUp className="size-3 shrink-0" aria-hidden />
+        ) : (
+          <ArrowDown className="size-3 shrink-0" aria-hidden />
+        )
+      ) : (
+        <ArrowUpDown
+          className="size-2.5 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity"
+          aria-hidden
+        />
+      )}
+    </button>
+  );
 }
 
 export function CronTable({ rows }: { rows: CronAggregated[] }) {
@@ -89,6 +149,17 @@ export function CronTable({ rows }: { rows: CronAggregated[] }) {
   const showToast = useAnalysisStore((s) => s.showToast);
 
   const height = Math.min(360, Math.max(120, rows.length * 32 + 36));
+
+  const handleSort = (key: CronSortKey) => {
+    if (filters.cronSortKey === key) {
+      setFilters({ cronSortDir: filters.cronSortDir === "asc" ? "desc" : "asc" });
+    } else {
+      setFilters({
+        cronSortKey: key,
+        cronSortDir: key === "name" ? "asc" : "desc",
+      });
+    }
+  };
 
   const copyTsv = async () => {
     if (rows.length === 0) return;
@@ -140,7 +211,10 @@ export function CronTable({ rows }: { rows: CronAggregated[] }) {
             <option value="avgMs">avg</option>
             <option value="maxMs">max</option>
             <option value="runs">runs</option>
+            <option value="starts">starts</option>
             <option value="fails">fails</option>
+            <option value="lastDurationMs">last</option>
+            <option value="name">job</option>
           </select>
           <button
             type="button"
@@ -160,15 +234,70 @@ export function CronTable({ rows }: { rows: CronAggregated[] }) {
       ) : (
         <div style={{ height }}>
           <div className="grid grid-cols-[minmax(0,1.2fr)_56px_56px_56px_64px_64px_64px_64px_64px] items-center gap-1 border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
-            <div>Job</div>
-            <div className="text-right">Runs</div>
-            <div className="text-right">Starts</div>
-            <div className="text-right">Fails</div>
-            <div className="text-right">Avg</div>
-            <div className="text-right">p95</div>
-            <div className="text-right">p99</div>
-            <div className="text-right">Max</div>
-            <div className="text-right">Last</div>
+            <CronSortHeader
+              label="Job"
+              colKey="name"
+              currentKey={filters.cronSortKey}
+              currentDir={filters.cronSortDir}
+              onSort={handleSort}
+              align="left"
+            />
+            <CronSortHeader
+              label="Runs"
+              colKey="runs"
+              currentKey={filters.cronSortKey}
+              currentDir={filters.cronSortDir}
+              onSort={handleSort}
+            />
+            <CronSortHeader
+              label="Starts"
+              colKey="starts"
+              currentKey={filters.cronSortKey}
+              currentDir={filters.cronSortDir}
+              onSort={handleSort}
+            />
+            <CronSortHeader
+              label="Fails"
+              colKey="fails"
+              currentKey={filters.cronSortKey}
+              currentDir={filters.cronSortDir}
+              onSort={handleSort}
+            />
+            <CronSortHeader
+              label="Avg"
+              colKey="avgMs"
+              currentKey={filters.cronSortKey}
+              currentDir={filters.cronSortDir}
+              onSort={handleSort}
+            />
+            <CronSortHeader
+              label="p95"
+              colKey="p95Ms"
+              currentKey={filters.cronSortKey}
+              currentDir={filters.cronSortDir}
+              onSort={handleSort}
+            />
+            <CronSortHeader
+              label="p99"
+              colKey="p99Ms"
+              currentKey={filters.cronSortKey}
+              currentDir={filters.cronSortDir}
+              onSort={handleSort}
+            />
+            <CronSortHeader
+              label="Max"
+              colKey="maxMs"
+              currentKey={filters.cronSortKey}
+              currentDir={filters.cronSortDir}
+              onSort={handleSort}
+            />
+            <CronSortHeader
+              label="Last"
+              colKey="lastDurationMs"
+              currentKey={filters.cronSortKey}
+              currentDir={filters.cronSortDir}
+              onSort={handleSort}
+            />
           </div>
           <div style={{ height: height - 36 }}>
             <List
