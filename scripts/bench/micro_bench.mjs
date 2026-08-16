@@ -62,8 +62,8 @@ function benchFeed(iterations = 10) {
   times.sort((a, b) => a - b);
   const median = times[Math.floor(times.length / 2)];
   const min = times[0];
-  const mbSec = (rawBuffer.byteLength / (1024 * 1024)) / (min / 1000);
-  const mLinesSec = (lineCount / 1_000_000) / (min / 1000);
+  const mbSec = rawBuffer.byteLength / (1024 * 1024) / (min / 1000);
+  const mLinesSec = lineCount / 1_000_000 / (min / 1000);
 
   console.log(`[Wasm Feed Kernel (Single-Core)]`);
   console.log(`  Min Wall Time : ${min.toFixed(2)} ms (Median: ${median.toFixed(2)} ms)`);
@@ -77,7 +77,14 @@ function benchFeed(iterations = 10) {
 function benchReaggregate(engine, iterations = 20) {
   engine.ensure_mode(1); // CollapseIds
   const filterConfigs = [
-    { name: "Unfiltered (All, minMs=0)", mode: 1, family: 0, minMs: 0, dateId: 0, needSummary: false },
+    {
+      name: "Unfiltered (All, minMs=0)",
+      mode: 1,
+      family: 0,
+      minMs: 0,
+      dateId: 0,
+      needSummary: false,
+    },
     { name: "Status 5xx errors", mode: 1, family: 5, minMs: 0, dateId: 0, needSummary: false },
     { name: "Min Latency > 100ms", mode: 1, family: 0, minMs: 100, dateId: 0, needSummary: false },
     { name: "With Summary Sketch", mode: 1, family: 0, minMs: 0, dateId: 0, needSummary: true },
@@ -97,7 +104,9 @@ function benchReaggregate(engine, iterations = 20) {
     times.sort((a, b) => a - b);
     const min = times[0];
     const med = times[Math.floor(times.length / 2)];
-    console.log(`  ${cfg.name.padEnd(28)}: ${min.toFixed(3)} ms (med: ${med.toFixed(3)} ms, wire: ${(lastWireLength / 1024).toFixed(1)} KB)`);
+    console.log(
+      `  ${cfg.name.padEnd(28)}: ${min.toFixed(3)} ms (med: ${med.toFixed(3)} ms, wire: ${(lastWireLength / 1024).toFixed(1)} KB)`,
+    );
   }
 }
 
@@ -120,7 +129,9 @@ function benchWireDecoding(engine, iterations = 50) {
     endpointsCount = decoded.partial.buckets.length;
   }
   pm2pTimes.sort((a, b) => a - b);
-  console.log(`  decodePm2Partial (${endpointsCount} endpoints): ${pm2pTimes[0].toFixed(3)} ms (med: ${pm2pTimes[Math.floor(iterations / 2)].toFixed(3)} ms)`);
+  console.log(
+    `  decodePm2Partial (${endpointsCount} endpoints): ${pm2pTimes[0].toFixed(3)} ms (med: ${pm2pTimes[Math.floor(iterations / 2)].toFixed(3)} ms)`,
+  );
 
   // Decode Hourly
   const hTimes = [];
@@ -157,12 +168,16 @@ function benchMultiShardMerge(engine, iterations = 30) {
     let endpointTotal = 0;
     for (let i = 0; i < iterations; i++) {
       const t0 = performance.now();
-      const { api } = finishApiFromPartials(partials, {
-        normalizeMode: "collapse-ids",
-        statusFamily: "all",
-        minMs: 0,
-        methodFilter: null,
-      }, { count: engine.hit_count() * numShards, unmatchedCount: 0 });
+      const { api } = finishApiFromPartials(
+        partials,
+        {
+          normalizeMode: "collapse-ids",
+          statusFamily: "all",
+          minMs: 0,
+          methodFilter: null,
+        },
+        { count: engine.hit_count() * numShards, unmatchedCount: 0 },
+      );
       const t1 = performance.now();
       times.push(t1 - t0);
       endpointTotal = api.length;
@@ -170,7 +185,9 @@ function benchMultiShardMerge(engine, iterations = 30) {
     times.sort((a, b) => a - b);
     const min = times[0];
     const med = times[Math.floor(times.length / 2)];
-    console.log(`  Merge ${numShards} Shards (${endpointTotal} unique endpoints): ${min.toFixed(2)} ms (med: ${med.toFixed(2)} ms)`);
+    console.log(
+      `  Merge ${numShards} Shards (${endpointTotal} unique endpoints): ${min.toFixed(2)} ms (med: ${med.toFixed(2)} ms)`,
+    );
   }
 }
 

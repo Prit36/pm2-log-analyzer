@@ -347,15 +347,36 @@ assert(parseLine("   ").kind === "empty", "empty");
   );
   assert(dailyPartial.days[0]!.count === 3, "daily count");
 
+  const parseOpts: ParseOptions = {
+    normalizeMode: "collapseIds",
+    methodFilter: null,
+    statusFamily: "all",
+    minMs: 0,
+    cronQuery: "",
+    cronMinMs: 0,
+    cronShowFailedOnly: false,
+  };
+
   // Reaggregate with matching date
   const wireDate = eng.reaggregate(2, 0, 0, new TextEncoder().encode("2026-07-24"), true);
   const dateRes = decodePm2Partial(wireDate);
   assert(dateRes.matched === 3, "date matched");
+  const dateFinish = finishApiFromPartials([dateRes.partial], parseOpts, {
+    count: dateRes.matched,
+    unmatchedCount: dateRes.unmatched,
+  });
+  assert(dateFinish.summary?.matched === 3, "dateFinish summary matched 3");
+  approx(dateFinish.summary?.avg ?? 0, (12.5 + 3.1 + 40) / 3, 0.5);
 
   // Reaggregate with non-matching date
   const wireOtherDate = eng.reaggregate(2, 0, 0, new TextEncoder().encode("2026-08-01"), true);
   const otherRes = decodePm2Partial(wireOtherDate);
   assert(otherRes.matched === 0, "other date matched 0");
+  const otherFinish = finishApiFromPartials([otherRes.partial], parseOpts, {
+    count: otherRes.matched,
+    unmatchedCount: otherRes.unmatched,
+  });
+  assert(otherFinish.summary?.matched === 0, "otherFinish summary matched 0");
 
   const hourlyPartial = decodeHourlyWire(eng.hourly_wire());
   const hourlyStats = finalizeHourlyStats(hourlyPartial);

@@ -386,16 +386,20 @@ async function reaggregateShards(
 
   const tDecode = performance.now();
   const partials: AggPartial[] = [];
+  let totalMatched = 0;
+  let totalUnmatched = 0;
   for (const w of wires) {
-    const { partial } = decodePm2Partial(new Uint8Array(w.partial));
+    const { matched, unmatched, partial } = decodePm2Partial(new Uint8Array(w.partial));
+    totalMatched += matched;
+    totalUnmatched += unmatched;
     partials.push(needSummary ? partial : { buckets: partial.buckets, summary: null });
   }
   const decodePartialsMs = performance.now() - tDecode;
 
   const tFinish = performance.now();
   const { api, summary: built } = finishApiFromPartials(partials, options, {
-    count: hitCount,
-    unmatchedCount,
+    count: totalMatched,
+    unmatchedCount: totalUnmatched,
   });
   const cron = aggregateCron(cronEvents, options);
   const summary = (isDateFiltered ? built : cachedSummary?.summary) ?? built!;
