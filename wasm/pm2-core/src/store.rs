@@ -112,6 +112,7 @@ pub struct Engine {
     skip_partial: bool,
     parsing: bool,
     last_path_id: Option<u32>,
+    path_cache: [(u64, u32); 256],
 }
 
 impl Engine {
@@ -152,6 +153,7 @@ impl Engine {
             skip_partial: false,
             parsing: false,
             last_path_id: None,
+            path_cache: [(0, u32::MAX); 256],
         }
     }
 
@@ -214,6 +216,7 @@ impl Engine {
         self.path_off.clear();
         self.path_len.clear();
         self.path_table.clear();
+        self.path_cache = [(0, u32::MAX); 256];
         self.entries.clear();
         self.dates.clear();
         self.last_date = [0u8; 10];
@@ -693,6 +696,20 @@ impl Engine {
             }
         }
         let hash = hash_bytes(path);
+        let slot = (hash as usize) & 255;
+        let (cached_hash, cached_id) = self.path_cache[slot];
+        if cached_hash == hash && cached_id != u32::MAX {
+            let id_usize = cached_id as usize;
+            if id_usize < self.path_off.len() {
+                let off = self.path_off[id_usize] as usize;
+                let len = self.path_len[id_usize] as usize;
+                if path.len() == len && &self.path_bytes[off..off + len] == path {
+                    self.last_path_id = Some(cached_id);
+                    return cached_id;
+                }
+            }
+        }
+
         let path_bytes = &self.path_bytes;
         let path_off = &self.path_off;
         let path_len = &self.path_len;
@@ -701,6 +718,7 @@ impl Engine {
             let len = path_len[id as usize] as usize;
             &path_bytes[off..off + len] == path
         }) {
+            self.path_cache[slot] = (hash, id);
             self.last_path_id = Some(id);
             return id;
         }
@@ -720,6 +738,7 @@ impl Engine {
             let len = path_len[id as usize] as usize;
             hash_bytes(&path_bytes[off..off + len])
         });
+        self.path_cache[slot] = (hash, next_id);
         self.last_path_id = Some(next_id);
         next_id
     }
@@ -933,8 +952,8 @@ impl Engine {
                     continue;
                 }
                 let slot = &mut dense[idx];
-                if slot.is_none() {
-                    *slot = Some(Box::new(EndpointAcc {
+                let entry = slot.get_or_insert_with(|| {
+                    Box::new(EndpointAcc {
                         method: method_code,
                         path_bytes: Vec::new(),
                         sketch: RelHist::new(),
@@ -943,9 +962,8 @@ impl Engine {
                         min: f32::INFINITY,
                         max: f32::NEG_INFINITY,
                         error_count: 0,
-                    }));
-                }
-                let entry = slot.as_mut().unwrap();
+                    })
+                });
                 entry.sketch.accept(duration_ms);
                 entry.count += 1;
                 entry.sum += duration_ms as f64;

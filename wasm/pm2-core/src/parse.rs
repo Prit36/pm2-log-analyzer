@@ -100,6 +100,22 @@ fn only_space_ansi_left(buf: &[u8], i: usize, end: usize) -> bool {
     skip_space_ansi(buf, i, end) >= end
 }
 
+#[inline(always)]
+fn is_digits_4(b: &[u8]) -> bool {
+    let u = u32::from_le_bytes(b[..4].try_into().unwrap());
+    let a = u.wrapping_add(0x4646_4646);
+    let b = u.wrapping_sub(0x3030_3030);
+    ((a | b) & 0x8080_8080) == 0
+}
+
+#[inline(always)]
+fn is_digits_2(b: &[u8]) -> bool {
+    let u = u16::from_le_bytes(b[..2].try_into().unwrap());
+    let a = u.wrapping_add(0x4646);
+    let b = u.wrapping_sub(0x3030);
+    ((a | b) & 0x8080) == 0
+}
+
 #[inline]
 fn skip_timestamp(buf: &[u8], start: usize, end: usize) -> Option<(usize, usize, usize, u8, [u8; 10])> {
     if end - start < 20 {
@@ -114,10 +130,12 @@ fn skip_timestamp(buf: &[u8], start: usize, end: usize) -> Option<(usize, usize,
     if sep != b'T' && sep != b' ' {
         return None;
     }
-    if !is_digit(b[0]) || !is_digit(b[1]) || !is_digit(b[2]) || !is_digit(b[3])
-        || !is_digit(b[5]) || !is_digit(b[6]) || !is_digit(b[8]) || !is_digit(b[9])
-        || !is_digit(b[11]) || !is_digit(b[12]) || !is_digit(b[14]) || !is_digit(b[15])
-        || !is_digit(b[17]) || !is_digit(b[18])
+    if !is_digits_4(&b[0..4])
+        || !is_digits_2(&b[5..7])
+        || !is_digits_2(&b[8..10])
+        || !is_digits_2(&b[11..13])
+        || !is_digits_2(&b[14..16])
+        || !is_digits_2(&b[17..19])
     {
         return None;
     }
@@ -198,9 +216,17 @@ fn read_token(buf: &[u8], mut i: usize, end: usize) -> Option<(usize, usize, usi
     Some((start, i, i))
 }
 
-const POW10: [f32; 10] = [
-    1.0, 10.0, 100.0, 1_000.0, 10_000.0, 100_000.0, 1_000_000.0, 10_000_000.0, 100_000_000.0,
-    1_000_000_000.0,
+const INV_POW10: [f32; 10] = [
+    1.0,
+    0.1,
+    0.01,
+    0.001,
+    0.0001,
+    0.00001,
+    0.000001,
+    0.0000001,
+    0.00000001,
+    0.000000001,
 ];
 
 #[inline(always)]
@@ -228,12 +254,12 @@ fn parse_float(buf: &[u8], mut i: usize, end: usize) -> Option<(f32, usize)> {
         if i == start || (i == frac_start && frac_start == start + 1) {
             return None;
         }
-        let div = if frac_digits < POW10.len() {
-            POW10[frac_digits]
+        let mult = if frac_digits < INV_POW10.len() {
+            INV_POW10[frac_digits]
         } else {
-            10.0f32.powi(frac_digits as i32)
+            10.0f32.powi(-(frac_digits as i32))
         };
-        let val = (int_val as f32) + (frac_val as f32) / div;
+        let val = (int_val as f32) + (frac_val as f32) * mult;
         Some((val, i))
     } else {
         if i == start {

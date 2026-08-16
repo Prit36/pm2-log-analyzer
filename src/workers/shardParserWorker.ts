@@ -128,8 +128,8 @@ async function parseFileRange(file: File, start: number, end: number): Promise<S
   const readEnd = Math.min(file.size, end + LINE_EXTEND);
   let off = start;
 
-  // Pipelined multi-buffered prefetch queue (depth 2) into Wasm ingest window
-  const QUEUE_DEPTH = 2;
+  // Pipelined multi-buffered prefetch queue (depth 3) into Wasm ingest window
+  const QUEUE_DEPTH = 3;
   const pendingReads: Promise<{ chunk: Uint8Array; readTime: number }>[] = [];
 
   const enqueue = (chunkOff: number) => {

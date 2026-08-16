@@ -135,11 +135,7 @@ let parseWallOrigin = 0;
 
 function poolSize(): number {
   const hc = globalThis.navigator?.hardwareConcurrency ?? 4;
-  // Cap the shard pool: each worker holds its own Wasm linear memory, so the
-  // pool size multiplies per-worker RSS (~1 GB per shard for a 5 GiB corpus).
-  // 4 workers matches the pre-commit profile (~3 GB Chromium RSS peak) while
-  // still keeping 5 GiB parses near peak throughput.
-  return Math.max(2, Math.min(4, hc));
+  return Math.max(2, Math.min(6, hc));
 }
 
 function shardCountFor(fileSize: number): number {
@@ -515,9 +511,6 @@ async function parseFilesSharded(input: File | File[], normalizeMode: NormalizeM
 
     const results = await Promise.all(
       ranges.map(async (r, i) => {
-        if (i > 0) {
-          await new Promise((resolve) => setTimeout(resolve, i * 4));
-        }
         const parsed = await runShardParsed(shardPool[i]!, {
           type: "PARSE_SHARD",
           epoch: ep,

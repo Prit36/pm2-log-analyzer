@@ -31,20 +31,29 @@ function readBytes(buf: Uint8Array, view: DataView, o: number): ReadBytesResult 
   return { bytes: buf.subarray(o, o + len), next: o + len };
 }
 
-function decodeSketch(buf: Uint8Array): RelHistWire {
+type DecodedSketch = {
+  sketch: RelHistWire;
+  next: number;
+};
+
+function decodeSketchAt(view: DataView, o: number): DecodedSketch {
+  const count = u32(view, o);
+  const n = u32(view, 4 + o);
+  const buckets: [number, number][] = [];
+  let cur = o + 8;
+  for (let i = 0; i < n; i++) {
+    const k = view.getInt32(cur, true);
+    const c = u32(view, cur + 4);
+    buckets.push([k, c]);
+    cur += 8;
+  }
+  return { sketch: { buckets, count }, next: cur };
+}
+
+export function decodeSketch(buf: Uint8Array): RelHistWire {
   if (buf.length < 8) return { buckets: [], count: 0 };
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-  const count = u32(view, 0);
-  const n = u32(view, 4);
-  const buckets: [number, number][] = [];
-  let o = 8;
-  for (let i = 0; i < n; i++) {
-    const k = view.getInt32(o, true);
-    const c = u32(view, o + 4);
-    buckets.push([k, c]);
-    o += 8;
-  }
-  return { buckets, count };
+  return decodeSketchAt(view, 0).sketch;
 }
 
 const HOURLY_MAGIC = 0x504d3248;
@@ -57,17 +66,16 @@ export function decodeHourlyWire(buf: Uint8Array): HourlyPartial {
   const bucketCount = view.getUint16(6, true);
   if (bucketCount !== 24) throw new Error(`unsupported PM2H bucket count ${bucketCount}`);
 
-  const buckets: HourlyPartial["buckets"] = [];
+  const buckets: HourlyBucketPartial[] = [];
   let o = 8;
   for (let i = 0; i < bucketCount; i++) {
     const count = u32(view, o);
     const errorCount = u32(view, o + 4);
     const sum = f64(view, o + 8);
     const max = f32(view, o + 16);
-    const sketchLength = u32(view, o + 20);
     o += 24;
-    const sketch = decodeSketch(buf.subarray(o, o + sketchLength));
-    o += sketchLength;
+    const { sketch, next } = decodeSketchAt(view, o);
+    o = next;
     buckets.push({ count, errorCount, sum, max, sketch });
   }
   if (o !== buf.byteLength) throw new Error("trailing PM2H bytes");
@@ -110,10 +118,9 @@ export function decodePm2Partial(buf: Uint8Array): DecodedPm2Partial {
     o += 4;
     const slow = u32(view, o);
     o += 4;
-    const skLen = u32(view, o);
-    o += 4;
-    const sketch = decodeSketch(buf.subarray(o, o + skLen));
-    o += skLen;
+    o += 4; // skLen
+    const { sketch, next } = decodeSketchAt(view, o);
+    o = next;
     summary = { sum, max, errors, slow, sketch };
   }
 
@@ -133,10 +140,9 @@ export function decodePm2Partial(buf: Uint8Array): DecodedPm2Partial {
     o += 4;
     const pathRead = readBytes(buf, view, o);
     o = pathRead.next;
-    const skLen = u32(view, o);
-    o += 4;
-    const sketch = decodeSketch(buf.subarray(o, o + skLen));
-    o += skLen;
+    o += 4; // skLen
+    const { sketch, next } = decodeSketchAt(view, o);
+    o = next;
     const method = METHODS[methodCode] ?? "GET";
     const path = dec.decode(pathRead.bytes);
     buckets.push({
