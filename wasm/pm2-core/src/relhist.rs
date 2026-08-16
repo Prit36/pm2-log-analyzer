@@ -57,51 +57,6 @@ impl RelHist {
         }
     }
 
-    #[inline]
-    pub fn merge(&mut self, other: &RelHist) {
-        self.count += other.count;
-        for i in 0..DENSE_LIMIT {
-            self.dense[i] += other.dense[i];
-        }
-        for (&k, &c) in &other.sparse {
-            *self.sparse.entry(k).or_insert(0) += c;
-        }
-    }
-
-    pub fn quantile(&self, q: f64) -> f32 {
-        if self.count == 0 {
-            return 0.0;
-        }
-        let wire = self.to_wire();
-        let n = u32::from_le_bytes(wire[4..8].try_into().unwrap()) as usize;
-        let mut keys = Vec::with_capacity(n);
-        let mut counts = Vec::with_capacity(n);
-        let mut off = 8usize;
-        for _ in 0..n {
-            let k = i32::from_le_bytes(wire[off..off + 4].try_into().unwrap());
-            let c = u32::from_le_bytes(wire[off + 4..off + 8].try_into().unwrap());
-            keys.push(k);
-            counts.push(c);
-            off += 8;
-        }
-        if q <= 0.0 {
-            return bucket_value(keys[0]);
-        }
-        if q >= 1.0 {
-            return bucket_value(*keys.last().unwrap());
-        }
-        let target = q * (self.count as f64 - 1.0);
-        let mut rank = 0u32;
-        for i in 0..n {
-            let c = counts[i];
-            if (rank + c) as f64 > target {
-                return bucket_value(keys[i]);
-            }
-            rank += c;
-        }
-        bucket_value(*keys.last().unwrap())
-    }
-
     /// Encode as [count:u32][n:u32][key:i32, cnt:u32]×n little-endian (keys sorted).
     pub fn to_wire(&self) -> Vec<u8> {
         let mut neg_keys: Vec<i32> = self.sparse.keys().copied().filter(|&k| k < 0).collect();
@@ -147,41 +102,49 @@ impl RelHist {
         }
         out
     }
-
-    #[allow(dead_code)]
-    pub fn from_wire(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < 8 {
-            return None;
-        }
-        let count = u32::from_le_bytes(bytes[0..4].try_into().ok()?);
-        let n = u32::from_le_bytes(bytes[4..8].try_into().ok()?);
-        let mut h = RelHist::new();
-        h.count = count;
-        let mut off = 8usize;
-        for _ in 0..n {
-            if off + 8 > bytes.len() {
-                return None;
-            }
-            let k = i32::from_le_bytes(bytes[off..off + 4].try_into().ok()?);
-            let c = u32::from_le_bytes(bytes[off + 4..off + 8].try_into().ok()?);
-            if k >= 0 && (k as usize) < DENSE_LIMIT {
-                h.dense[k as usize] = c;
-            } else {
-                h.sparse.insert(k, c);
-            }
-            off += 8;
-        }
-        Some(h)
-    }
-}
-
-fn bucket_value(key: i32) -> f32 {
-    GAMMA.powf(key as f64 - 0.5) as f32
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn bucket_value(key: i32) -> f32 {
+        GAMMA.powf(key as f64 - 0.5) as f32
+    }
+
+    fn quantile(h: &RelHist, q: f64) -> f32 {
+        if h.count == 0 {
+            return 0.0;
+        }
+        let wire = h.to_wire();
+        let n = u32::from_le_bytes(wire[4..8].try_into().unwrap()) as usize;
+        let mut keys = Vec::with_capacity(n);
+        let mut counts = Vec::with_capacity(n);
+        let mut off = 8usize;
+        for _ in 0..n {
+            let k = i32::from_le_bytes(wire[off..off + 4].try_into().unwrap());
+            let c = u32::from_le_bytes(wire[off + 4..off + 8].try_into().unwrap());
+            keys.push(k);
+            counts.push(c);
+            off += 8;
+        }
+        if q <= 0.0 {
+            return bucket_value(keys[0]);
+        }
+        if q >= 1.0 {
+            return bucket_value(*keys.last().unwrap());
+        }
+        let target = q * (h.count as f64 - 1.0);
+        let mut rank = 0u32;
+        for i in 0..n {
+            let c = counts[i];
+            if (rank + c) as f64 > target {
+                return bucket_value(keys[i]);
+            }
+            rank += c;
+        }
+        bucket_value(*keys.last().unwrap())
+    }
 
     #[test]
     fn quantile_approx() {
@@ -189,7 +152,7 @@ mod tests {
         for i in 1..=1000 {
             h.accept((i * 10) as f32);
         }
-        let p95 = h.quantile(0.95);
+        let p95 = quantile(&h, 0.95);
         assert!((p95 - 9500.0).abs() / 9500.0 < 0.02, "p95={p95}");
     }
 }

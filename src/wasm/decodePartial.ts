@@ -50,12 +50,6 @@ function decodeSketchAt(view: DataView, o: number): DecodedSketch {
   return { sketch: { buckets, count }, next: cur };
 }
 
-export function decodeSketch(buf: Uint8Array): RelHistWire {
-  if (buf.length < 8) return { buckets: [], count: 0 };
-  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-  return decodeSketchAt(view, 0).sketch;
-}
-
 const HOURLY_MAGIC = 0x504d3248;
 
 export function decodeHourlyWire(buf: Uint8Array): HourlyPartial {
@@ -259,10 +253,9 @@ export function decodeDailyWire(buf: Uint8Array): DailyPartial {
     const slowCount = u32(view, o + 8);
     const sum = f64(view, o + 12);
     const max = f32(view, o + 20);
-    const sketchLength = u32(view, o + 24);
-    o += 28;
-    const sketch = decodeSketch(buf.subarray(o, o + sketchLength));
-    o += sketchLength;
+    o += 28; // 24 + 4 for skLen
+    const { sketch, next } = decodeSketchAt(view, o);
+    o = next;
 
     const hourly: HourlyBucketPartial[] = [];
     for (let h = 0; h < 24; h++) {
@@ -270,10 +263,9 @@ export function decodeDailyWire(buf: Uint8Array): DailyPartial {
       const hError = u32(view, o + 4);
       const hSum = f64(view, o + 8);
       const hMax = f32(view, o + 16);
-      const hSkLen = u32(view, o + 20);
-      o += 24;
-      const hSketch = decodeSketch(buf.subarray(o, o + hSkLen));
-      o += hSkLen;
+      o += 24; // 20 + 4 for hSkLen
+      const { sketch: hSketch, next: hNext } = decodeSketchAt(view, o);
+      o = hNext;
       hourly.push({ count: hCount, errorCount: hError, sum: hSum, max: hMax, sketch: hSketch });
     }
 
