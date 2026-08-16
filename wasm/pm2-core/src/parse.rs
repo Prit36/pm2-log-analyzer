@@ -58,11 +58,12 @@ pub enum LineKind {
 
 const CRON_MARK: &[u8] = b"[cron]";
 
-#[inline]
+#[inline(always)]
 fn is_digit(c: u8) -> bool {
     c.is_ascii_digit()
 }
 
+#[inline(always)]
 fn skip_ansi(buf: &[u8], mut i: usize, end: usize) -> usize {
     while i + 1 < end && buf[i] == 0x1b && buf[i + 1] == b'[' {
         i += 2;
@@ -77,25 +78,29 @@ fn skip_ansi(buf: &[u8], mut i: usize, end: usize) -> usize {
     i
 }
 
+#[inline(always)]
 fn skip_space_ansi(buf: &[u8], mut i: usize, end: usize) -> usize {
-    loop {
-        i = skip_ansi(buf, i, end);
-        if i >= end {
-            return i;
-        }
+    while i < end {
         let c = buf[i];
         if c == b' ' || c == b'\t' {
             i += 1;
             continue;
         }
-        return i;
+        if c == 0x1b && i + 1 < end && buf[i + 1] == b'[' {
+            i = skip_ansi(buf, i, end);
+            continue;
+        }
+        break;
     }
+    i
 }
 
+#[inline(always)]
 fn only_space_ansi_left(buf: &[u8], i: usize, end: usize) -> bool {
     skip_space_ansi(buf, i, end) >= end
 }
 
+#[inline]
 fn skip_timestamp(buf: &[u8], start: usize, end: usize) -> Option<(usize, usize, usize, u8, [u8; 10])> {
     if end - start < 20 {
         return None;
@@ -122,52 +127,83 @@ fn skip_timestamp(buf: &[u8], start: usize, end: usize) -> Option<(usize, usize,
     Some((skip_space_ansi(buf, a + 20, end), a, a + 19, hour, date))
 }
 
+#[inline(always)]
 fn parse_method(buf: &[u8], mut i: usize, end: usize) -> Option<(Method, usize)> {
     i = skip_space_ansi(buf, i, end);
-    // Frequency order for this corpus (GET/POST dominate; OPTIONS is dropped as noise).
-    const METHODS: &[(Method, &[u8])] = &[
-        (Method::Get, b"GET"),
-        (Method::Post, b"POST"),
-        (Method::Put, b"PUT"),
-        (Method::Patch, b"PATCH"),
-        (Method::Head, b"HEAD"),
-        (Method::Delete, b"DELETE"),
-    ];
-    for &(method, bytes) in METHODS {
-        if i + bytes.len() > end {
-            continue;
+    if i >= end {
+        return None;
+    }
+    let (m, len) = match buf[i] {
+        b'G' => {
+            if i + 3 <= end && &buf[i..i + 3] == b"GET" {
+                (Method::Get, 3)
+            } else {
+                return None;
+            }
         }
-        if &buf[i..i + bytes.len()] != bytes {
-            continue;
+        b'P' => {
+            if i + 4 <= end && &buf[i..i + 4] == b"POST" {
+                (Method::Post, 4)
+            } else if i + 5 <= end && &buf[i..i + 5] == b"PATCH" {
+                (Method::Patch, 5)
+            } else if i + 3 <= end && &buf[i..i + 3] == b"PUT" {
+                (Method::Put, 3)
+            } else {
+                return None;
+            }
         }
-        let after = i + bytes.len();
-        let next = if after < end { buf[after] } else { b' ' };
-        if next == b' ' || next == b'\t' || next == 0x1b || after >= end {
-            return Some((method, after));
+        b'D' => {
+            if i + 6 <= end && &buf[i..i + 6] == b"DELETE" {
+                (Method::Delete, 6)
+            } else {
+                return None;
+            }
+        }
+        b'H' => {
+            if i + 4 <= end && &buf[i..i + 4] == b"HEAD" {
+                (Method::Head, 4)
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
+    };
+    let after = i + len;
+    if after < end {
+        let next = buf[after];
+        if next != b' ' && next != b'\t' && next != 0x1b {
+            return None;
         }
     }
-    None
+    Some((m, after))
 }
 
-#[inline]
+#[inline(always)]
 fn read_token(buf: &[u8], mut i: usize, end: usize) -> Option<(usize, usize, usize)> {
     i = skip_space_ansi(buf, i, end);
     if i >= end {
         return None;
     }
     let start = i;
-    if let Some(rel) = memchr::memchr3(b' ', b'\t', 0x1b, &buf[i..end]) {
-        let tok_end = i + rel;
-        if tok_end == start {
-            return None;
+    while i < end {
+        let c = buf[i];
+        if c == b' ' || c == b'\t' || c == 0x1b {
+            break;
         }
-        Some((start, tok_end, tok_end))
-    } else {
-        Some((start, end, end))
+        i += 1;
     }
+    if i == start {
+        return None;
+    }
+    Some((start, i, i))
 }
 
-#[inline]
+const POW10: [f32; 10] = [
+    1.0, 10.0, 100.0, 1_000.0, 10_000.0, 100_000.0, 1_000_000.0, 10_000_000.0, 100_000_000.0,
+    1_000_000_000.0,
+];
+
+#[inline(always)]
 fn parse_float(buf: &[u8], mut i: usize, end: usize) -> Option<(f32, usize)> {
     i = skip_space_ansi(buf, i, end);
     if i >= end || (!is_digit(buf[i]) && buf[i] != b'.') {
@@ -183,15 +219,20 @@ fn parse_float(buf: &[u8], mut i: usize, end: usize) -> Option<(f32, usize)> {
         i += 1;
         let frac_start = i;
         let mut frac_val: u32 = 0;
-        let mut div: f32 = 1.0;
+        let mut frac_digits: usize = 0;
         while i < end && is_digit(buf[i]) {
             frac_val = frac_val * 10 + (buf[i] - b'0') as u32;
-            div *= 10.0;
+            frac_digits += 1;
             i += 1;
         }
         if i == start || (i == frac_start && frac_start == start + 1) {
             return None;
         }
+        let div = if frac_digits < POW10.len() {
+            POW10[frac_digits]
+        } else {
+            10.0f32.powi(frac_digits as i32)
+        };
         let val = (int_val as f32) + (frac_val as f32) / div;
         Some((val, i))
     } else {
@@ -220,7 +261,7 @@ fn has_non_space(buf: &[u8], start: usize, end: usize) -> bool {
         if c > 32 && c != 0x1b {
             return true;
         }
-        if c == 0x1b {
+        if c == 0x1b && i + 1 < end && buf[i + 1] == b'[' {
             i = skip_ansi(buf, i, end);
             continue;
         }
@@ -339,19 +380,25 @@ fn try_http_a(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
     let (method, ni) = parse_method(buf, i, end)?;
     i = ni;
     let (ps, pe, ni) = read_token(buf, i, end)?;
-    i = ni;
-    let (ss, se, ni) = read_token(buf, i, end)?;
-    if se - ss != 3 {
+    i = skip_space_ansi(buf, ni, end);
+    if i + 3 > end {
         return None;
     }
-    let s0 = buf[ss];
-    let s1 = buf[ss + 1];
-    let s2 = buf[ss + 2];
+    let s0 = buf[i];
+    let s1 = buf[i + 1];
+    let s2 = buf[i + 2];
     if !is_digit(s0) || !is_digit(s1) || !is_digit(s2) {
         return None;
     }
+    let after_status = i + 3;
+    if after_status < end {
+        let n = buf[after_status];
+        if n != b' ' && n != b'\t' && n != 0x1b {
+            return None;
+        }
+    }
     let status = ((s0 - b'0') as u16) * 100 + ((s1 - b'0') as u16) * 10 + ((s2 - b'0') as u16);
-    i = ni;
+    i = after_status;
     let (dur, ni) = parse_float(buf, i, end)?;
     i = skip_space_ansi(buf, ni, end);
     if i + 1 >= end || buf[i] != b'm' || buf[i + 1] != b's' {
@@ -513,22 +560,9 @@ pub fn parse_line_bytes(buf: &[u8], start: usize, mut end: usize) -> LineKind {
     if start >= end {
         return LineKind::Empty;
     }
-    // First non-space/ANSI byte gates the pattern probes. httpA needs a
-    // method letter (G/P/H/D) or a digit (timestamp first); httpB needs a
-    // digit (duration first); cron needs '['. Skipping failed probes for the
-    // ~67% non-httpA lines is the cheapest parse win available.
-    let mut gate = start;
-    loop {
-        gate = skip_ansi(buf, gate, end);
-        if gate >= end {
-            return LineKind::Empty;
-        }
-        let c = buf[gate];
-        if c == b' ' || c == b'\t' {
-            gate += 1;
-            continue;
-        }
-        break;
+    let gate = skip_space_ansi(buf, start, end);
+    if gate >= end {
+        return LineKind::Empty;
     }
     let g = buf[gate];
     let method_start = matches!(g, b'G' | b'P' | b'H' | b'D');

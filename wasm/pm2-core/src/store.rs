@@ -3,24 +3,16 @@
 use crate::normalize::{normalize_path, NormalizeMode};
 use crate::parse::{parse_line_bytes, LineKind, Method};
 use crate::relhist::RelHist;
-use hashbrown::hash_map::EntryRef;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashTable};
 use memchr::memchr;
-use rapidhash::fast::RandomState;
 
 const LINE_EXTEND: usize = 256 * 1024;
 /// Reusable ingest window. Keeps Wasm peak memory bounded.
-/// Wasm linear memory is committed in real pages and never returned on shrink,
-/// so this cap directly bounds per-worker RSS. Chunks are 16 MiB; 32 MiB gives
-/// headroom for the 256 KiB line-extend carry without paying for a 512 MiB
-/// window × worker pool.
 pub const INGEST_CAP: usize = 32 * 1024 * 1024;
 
-/// Path/norm indexes: rapidhash beats foldhash on byte keys.
-type ByteMap<V> = HashMap<Vec<u8>, V, RandomState>;
-
-fn new_byte_map<V>() -> ByteMap<V> {
-    HashMap::with_hasher(RandomState::default())
+#[inline(always)]
+fn hash_bytes(b: &[u8]) -> u64 {
+    rapidhash::v3::rapidhash_v3(b)
 }
 
 #[repr(C, align(16))]
@@ -83,7 +75,7 @@ pub struct Engine {
     path_bytes: Vec<u8>,
     path_off: Vec<u32>,
     path_len: Vec<u16>,
-    path_index: ByteMap<u32>,
+    path_table: HashTable<u32>,
 
     entries: Vec<PackedEntry>,
 
@@ -99,7 +91,7 @@ pub struct Engine {
     norm_bytes: [Vec<u8>; 3],
     norm_off: [Vec<u32>; 3],
     norm_len: [Vec<u16>; 3],
-    norm_index_map: [ByteMap<u32>; 3],
+    norm_table: [HashTable<u32>; 3],
     path_to_norm: [Vec<u32>; 3],
     mode_ready: [bool; 3],
 
@@ -110,6 +102,9 @@ pub struct Engine {
     summary_slow: u32,
     summary_sketch: RelHist,
     summary_ready: bool,
+
+    cached_hourly_wire: Vec<u8>,
+    cached_daily_wire: Vec<u8>,
 
     shard_start: u64,
     shard_end: u64,
@@ -128,7 +123,7 @@ impl Engine {
             path_bytes: Vec::new(),
             path_off: Vec::new(),
             path_len: Vec::new(),
-            path_index: new_byte_map(),
+            path_table: HashTable::new(),
             entries: Vec::new(),
             dates: Vec::new(),
             last_date: [0u8; 10],
@@ -140,7 +135,7 @@ impl Engine {
             norm_bytes: [Vec::new(), Vec::new(), Vec::new()],
             norm_off: [Vec::new(), Vec::new(), Vec::new()],
             norm_len: [Vec::new(), Vec::new(), Vec::new()],
-            norm_index_map: [new_byte_map(), new_byte_map(), new_byte_map()],
+            norm_table: [HashTable::new(), HashTable::new(), HashTable::new()],
             path_to_norm: [Vec::new(), Vec::new(), Vec::new()],
             mode_ready: [false; 3],
             summary_sum: 0.0,
@@ -149,6 +144,8 @@ impl Engine {
             summary_slow: 0,
             summary_sketch: RelHist::new(),
             summary_ready: false,
+            cached_hourly_wire: Vec::new(),
+            cached_daily_wire: Vec::new(),
             shard_start: 0,
             shard_end: 0,
             file_size: 0,
@@ -159,9 +156,6 @@ impl Engine {
     }
 
     pub fn clear(&mut self) {
-        // Release the columnar store entirely: Wasm linear memory never shrinks,
-        // so retaining Vec/HashMap capacity across parses pins multi-GB of pages
-        // per worker. Drop everything so the next parse reallocates as needed.
         *self = Self::new();
     }
 
@@ -200,19 +194,26 @@ impl Engine {
         self.carry.clear();
         self.carry_abs = 0;
         let span = end.saturating_sub(start) as usize;
-        let estimate = (span / 140).saturating_add(1024).min(4_000_000);
+        let estimate = (span / 140).saturating_add(65536);
         self.entries.reserve(estimate);
-        self.path_off.reserve(2048);
-        self.path_len.reserve(2048);
-        self.path_bytes.reserve(65536);
-        self.path_index.reserve(2048);
+        self.path_off.reserve(8192);
+        self.path_len.reserve(8192);
+        self.path_bytes.reserve(262144);
+        let path_off = &self.path_off;
+        let path_len = &self.path_len;
+        let path_bytes = &self.path_bytes;
+        self.path_table.reserve(8192, |&id| {
+            let off = path_off[id as usize] as usize;
+            let len = path_len[id as usize] as usize;
+            hash_bytes(&path_bytes[off..off + len])
+        });
     }
 
     fn reset_columns(&mut self) {
         self.path_bytes.clear();
         self.path_off.clear();
         self.path_len.clear();
-        self.path_index.clear();
+        self.path_table.clear();
         self.entries.clear();
         self.dates.clear();
         self.last_date = [0u8; 10];
@@ -225,7 +226,7 @@ impl Engine {
             self.norm_bytes[m].clear();
             self.norm_off[m].clear();
             self.norm_len[m].clear();
-            self.norm_index_map[m].clear();
+            self.norm_table[m].clear();
             self.path_to_norm[m].clear();
             self.mode_ready[m] = false;
         }
@@ -235,6 +236,8 @@ impl Engine {
         self.summary_slow = 0;
         self.summary_sketch = RelHist::new();
         self.summary_ready = false;
+        self.cached_hourly_wire.clear();
+        self.cached_daily_wire.clear();
         self.last_path_id = None;
     }
 
@@ -279,40 +282,26 @@ impl Engine {
             }
         }
 
-        let mut batch = [0usize; 32];
-        while i < len {
-            let abs_line_start = abs_off + i as u64;
+        let mut line_start = i;
+        for nl in memchr::memchr_iter(b'\n', &view[i..]) {
+            let line_end = i + nl;
+            let abs_line_start = abs_off + line_start as u64;
             if abs_line_start >= self.shard_end {
+                line_start = line_end + 1;
                 break;
             }
-            let rest = &view[i..];
-            let mut count = 0;
-            for nl_rel in memchr::memchr_iter(b'\n', rest) {
-                batch[count] = i + nl_rel;
-                count += 1;
-                if count == 32 {
-                    break;
-                }
-            }
+            self.accept_line(view, line_start, line_end);
+            line_start = line_end + 1;
+        }
 
-            if count > 0 {
-                let mut line_start = i;
-                for k in 0..count {
-                    let line_end = batch[k];
-                    self.accept_line(view, line_start, line_end);
-                    line_start = line_end + 1;
-                }
-                i = line_start;
-            } else {
-                let line_start = i;
-                if !at_file_end && abs_line_start < extend_limit {
-                    self.carry.clear();
-                    self.carry.extend_from_slice(&view[line_start..]);
-                    self.carry_abs = abs_line_start;
-                } else if at_file_end {
-                    self.accept_line(view, line_start, len);
-                }
-                break;
+        if line_start < len {
+            let abs_line_start = abs_off + line_start as u64;
+            if !at_file_end && abs_line_start < extend_limit {
+                self.carry.clear();
+                self.carry.extend_from_slice(&view[line_start..]);
+                self.carry_abs = abs_line_start;
+            } else if at_file_end && abs_line_start < self.shard_end {
+                self.accept_line(view, line_start, len);
             }
         }
 
@@ -428,88 +417,30 @@ impl Engine {
         }
         self.parsing = false;
         self.ingest.clear();
-        self.build_summary();
+        self.build_summary_and_meta();
     }
 
-    /// One-time unfiltered summary (filter-independent).
-    fn build_summary(&mut self) {
+    /// One-time single-pass computation of summary, hourly stats, and daily stats.
+    fn build_summary_and_meta(&mut self) {
         if self.summary_ready {
             return;
         }
-        let mut sum = 0.0f64;
-        let mut max = 0.0f32;
-        let mut errors = 0u32;
-        let mut slow = 0u32;
-        let mut sketch = RelHist::new();
-        for entry in &self.entries {
-            let d = entry.duration;
-            let st = entry.status;
-            sum += d as f64;
-            sketch.accept(d);
-            if d > max {
-                max = d;
-            }
-            if st >= 400 {
-                errors += 1;
-            }
-            if d >= 3000.0 {
-                slow += 1;
-            }
-        }
-        self.summary_sum = sum;
-        self.summary_max = max;
-        self.summary_errors = errors;
-        self.summary_slow = slow;
-        self.summary_sketch = sketch;
-        self.summary_ready = true;
-    }
 
-    /// Encode filter-independent hour-of-day request statistics.
-    pub fn hourly_wire(&self) -> Vec<u8> {
-        let mut buckets: Vec<HourlyAcc> = (0..24)
-            .map(|_| HourlyAcc {
-                count: 0,
-                error_count: 0,
-                sum: 0.0,
-                max: 0.0,
-                sketch: RelHist::new(),
-            })
-            .collect();
+        let mut sum_sum = 0.0f64;
+        let mut sum_max = 0.0f32;
+        let mut sum_errors = 0u32;
+        let mut sum_slow = 0u32;
+        let mut sum_sketch = RelHist::new();
 
-        for entry in &self.entries {
-            let Some(bucket) = buckets.get_mut(entry.hour as usize) else {
-                continue;
-            };
-            bucket.count += 1;
-            bucket.sum += entry.duration as f64;
-            if entry.duration > bucket.max {
-                bucket.max = entry.duration;
-            }
-            if entry.status >= 400 {
-                bucket.error_count += 1;
-            }
-            bucket.sketch.accept(entry.duration);
-        }
+        let mut hourly_buckets: [HourlyAcc; 24] = std::array::from_fn(|_| HourlyAcc {
+            count: 0,
+            error_count: 0,
+            sum: 0.0,
+            max: 0.0,
+            sketch: RelHist::new(),
+        });
 
-        encode_hourly_vec(&buckets)
-    }
-
-    /// Encode list of unique dates seen in logs.
-    pub fn dates_wire(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        out.extend_from_slice(&(self.dates.len() as u32).to_le_bytes());
-        for d in &self.dates {
-            write_bytes(&mut out, d);
-        }
-        out
-    }
-
-    /// Encode daily summary stats and per-date hourly breakdown.
-    pub fn daily_wire(&self) -> Vec<u8> {
-        if self.dates.is_empty() {
-            return Vec::new();
-        }
-        let mut accs: Vec<DailyAcc> = self
+        let mut daily_accs: Vec<DailyAcc> = self
             .dates
             .iter()
             .map(|&d| DailyAcc {
@@ -530,43 +461,110 @@ impl Engine {
             })
             .collect();
 
-        for entry in &self.entries {
-            if entry.date_id == 0 {
-                continue;
-            }
-            let idx = (entry.date_id - 1) as usize;
-            if let Some(acc) = accs.get_mut(idx) {
-                let d = entry.duration;
-                let st = entry.status;
-                acc.count += 1;
-                acc.sum += d as f64;
-                if d > acc.max {
-                    acc.max = d;
-                }
-                if st >= 400 {
-                    acc.error_count += 1;
-                }
-                if d >= 3000.0 {
-                    acc.slow_count += 1;
-                }
-                acc.sketch.accept(d);
+        use crate::relhist::relhist_key;
 
-                if (entry.hour as usize) < 24 {
-                    let h_bucket = &mut acc.hourly[entry.hour as usize];
-                    h_bucket.count += 1;
-                    h_bucket.sum += d as f64;
-                    if d > h_bucket.max {
-                        h_bucket.max = d;
+        for entry in &self.entries {
+            let d = entry.duration;
+            let st = entry.status;
+            let h = entry.hour as usize;
+            let is_err = st >= 400;
+            let is_slow = d >= 3000.0;
+            let k = relhist_key(d);
+
+            sum_sum += d as f64;
+            if d > sum_max {
+                sum_max = d;
+            }
+            if is_err {
+                sum_errors += 1;
+            }
+            if is_slow {
+                sum_slow += 1;
+            }
+            if let Some(key) = k {
+                sum_sketch.accept_key(key);
+            }
+
+            if h < 24 {
+                let hb = &mut hourly_buckets[h];
+                hb.count += 1;
+                hb.sum += d as f64;
+                if d > hb.max {
+                    hb.max = d;
+                }
+                if is_err {
+                    hb.error_count += 1;
+                }
+                if let Some(key) = k {
+                    hb.sketch.accept_key(key);
+                }
+            }
+
+            if entry.date_id != 0 {
+                let didx = (entry.date_id - 1) as usize;
+                if let Some(da) = daily_accs.get_mut(didx) {
+                    da.count += 1;
+                    da.sum += d as f64;
+                    if d > da.max {
+                        da.max = d;
                     }
-                    if st >= 400 {
-                        h_bucket.error_count += 1;
+                    if is_err {
+                        da.error_count += 1;
                     }
-                    h_bucket.sketch.accept(d);
+                    if is_slow {
+                        da.slow_count += 1;
+                    }
+                    if let Some(key) = k {
+                        da.sketch.accept_key(key);
+                    }
+
+                    if h < 24 {
+                        let dh = &mut da.hourly[h];
+                        dh.count += 1;
+                        dh.sum += d as f64;
+                        if d > dh.max {
+                            dh.max = d;
+                        }
+                        if is_err {
+                            dh.error_count += 1;
+                        }
+                        if let Some(key) = k {
+                            dh.sketch.accept_key(key);
+                        }
+                    }
                 }
             }
         }
 
-        encode_daily_vec(&accs)
+        self.summary_sum = sum_sum;
+        self.summary_max = sum_max;
+        self.summary_errors = sum_errors;
+        self.summary_slow = sum_slow;
+        self.summary_sketch = sum_sketch;
+        self.summary_ready = true;
+
+        self.cached_hourly_wire = encode_hourly_vec(&hourly_buckets);
+        self.cached_daily_wire = encode_daily_vec(&daily_accs);
+    }
+
+    /// Encode filter-independent hour-of-day request statistics.
+    pub fn hourly_wire(&self) -> Vec<u8> {
+        self.cached_hourly_wire.clone()
+    }
+
+    /// Encode list of unique dates seen in logs.
+    pub fn dates_wire(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&(self.dates.len() as u32).to_le_bytes());
+        for d in &self.dates {
+            write_bytes(&mut out, d);
+        }
+        out
+    }
+
+    /// Encode daily summary stats and per-date hourly breakdown.
+    pub fn daily_wire(&self) -> Vec<u8> {
+        self.cached_daily_wire.clone()
     }
 
     /// Summary wire for coordinator cache (same fields as PM2P summary block).
@@ -694,21 +692,36 @@ impl Engine {
                 }
             }
         }
+        let hash = hash_bytes(path);
+        let path_bytes = &self.path_bytes;
+        let path_off = &self.path_off;
+        let path_len = &self.path_len;
+        if let Some(&id) = self.path_table.find(hash, |&id| {
+            let off = path_off[id as usize] as usize;
+            let len = path_len[id as usize] as usize;
+            &path_bytes[off..off + len] == path
+        }) {
+            self.last_path_id = Some(id);
+            return id;
+        }
+
         let next_id = self.path_off.len() as u32;
-        let pid = match self.path_index.entry_ref(path) {
-            EntryRef::Occupied(e) => *e.get(),
-            EntryRef::Vacant(e) => {
-                e.insert(next_id);
-                let off = self.path_bytes.len() as u32;
-                self.path_bytes.extend_from_slice(path);
-                self.path_off.push(off);
-                self.path_len.push(path.len() as u16);
-                self.mode_ready = [false; 3];
-                next_id
-            }
-        };
-        self.last_path_id = Some(pid);
-        pid
+        let off = self.path_bytes.len() as u32;
+        self.path_bytes.extend_from_slice(path);
+        self.path_off.push(off);
+        self.path_len.push(path.len() as u16);
+        self.mode_ready = [false; 3];
+
+        let path_bytes = &self.path_bytes;
+        let path_off = &self.path_off;
+        let path_len = &self.path_len;
+        self.path_table.insert_unique(hash, next_id, |&id| {
+            let off = path_off[id as usize] as usize;
+            let len = path_len[id as usize] as usize;
+            hash_bytes(&path_bytes[off..off + len])
+        });
+        self.last_path_id = Some(next_id);
+        next_id
     }
 
     fn path_slice(&self, id: usize) -> &[u8] {
@@ -724,18 +737,33 @@ impl Engine {
         Some(self.path_slice(path_id).to_vec())
     }
 
-    fn intern_norm(&mut self, mode: usize, path: &[u8]) -> u32 {
-        let next_id = self.norm_off[mode].len() as u32;
-        match self.norm_index_map[mode].entry_ref(path) {
-            EntryRef::Occupied(e) => return *e.get(),
-            EntryRef::Vacant(e) => {
-                e.insert(next_id);
-            }
+    fn intern_norm_into(
+        norm_bytes: &mut Vec<u8>,
+        norm_off: &mut Vec<u32>,
+        norm_len: &mut Vec<u16>,
+        norm_table: &mut HashTable<u32>,
+        path: &[u8],
+    ) -> u32 {
+        let hash = hash_bytes(path);
+        if let Some(&id) = norm_table.find(hash, |&id| {
+            let off = norm_off[id as usize] as usize;
+            let len = norm_len[id as usize] as usize;
+            &norm_bytes[off..off + len] == path
+        }) {
+            return id;
         }
-        let off = self.norm_bytes[mode].len() as u32;
-        self.norm_bytes[mode].extend_from_slice(path);
-        self.norm_off[mode].push(off);
-        self.norm_len[mode].push(path.len() as u16);
+
+        let next_id = norm_off.len() as u32;
+        let off = norm_bytes.len() as u32;
+        norm_bytes.extend_from_slice(path);
+        norm_off.push(off);
+        norm_len.push(path.len() as u16);
+
+        norm_table.insert_unique(hash, next_id, |&id| {
+            let off = norm_off[id as usize] as usize;
+            let len = norm_len[id as usize] as usize;
+            hash_bytes(&norm_bytes[off..off + len])
+        });
         next_id
     }
 
@@ -757,48 +785,32 @@ impl Engine {
         self.norm_bytes[m].clear();
         self.norm_off[m].clear();
         self.norm_len[m].clear();
-        self.norm_index_map[m].clear();
+        self.norm_table[m].clear();
         self.path_to_norm[m].resize(self.path_off.len(), 0);
         let mode_enum = NormalizeMode::from_u8(mode);
-        for pid in 0..self.path_off.len() {
-            let off = self.path_off[pid] as usize;
-            let len = self.path_len[pid] as usize;
-            // Normalize may borrow path_bytes; intern without into_owned when unchanged.
-            let owned: Option<Vec<u8>>;
-            let borrow_off: usize;
-            let borrow_len: usize;
-            {
-                let raw = &self.path_bytes[off..off + len];
-                match normalize_path(raw, mode_enum) {
-                    std::borrow::Cow::Owned(v) => {
-                        owned = Some(v);
-                        borrow_off = 0;
-                        borrow_len = 0;
-                    }
-                    std::borrow::Cow::Borrowed(b) => {
-                        borrow_off = b.as_ptr() as usize - self.path_bytes.as_ptr() as usize;
-                        borrow_len = b.len();
-                        owned = None;
-                    }
-                }
-            }
-            let nid = if let Some(ref v) = owned {
-                self.intern_norm(m, v)
-            } else {
-                self.intern_norm_from_path_bytes(m, borrow_off, borrow_len)
-            };
-            self.path_to_norm[m][pid] = nid;
+        let norm_bytes = &mut self.norm_bytes[m];
+        let norm_off = &mut self.norm_off[m];
+        let norm_len = &mut self.norm_len[m];
+        let norm_table = &mut self.norm_table[m];
+        let path_bytes = &self.path_bytes;
+        let path_off = &self.path_off;
+        let path_len = &self.path_len;
+        let path_to_norm = &mut self.path_to_norm[m];
+        for pid in 0..path_off.len() {
+            let off = path_off[pid] as usize;
+            let len = path_len[pid] as usize;
+            let raw = &path_bytes[off..off + len];
+            let norm_path = normalize_path(raw, mode_enum);
+            let nid = Self::intern_norm_into(
+                norm_bytes,
+                norm_off,
+                norm_len,
+                norm_table,
+                norm_path.as_ref(),
+            );
+            path_to_norm[pid] = nid;
         }
         self.mode_ready[m] = true;
-    }
-
-    /// Intern a norm key that lives in `path_bytes` (no intermediate Vec when already present).
-    fn intern_norm_from_path_bytes(&mut self, mode: usize, off: usize, len: usize) -> u32 {
-        if let Some(&id) = self.norm_index_map[mode].get(&self.path_bytes[off..off + len]) {
-            return id;
-        }
-        let key = self.path_bytes[off..off + len].to_vec();
-        self.intern_norm(mode, &key)
     }
 
     pub fn finalize_paths(&mut self) {
@@ -817,13 +829,14 @@ impl Engine {
     ) -> Vec<u8> {
         self.ensure_mode(normalize_mode);
         let mode = NormalizeMode::from_u8(normalize_mode) as usize;
-        let status_want: i32 = match status_family {
-            2 => 2,
-            3 => 3,
-            4 => 4,
-            5 => 5,
-            _ => -1,
+        let (status_min, status_max) = match status_family {
+            2 => (200u16, 299u16),
+            3 => (300u16, 399u16),
+            4 => (400u16, 499u16),
+            5 => (500u16, 599u16),
+            _ => (0u16, 0u16),
         };
+        let filter_status = status_min != 0;
         let target_date_id: u16 = if date_filter.is_empty() {
             0
         } else {
@@ -905,11 +918,11 @@ impl Engine {
             if duration_ms < min_ms {
                 continue;
             }
-            let method_code = e.method;
-            if status_want != -1 && ((status / 100) as i32) != status_want {
+            if filter_status && (status < status_min || status > status_max) {
                 continue;
             }
 
+            let method_code = e.method;
             let path_id = e.path_id as usize;
             let norm_id = path_to_norm[path_id];
             let key = ((norm_id as u64) << 3) | (method_code as u64);

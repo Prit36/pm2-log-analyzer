@@ -91,7 +91,7 @@ export type ShardReady = { type: "SHARD_READY" };
 
 export type ShardModeReady = { type: "SHARD_MODE_READY"; epoch: number };
 
-const CHUNK = 16 * 1024 * 1024;
+const CHUNK = 32 * 1024 * 1024;
 const LINE_EXTEND = 256 * 1024;
 
 let engine: Pm2Engine | null = null;
