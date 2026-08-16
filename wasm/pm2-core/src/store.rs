@@ -15,16 +15,47 @@ fn hash_bytes(b: &[u8]) -> u64 {
     rapidhash::v3::rapidhash_v3(b)
 }
 
-#[repr(C, align(16))]
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PackedEntry {
     pub path_id: u32,
     pub duration: f32,
-    pub status: u16,
-    pub method: u8,
-    pub hour: u8,
-    pub date_id: u16,
-    pub _pad: [u8; 2],
+    pub meta: u32, // status:16, method:3, hour:5, date_id:8
+}
+
+impl PackedEntry {
+    #[inline(always)]
+    pub fn new(path_id: u32, duration: f32, status: u16, method: u8, hour: u8, date_id: u16) -> Self {
+        let meta = (status as u32)
+            | ((method as u32) << 16)
+            | (((hour.min(31)) as u32) << 19)
+            | (((date_id & 0xFF) as u32) << 24);
+        Self {
+            path_id,
+            duration,
+            meta,
+        }
+    }
+
+    #[inline(always)]
+    pub fn status(self) -> u16 {
+        self.meta as u16
+    }
+
+    #[inline(always)]
+    pub fn method(self) -> u8 {
+        ((self.meta >> 16) & 0x7) as u8
+    }
+
+    #[inline(always)]
+    pub fn hour(self) -> u8 {
+        ((self.meta >> 19) & 0x1F) as u8
+    }
+
+    #[inline(always)]
+    pub fn date_id(self) -> u16 {
+        ((self.meta >> 24) & 0xFF) as u16
+    }
 }
 
 #[derive(Clone)]
@@ -112,7 +143,7 @@ pub struct Engine {
     skip_partial: bool,
     parsing: bool,
     last_path_id: Option<u32>,
-    path_cache: [(u64, u32); 256],
+    path_cache: [(u64, u32); 1024],
 }
 
 impl Engine {
@@ -153,7 +184,7 @@ impl Engine {
             skip_partial: false,
             parsing: false,
             last_path_id: None,
-            path_cache: [(0, u32::MAX); 256],
+            path_cache: [(0, u32::MAX); 1024],
         }
     }
 
@@ -216,7 +247,7 @@ impl Engine {
         self.path_off.clear();
         self.path_len.clear();
         self.path_table.clear();
-        self.path_cache = [(0, u32::MAX); 256];
+        self.path_cache = [(0, u32::MAX); 1024];
         self.entries.clear();
         self.dates.clear();
         self.last_date = [0u8; 10];
@@ -328,6 +359,48 @@ impl Engine {
         let at_file_end = chunk_end >= self.file_size;
         let extend_limit = self.shard_end + LINE_EXTEND as u64;
         let ingest_view = &ingest[..len];
+
+        // Fast path: carry is empty (99.9% of chunks after first line)
+        if carry.is_empty() {
+            let buf_abs = abs_off;
+            let mut i = 0usize;
+            if self.skip_partial {
+                if let Some(nl) = memchr(b'\n', ingest_view) {
+                    i = nl + 1;
+                    self.skip_partial = false;
+                } else {
+                    if !at_file_end {
+                        self.carry.extend_from_slice(ingest_view);
+                        self.carry_abs = carry_abs;
+                    }
+                    self.ingest = ingest;
+                    return 0;
+                }
+            }
+
+            while i < len {
+                let line_start = i;
+                let abs_line_start = buf_abs + line_start as u64;
+                if abs_line_start >= self.shard_end {
+                    break;
+                }
+                if let Some(rel) = memchr(b'\n', &ingest_view[i..]) {
+                    let line_end = i + rel;
+                    self.accept_line(ingest_view, line_start, line_end);
+                    i = line_end + 1;
+                } else {
+                    if !at_file_end && abs_line_start < extend_limit {
+                        self.carry.clear();
+                        self.carry_abs = abs_line_start;
+                        self.carry.extend_from_slice(&ingest_view[line_start..]);
+                    }
+                    break;
+                }
+            }
+
+            self.ingest = ingest;
+            return (self.entries.len() - before) as u32;
+        }
 
         let total = carry.len() + len;
         let buf_abs = carry_abs;
@@ -468,8 +541,8 @@ impl Engine {
 
         for entry in &self.entries {
             let d = entry.duration;
-            let st = entry.status;
-            let h = entry.hour as usize;
+            let st = entry.status();
+            let h = entry.hour() as usize;
             let is_err = st >= 400;
             let is_slow = d >= 3000.0;
             let k = relhist_key(d);
@@ -503,8 +576,9 @@ impl Engine {
                 }
             }
 
-            if entry.date_id != 0 {
-                let didx = (entry.date_id - 1) as usize;
+            let did = entry.date_id();
+            if did != 0 {
+                let didx = (did - 1) as usize;
                 if let Some(da) = daily_accs.get_mut(didx) {
                     da.count += 1;
                     da.sum += d as f64;
@@ -635,15 +709,14 @@ impl Engine {
                     }
                     None => 0,
                 };
-                self.entries.push(PackedEntry {
-                    path_id: pid,
-                    duration: duration_ms,
+                self.entries.push(PackedEntry::new(
+                    pid,
+                    duration_ms,
                     status,
-                    method: method as u8,
-                    hour: hour.unwrap_or(255),
+                    method as u8,
+                    hour.unwrap_or(255),
                     date_id,
-                    _pad: [0, 0],
-                });
+                ));
                 self.methods_mask |= 1u8 << (method as u8);
             }
             LineKind::Unmatched => {
@@ -696,7 +769,7 @@ impl Engine {
             }
         }
         let hash = hash_bytes(path);
-        let slot = (hash as usize) & 255;
+        let slot = (hash as usize) & 1023;
         let (cached_hash, cached_id) = self.path_cache[slot];
         if cached_hash == hash && cached_id != u32::MAX {
             let id_usize = cached_id as usize;
@@ -912,13 +985,13 @@ impl Engine {
 
         for i in 0..n {
             let e = self.entries[i];
-            if target_date_id != 0 && e.date_id != target_date_id {
+            if target_date_id != 0 && e.date_id() != target_date_id {
                 continue;
             }
             matched_count += 1;
 
             let duration_ms = e.duration;
-            let status = e.status;
+            let status = e.status();
 
             if !use_cached_summary && need_summary {
                 sum_sum += duration_ms as f64;
@@ -941,7 +1014,7 @@ impl Engine {
                 continue;
             }
 
-            let method_code = e.method;
+            let method_code = e.method();
             let path_id = e.path_id as usize;
             let norm_id = path_to_norm[path_id];
             let key = ((norm_id as u64) << 3) | (method_code as u64);

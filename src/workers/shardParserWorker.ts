@@ -98,16 +98,12 @@ let engine: Pm2Engine | null = null;
 let wasmMemory: WebAssembly.Memory | null = null;
 let ready = false;
 
-function heapU8(): Uint8Array {
-  return new Uint8Array(wasmMemory!.buffer);
-}
-
 /** Write bytes into Wasm ingest window; return length written. */
 function writeIngest(src: Uint8Array): number {
   const len = src.length;
   const ptr = engine!.ingest_ptr(len);
   // Re-read heap after possible grow from ingest_ptr.
-  heapU8().set(src, ptr);
+  new Uint8Array(wasmMemory!.buffer).set(src, ptr);
   return len;
 }
 

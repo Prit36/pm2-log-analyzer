@@ -135,7 +135,7 @@ let parseWallOrigin = 0;
 
 function poolSize(): number {
   const hc = globalThis.navigator?.hardwareConcurrency ?? 4;
-  return Math.max(2, Math.min(6, hc));
+  return Math.max(2, Math.min(5, hc));
 }
 
 function shardCountFor(fileSize: number): number {
