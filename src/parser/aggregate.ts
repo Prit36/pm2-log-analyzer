@@ -270,7 +270,8 @@ export function finishApiFromPartials(
   let sumSlow = 0;
   let sumSketch: RelHist | null = null;
 
-  for (const p of partials) {
+  for (let pi = 0; pi < partials.length; pi++) {
+    const p = partials[pi]!;
     if (p.summary) {
       if (!sumSketch) sumSketch = makeRelHist();
       sumSketch.mergeWire(p.summary.sketch);
@@ -279,11 +280,13 @@ export function finishApiFromPartials(
       sumErrors += p.summary.errors;
       sumSlow += p.summary.slow;
     }
-    for (const b of p.buckets) {
-      const key = `${b.method} ${b.path}`;
-      let m = byNorm.get(key);
-      if (!m) {
-        m = {
+    const buckets = p.buckets;
+    const bucketLen = buckets.length;
+    if (pi === 0) {
+      for (let bi = 0; bi < bucketLen; bi++) {
+        const b = buckets[bi]!;
+        const key = b.method + " " + b.path;
+        byNorm.set(key, {
           method: b.method,
           path: b.path,
           sketch: RelHist.fromWire(b.sketch),
@@ -292,15 +295,32 @@ export function finishApiFromPartials(
           min: b.min,
           max: b.max,
           errorCount: b.errorCount,
-        };
-        byNorm.set(key, m);
-      } else {
-        m.sketch.mergeWire(b.sketch);
-        m.count += b.count;
-        m.sum += b.sum;
-        if (b.min < m.min) m.min = b.min;
-        if (b.max > m.max) m.max = b.max;
-        m.errorCount += b.errorCount;
+        });
+      }
+    } else {
+      for (let bi = 0; bi < bucketLen; bi++) {
+        const b = buckets[bi]!;
+        const key = b.method + " " + b.path;
+        const m = byNorm.get(key);
+        if (!m) {
+          byNorm.set(key, {
+            method: b.method,
+            path: b.path,
+            sketch: RelHist.fromWire(b.sketch),
+            count: b.count,
+            sum: b.sum,
+            min: b.min,
+            max: b.max,
+            errorCount: b.errorCount,
+          });
+        } else {
+          m.sketch.mergeWire(b.sketch);
+          m.count += b.count;
+          m.sum += b.sum;
+          if (b.min < m.min) m.min = b.min;
+          if (b.max > m.max) m.max = b.max;
+          m.errorCount += b.errorCount;
+        }
       }
     }
   }
@@ -311,16 +331,17 @@ export function finishApiFromPartials(
   const api: AggregatedEndpoint[] = [];
   for (const [key, v] of byNorm) {
     const c = v.count;
+    const [p50Ms, p90Ms, p95Ms, p99Ms] = v.sketch.quantiles4();
     api.push({
       key,
       method: v.method,
       path: v.path,
       count: c,
       avgMs: c ? v.sum / c : 0,
-      p50Ms: sketchQuantile(v.sketch, 0.5, c),
-      p90Ms: sketchQuantile(v.sketch, 0.9, c),
-      p95Ms: sketchQuantile(v.sketch, 0.95, c),
-      p99Ms: sketchQuantile(v.sketch, 0.99, c),
+      p50Ms,
+      p90Ms,
+      p95Ms,
+      p99Ms,
       minMs: c ? v.min : 0,
       maxMs: c ? v.max : 0,
       errorCount: v.errorCount,

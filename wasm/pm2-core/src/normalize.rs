@@ -32,21 +32,18 @@ fn is_long_numeric(seg: &[u8]) -> bool {
 }
 
 fn is_uuid(seg: &[u8]) -> bool {
-    // 8-4-4-4-12 hex with dashes
+    // 8-4-4-4-12 hex with dashes (36 bytes)
     if seg.len() != 36 {
         return false;
     }
-    let positions = [8usize, 13, 18, 23];
-    for (i, &c) in seg.iter().enumerate() {
-        if positions.contains(&i) {
-            if c != b'-' {
-                return false;
-            }
-        } else if !c.is_ascii_hexdigit() {
-            return false;
-        }
+    if seg[8] != b'-' || seg[13] != b'-' || seg[18] != b'-' || seg[23] != b'-' {
+        return false;
     }
-    true
+    seg[..8].iter().all(|&c| c.is_ascii_hexdigit())
+        && seg[9..13].iter().all(|&c| c.is_ascii_hexdigit())
+        && seg[14..18].iter().all(|&c| c.is_ascii_hexdigit())
+        && seg[19..23].iter().all(|&c| c.is_ascii_hexdigit())
+        && seg[24..].iter().all(|&c| c.is_ascii_hexdigit())
 }
 
 fn is_pr_id(seg: &[u8]) -> bool {
@@ -55,7 +52,7 @@ fn is_pr_id(seg: &[u8]) -> bool {
         return false;
     }
     let rest = &seg[3..];
-    let Some(dash) = rest.iter().position(|&c| c == b'-') else {
+    let Some(dash) = memchr::memchr(b'-', rest) else {
         return false;
     };
     let letters = &rest[..dash];
@@ -78,12 +75,12 @@ fn eq_ignore_ascii_case_prefix(hay: &[u8], needle: &[u8]) -> bool {
 
 fn is_code_id(seg: &[u8]) -> bool {
     // [A-Z]{2,}-[A-Z]{2,}-\d{6,}
-    let Some(d1) = seg.iter().position(|&c| c == b'-') else {
+    let Some(d1) = memchr::memchr(b'-', seg) else {
         return false;
     };
     let a = &seg[..d1];
     let rest = &seg[d1 + 1..];
-    let Some(d2) = rest.iter().position(|&c| c == b'-') else {
+    let Some(d2) = memchr::memchr(b'-', rest) else {
         return false;
     };
     let b = &rest[..d2];
@@ -112,7 +109,7 @@ pub fn normalize_path(path: &[u8], mode: NormalizeMode) -> Cow<'_, [u8]> {
     }
     let mut p = path;
     if matches!(mode, NormalizeMode::StripQuery | NormalizeMode::CollapseIds) {
-        if let Some(q) = path.iter().position(|&c| c == b'?') {
+        if let Some(q) = memchr::memchr(b'?', path) {
             p = &path[..q];
         }
     }

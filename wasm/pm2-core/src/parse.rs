@@ -151,6 +151,26 @@ fn parse_method(buf: &[u8], mut i: usize, end: usize) -> Option<(Method, usize)>
     if i >= end {
         return None;
     }
+    // Fast path: method + space delimiter
+    if i + 4 <= end && &buf[i..i + 4] == b"GET " {
+        return Some((Method::Get, i + 4));
+    }
+    if i + 5 <= end && &buf[i..i + 5] == b"POST " {
+        return Some((Method::Post, i + 5));
+    }
+    if i + 4 <= end && &buf[i..i + 4] == b"PUT " {
+        return Some((Method::Put, i + 4));
+    }
+    if i + 6 <= end && &buf[i..i + 6] == b"PATCH " {
+        return Some((Method::Patch, i + 6));
+    }
+    if i + 7 <= end && &buf[i..i + 7] == b"DELETE " {
+        return Some((Method::Delete, i + 7));
+    }
+    if i + 5 <= end && &buf[i..i + 5] == b"HEAD " {
+        return Some((Method::Head, i + 5));
+    }
+
     let (m, len) = match buf[i] {
         b'G' => {
             if i + 3 <= end && &buf[i..i + 3] == b"GET" {
@@ -203,17 +223,12 @@ fn read_token(buf: &[u8], mut i: usize, end: usize) -> Option<(usize, usize, usi
         return None;
     }
     let start = i;
-    while i < end {
-        let c = buf[i];
-        if c == b' ' || c == b'\t' || c == 0x1b {
-            break;
-        }
-        i += 1;
-    }
-    if i == start {
+    let tok_len = memchr::memchr3(b' ', b'\t', 0x1b, &buf[start..end]).unwrap_or(end - start);
+    if tok_len == 0 {
         return None;
     }
-    Some((start, i, i))
+    let token_end = start + tok_len;
+    Some((start, token_end, token_end))
 }
 
 const INV_POW10: [f32; 10] = [
@@ -426,15 +441,20 @@ fn try_http_a(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
     let status = ((s0 - b'0') as u16) * 100 + ((s1 - b'0') as u16) * 10 + ((s2 - b'0') as u16);
     i = after_status;
     let (dur, ni) = parse_float(buf, i, end)?;
-    i = skip_space_ansi(buf, ni, end);
-    if i + 1 >= end || buf[i] != b'm' || buf[i + 1] != b's' {
-        return None;
+    // Fast path: " ms - " is standard PM2 HTTP log format
+    if ni + 6 <= end && &buf[ni..ni + 6] == b" ms - " {
+        i = ni + 6;
+    } else {
+        i = skip_space_ansi(buf, ni, end);
+        if i + 1 >= end || buf[i] != b'm' || buf[i + 1] != b's' {
+            return None;
+        }
+        i = skip_space_ansi(buf, i + 2, end);
+        if i >= end || buf[i] != b'-' {
+            return None;
+        }
+        i = skip_space_ansi(buf, i + 1, end);
     }
-    i = skip_space_ansi(buf, i + 2, end);
-    if i >= end || buf[i] != b'-' {
-        return None;
-    }
-    i = skip_space_ansi(buf, i + 1, end);
     if i >= end {
         return None;
     }
