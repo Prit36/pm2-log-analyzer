@@ -123,6 +123,17 @@ function generateThemeXml(): string {
 function generateStylesXml(theme: ChartTheme = "light"): string {
   const isDark = theme === "dark";
 
+  // Dark mode paints an opaque slate-900 canvas behind every cell (sheets have no
+  // global background, so unfilled cells render white and light text disappears).
+  // Must match the chart canvas color in chartRenderer.ts (#0f172a).
+  const bgFillId = isDark ? 6 : 0;
+  const bgApply = isDark ? ' applyFill="1"' : "";
+  // Headers are white text in both themes and always carry an explicit fill —
+  // without one they are invisible in viewers that ignore table styles.
+  // Light uses 4F81BD (= theme accent1, what TableStyleMedium2 renders in Excel).
+  const headerFillColor = isDark ? "FF1E293B" : "FF4F81BD";
+  const headerFillId = isDark ? 7 : 6;
+
   // Palette definitions based on theme
   const normalColor = isDark ? "FFF1F5F9" : "FF000000";
   const titleColor = isDark ? "FFF8FAFC" : "FF0F172A";
@@ -139,7 +150,6 @@ function generateStylesXml(theme: ChartTheme = "light"): string {
   const kpiHeaderFontColor = isDark ? "FF94A3B8" : "FF475569";
   const kpiHeaderFillColor = isDark ? "FF1E293B" : "FFF1F5F9";
   const totalRowColor = isDark ? "FFF8FAFC" : "FF0F172A";
-  const errorFillColor = isDark ? "FF7F1D1D" : "FFFEE2E2";
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -170,7 +180,7 @@ function generateStylesXml(theme: ChartTheme = "light"): string {
     <!-- 10: Total Row Font (${totalRowColor}, 11pt Bold, Calibri) -->
     <font><b/><sz val="11"/><color rgb="${totalRowColor}"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font>
   </fonts>
-  <fills count="7">
+  <fills count="${isDark ? 8 : 7}">
     <!-- 0: None -->
     <fill><patternFill patternType="none"/></fill>
     <!-- 1: Gray125 -->
@@ -183,8 +193,14 @@ function generateStylesXml(theme: ChartTheme = "light"): string {
     <fill><patternFill patternType="solid"><fgColor rgb="${otherBadgeFillColor}"/></patternFill></fill>
     <!-- 5: KPI Header Fill -->
     <fill><patternFill patternType="solid"><fgColor rgb="${kpiHeaderFillColor}"/></patternFill></fill>
-    <!-- 6: Error count fill -->
-    <fill><patternFill patternType="solid"><fgColor rgb="${errorFillColor}"/></patternFill></fill>
+    <!-- 6: ${isDark ? "Dark canvas background (matches chart bg #0f172a)" : "Table header blue (accent1)"} -->
+    <fill><patternFill patternType="solid"><fgColor rgb="${isDark ? "FF0F172A" : headerFillColor}"/></patternFill></fill>${
+      isDark
+        ? `
+    <!-- 7: Dark table header fill -->
+    <fill><patternFill patternType="solid"><fgColor rgb="${headerFillColor}"/></patternFill></fill>`
+        : ""
+    }
   </fills>
   <borders count="1">
     <border><left/><right/><top/><bottom/><diagonal/></border>
@@ -192,13 +208,13 @@ function generateStylesXml(theme: ChartTheme = "light"): string {
   <cellStyleXfs count="1">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" applyFont="1"/>
   </cellStyleXfs>
-  <cellXfs count="13">
+  <cellXfs count="${isDark ? 14 : 13}">
     <!-- 0: Default Normal Cell -->
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyFont="1"/>
     <!-- 1: Title (16pt Bold) -->
-    <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="${bgFillId}" borderId="0" xfId="0" applyFont="1"${bgApply} applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
     <!-- 2: Subtitle (11pt Slate) -->
-    <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="${bgFillId}" borderId="0" xfId="0" applyFont="1"${bgApply} applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
     <!-- 3: GET badge -->
     <xf numFmtId="0" fontId="3" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <!-- 4: POST badge -->
@@ -206,19 +222,25 @@ function generateStylesXml(theme: ChartTheme = "light"): string {
     <!-- 5: OTHER badge -->
     <xf numFmtId="0" fontId="5" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <!-- 6: Milliseconds format (#,##0.0 ms) -->
-    <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1"/>
+    <xf numFmtId="164" fontId="0" fillId="${bgFillId}" borderId="0" xfId="0" applyFont="1"${bgApply} applyNumberFormat="1"/>
     <!-- 7: KPI Header -->
     <xf numFmtId="0" fontId="9" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <!-- 8: KPI Value -->
-    <xf numFmtId="0" fontId="7" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="7" fillId="${bgFillId}" borderId="0" xfId="0" applyFont="1"${bgApply} applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <!-- 9: Dark/Light Endpoint / Text Cell (Calibri 11pt) -->
-    <xf numFmtId="0" fontId="8" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
-    <!-- 10: Table Header (11pt Bold White Calibri) -->
-    <xf numFmtId="0" fontId="6" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="8" fillId="${bgFillId}" borderId="0" xfId="0" applyFont="1"${bgApply} applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+    <!-- 10: Table Header (11pt Bold White on explicit header fill) -->
+    <xf numFmtId="0" fontId="6" fillId="${headerFillId}" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
     <!-- 11: Number Cell (11pt Calibri) -->
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+    <xf numFmtId="0" fontId="0" fillId="${bgFillId}" borderId="0" xfId="0" applyFont="1"${bgApply}/>
     <!-- 12: Total Row Label (11pt Bold Calibri) -->
-    <xf numFmtId="0" fontId="10" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="10" fillId="${bgFillId}" borderId="0" xfId="0" applyFont="1"${bgApply} applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>${
+      isDark
+        ? `
+    <!-- 13: Dark canvas background for empty cells / column defaults -->
+    <xf numFmtId="0" fontId="0" fillId="6" borderId="0" xfId="0" applyFill="1"/>`
+        : ""
+    }
   </cellXfs>
   <cellStyles count="1">
     <cellStyle name="Normal" xfId="0" builtinId="0"/>
@@ -258,6 +280,12 @@ export async function buildExcelBlob(
   const sst = new SharedStringsBuilder();
   const files: Record<string, Uint8Array> = {};
 
+  // Style id of the plain dark-canvas cell in generateStylesXml (dark mode only).
+  const BG_STYLE_ID = 13;
+  const isDark = theme === "dark";
+  const emptyStyle = isDark ? BG_STYLE_ID : 0;
+  const colStyleAttr = isDark ? ` style="${BG_STYLE_ID}"` : "";
+
   const strCell = (r: string, s: number, val: string | number | null | undefined) =>
     `<c r="${r}" s="${s}" t="s"><v>${sst.add(val)}</v></c>`;
 
@@ -267,7 +295,7 @@ export async function buildExcelBlob(
   const formulaCell = (r: string, s: number, formula: string, val: number | string) =>
     `<c r="${r}" s="${s}"><f>${formula}</f><v>${val}</v></c>`;
 
-  const emptyCell = (r: string, s = 0) => `<c r="${r}" s="${s}"/>`;
+  const emptyCell = (r: string, s = emptyStyle) => `<c r="${r}" s="${s}"/>`;
 
   // Sheet definitions
   const sheets: Array<{ name: string; file: string; rId: string; tableFiles: string[] }> = [];
@@ -338,8 +366,11 @@ export async function buildExcelBlob(
   </sheetViews>
   <cols>`;
     colWidths.forEach((w, i) => {
-      sheetXml += `\n    <col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`;
+      sheetXml += `\n    <col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"${colStyleAttr}/>`;
     });
+    if (isDark) {
+      sheetXml += `\n    <col min="${lastCol + 1}" max="16384" style="${BG_STYLE_ID}"/>`;
+    }
     sheetXml += "\n  </cols>\n  <sheetData>";
 
     // Title Row 1
@@ -382,13 +413,13 @@ export async function buildExcelBlob(
     // Totals Row
     sheetXml += `\n    <row r="${totalsRow}">`;
     sheetXml += strCell(`A${totalsRow}`, 12, "Total");
-    sheetXml += emptyCell(`B${totalsRow}`, 0);
+    sheetXml += emptyCell(`B${totalsRow}`);
     sheetXml += formulaCell(`C${totalsRow}`, 11, "SUBTOTAL(109,ApiEndpoints[Count])", totalCount);
-    sheetXml += emptyCell(`D${totalsRow}`, 0);
-    sheetXml += emptyCell(`E${totalsRow}`, 0);
-    sheetXml += emptyCell(`F${totalsRow}`, 0);
-    sheetXml += emptyCell(`G${totalsRow}`, 0);
-    sheetXml += emptyCell(`H${totalsRow}`, 0);
+    sheetXml += emptyCell(`D${totalsRow}`);
+    sheetXml += emptyCell(`E${totalsRow}`);
+    sheetXml += emptyCell(`F${totalsRow}`);
+    sheetXml += emptyCell(`G${totalsRow}`);
+    sheetXml += emptyCell(`H${totalsRow}`);
     sheetXml += formulaCell(`I${totalsRow}`, 11, "SUBTOTAL(109,ApiEndpoints[Errors])", totalErrors);
     sheetXml += `</row>`;
 
@@ -454,8 +485,11 @@ export async function buildExcelBlob(
   </sheetViews>
   <cols>`;
     colWidths.forEach((w, i) => {
-      sheetXml += `\n    <col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`;
+      sheetXml += `\n    <col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"${colStyleAttr}/>`;
     });
+    if (isDark) {
+      sheetXml += `\n    <col min="${lastCol + 1}" max="16384" style="${BG_STYLE_ID}"/>`;
+    }
     sheetXml += "\n  </cols>\n  <sheetData>";
 
     sheetXml += `\n    <row r="1" ht="28" customHeight="1">${strCell("A1", 1, "PM2 Log Analyzer — Daily Summary")}</row>`;
@@ -500,10 +534,10 @@ export async function buildExcelBlob(
       "SUBTOTAL(109,DailySummary[Requests])",
       totalRequests,
     );
-    sheetXml += emptyCell(`C${totalsRow}`, 0);
-    sheetXml += emptyCell(`D${totalsRow}`, 0);
-    sheetXml += emptyCell(`E${totalsRow}`, 0);
-    sheetXml += emptyCell(`F${totalsRow}`, 0);
+    sheetXml += emptyCell(`C${totalsRow}`);
+    sheetXml += emptyCell(`D${totalsRow}`);
+    sheetXml += emptyCell(`E${totalsRow}`);
+    sheetXml += emptyCell(`F${totalsRow}`);
     sheetXml += formulaCell(`G${totalsRow}`, 11, "SUBTOTAL(109,DailySummary[Errors])", totalErrors);
     sheetXml += formulaCell(
       `H${totalsRow}`,
@@ -574,8 +608,11 @@ export async function buildExcelBlob(
   </sheetViews>
   <cols>`;
     colWidths.forEach((w, i) => {
-      sheetXml += `\n    <col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`;
+      sheetXml += `\n    <col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"${colStyleAttr}/>`;
     });
+    if (isDark) {
+      sheetXml += `\n    <col min="${lastCol + 1}" max="16384" style="${BG_STYLE_ID}"/>`;
+    }
     sheetXml += "\n  </cols>\n  <sheetData>";
 
     sheetXml += `\n    <row r="1" ht="28" customHeight="1">${strCell("A1", 1, "PM2 Log Analyzer — Cron Jobs")}</row>`;
@@ -635,13 +672,13 @@ export async function buildExcelBlob(
     sheetXml += formulaCell(`B${totalsRow}`, 11, "SUBTOTAL(109,CronJobs[Runs])", totalRuns);
     sheetXml += formulaCell(`C${totalsRow}`, 11, "SUBTOTAL(109,CronJobs[Starts])", totalStarts);
     sheetXml += formulaCell(`D${totalsRow}`, 11, "SUBTOTAL(109,CronJobs[Fails])", totalFails);
-    sheetXml += emptyCell(`E${totalsRow}`, 0);
-    sheetXml += emptyCell(`F${totalsRow}`, 0);
-    sheetXml += emptyCell(`G${totalsRow}`, 0);
-    sheetXml += emptyCell(`H${totalsRow}`, 0);
-    sheetXml += emptyCell(`I${totalsRow}`, 0);
-    sheetXml += emptyCell(`J${totalsRow}`, 0);
-    sheetXml += emptyCell(`K${totalsRow}`, 0);
+    sheetXml += emptyCell(`E${totalsRow}`);
+    sheetXml += emptyCell(`F${totalsRow}`);
+    sheetXml += emptyCell(`G${totalsRow}`);
+    sheetXml += emptyCell(`H${totalsRow}`);
+    sheetXml += emptyCell(`I${totalsRow}`);
+    sheetXml += emptyCell(`J${totalsRow}`);
+    sheetXml += emptyCell(`K${totalsRow}`);
     sheetXml += `</row>`;
 
     sheetXml += "\n  </sheetData>";
@@ -733,8 +770,11 @@ export async function buildExcelBlob(
   </sheetViews>
   <cols>`;
     colWidths.forEach((w, i) => {
-      sheetXml += `\n    <col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`;
+      sheetXml += `\n    <col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"${colStyleAttr}/>`;
     });
+    if (isDark) {
+      sheetXml += `\n    <col min="${lastCol + 1}" max="16384" style="${BG_STYLE_ID}"/>`;
+    }
     sheetXml += "\n  </cols>\n  <sheetData>";
 
     sheetXml += `\n    <row r="1" ht="28" customHeight="1">${strCell("A1", 1, "PM2 Log Analyzer — Hourly Trends & Distribution Data")}</row>`;
@@ -758,7 +798,7 @@ export async function buildExcelBlob(
       if (h) {
         sheetXml += strCell(`${colToLetter(i + 1)}4`, 10, h);
       } else {
-        sheetXml += emptyCell(`${colToLetter(i + 1)}4`, 0);
+        sheetXml += emptyCell(`${colToLetter(i + 1)}4`);
       }
     });
     sheetXml += `</row>`;
@@ -794,9 +834,9 @@ export async function buildExcelBlob(
           "SUBTOTAL(109,HourlyTrends[Total Requests])",
           totalHourlyReqs,
         );
-        rowContent += emptyCell(`C${rowNum}`, 0);
-        rowContent += emptyCell(`D${rowNum}`, 0);
-        rowContent += emptyCell(`E${rowNum}`, 0);
+        rowContent += emptyCell(`C${rowNum}`);
+        rowContent += emptyCell(`D${rowNum}`);
+        rowContent += emptyCell(`E${rowNum}`);
         rowContent += formulaCell(
           `F${rowNum}`,
           11,
@@ -922,8 +962,11 @@ export async function buildExcelBlob(
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <cols>`;
     colWidths.forEach((w, i) => {
-      sheetXml += `\n    <col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`;
+      sheetXml += `\n    <col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"${colStyleAttr}/>`;
     });
+    if (isDark) {
+      sheetXml += `\n    <col min="${lastCol + 1}" max="16384" style="${BG_STYLE_ID}"/>`;
+    }
     sheetXml += "\n  </cols>\n  <sheetData>";
 
     sheetXml += `\n    <row r="1" ht="28" customHeight="1">${strCell("A1", 1, "PM2 Log Analyzer — Visual Analytics & Charts")}</row>`;
