@@ -16,7 +16,7 @@ function filterValidFiles(fileList: FileList | File[] | null | undefined): File[
   if (!fileList || fileList.length === 0) return [];
   return Array.from(fileList).filter((file) => {
     return (
-      file.name.endsWith(".log") ||
+      /\.log\d*$/i.test(file.name) ||
       file.name.endsWith(".txt") ||
       file.type === "text/plain" ||
       file.type === ""
@@ -63,7 +63,7 @@ export function IngestPanel() {
     if (busy) return;
     const validFiles = filterValidFiles(e.dataTransfer.files);
     if (validFiles.length === 0) {
-      showToast("Please upload .log or .txt files");
+      showToast("Please upload log or text files (.log, .log1, .txt, etc.)");
       return;
     }
     if (hasData && loadedFiles.length > 0) {
@@ -86,7 +86,7 @@ export function IngestPanel() {
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const validFiles = filterValidFiles(e.target.files);
     if (validFiles.length === 0) {
-      showToast("Please upload .log or .txt files");
+      showToast("Please upload log or text files (.log, .log1, .txt, etc.)");
       e.target.value = "";
       return;
     }
@@ -243,7 +243,7 @@ export function IngestPanel() {
               {isParsing ? "Parsing PM2 log file(s)…" : "Drop PM2 log file(s)"}
             </p>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              .log / .txt — multi-file &amp; multi-day log analysis supported
+              .log / .log1 / .txt — multi-file &amp; multi-day log analysis supported
             </p>
           </div>
 
@@ -347,7 +347,7 @@ export function IngestPanel() {
         ref={inputRef}
         type="file"
         multiple
-        accept=".log,.txt,text/plain"
+        accept=".log,.log1,.log2,.log3,.log4,.log5,.log6,.log7,.log8,.log9,.log10,.txt,.out,.err,.1,.2,.3,.4,.5,.6,.7,.8,.9,text/plain"
         className="hidden"
         data-testid="log-file-input"
         onChange={onInputChange}
