@@ -16,21 +16,24 @@ import {
 import { useShallow } from "zustand/react/shallow";
 import type { AggregatedEndpoint } from "../parser";
 import { formatDate, formatMs, formatNum } from "../utils/format";
-import { Activity, BarChart3, CalendarDays, Clock, Flame } from "lucide-react";
+import { Activity, BarChart3, CalendarDays, Clock, Columns2, Flame, Rows } from "lucide-react";
 import { EMPTY_DAILY, EMPTY_HOURLY, useAnalysisStore } from "../store/analysisStore";
 
 type ChartMode = "dailyTrend" | "timeOfDay" | "throughput" | "distribution" | "topP95";
 
 export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
-  const { hourlyStats, dailyStats, isDark, dateFilter } = useAnalysisStore(
+  const { hourlyStats, dailyStats, isDark, dateFilter, chartLayout } = useAnalysisStore(
     useShallow((s) => ({
       hourlyStats: s.result?.hourlyStats ?? EMPTY_HOURLY,
       dailyStats: s.result?.dailyStats ?? EMPTY_DAILY,
       isDark: s.theme === "dark",
       dateFilter: s.filters.dateFilter,
+      chartLayout: s.chartLayout,
     })),
   );
   const [mode, setMode] = useState<ChartMode>(dailyStats.length > 1 ? "dailyTrend" : "timeOfDay");
+
+  const { toggleChartLayout } = useAnalysisStore.getState();
 
   const gridStroke = isDark ? "#1e293b" : "#f1f5f9";
   const tickColor = isDark ? "#94a3b8" : "#64748b";
@@ -102,22 +105,46 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
   return (
     <section className="flex flex-col rounded border border-slate-200 bg-white shadow-xs dark:border-slate-800/80 dark:bg-slate-900/80 dark:shadow-md dark:shadow-black/20">
       <div className="flex flex-col gap-2 border-b border-slate-200 px-3.5 py-2.5 dark:border-slate-800">
-        <div className="flex items-center gap-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
-            API Visual Analytics
-          </h2>
-          {dateFilter !== "all" && (
-            <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
-              {formatDate(dateFilter)}
-            </span>
-          )}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
+              API Visual Analytics
+            </h2>
+            {dateFilter !== "all" && (
+              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
+                {formatDate(dateFilter)}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => toggleChartLayout()}
+            className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer"
+            title={
+              chartLayout === "wide"
+                ? "Switch to Split Side-by-Side View"
+                : "Expand Chart to Full Width View"
+            }
+          >
+            {chartLayout === "wide" ? (
+              <>
+                <Columns2 className="h-3 w-3" />
+                <span>Split View</span>
+              </>
+            ) : (
+              <>
+                <Rows className="h-3 w-3" />
+                <span>Wide View</span>
+              </>
+            )}
+          </button>
         </div>
         <div className="flex w-full items-center gap-1 rounded bg-slate-100 p-0.5 text-xs dark:bg-slate-950">
           {dailyStats.length > 1 && (
             <button
               type="button"
               onClick={() => setMode("dailyTrend")}
-              className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors ${
+              className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors cursor-pointer ${
                 mode === "dailyTrend"
                   ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white dark:shadow-md dark:shadow-blue-950/50"
                   : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
@@ -131,7 +158,7 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
           <button
             type="button"
             onClick={() => setMode("timeOfDay")}
-            className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors ${
+            className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors cursor-pointer ${
               mode === "timeOfDay"
                 ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white dark:shadow-md dark:shadow-blue-950/50"
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
@@ -144,7 +171,7 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
           <button
             type="button"
             onClick={() => setMode("throughput")}
-            className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors ${
+            className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors cursor-pointer ${
               mode === "throughput"
                 ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white dark:shadow-md dark:shadow-blue-950/50"
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
@@ -157,7 +184,7 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
           <button
             type="button"
             onClick={() => setMode("distribution")}
-            className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors ${
+            className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors cursor-pointer ${
               mode === "distribution"
                 ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white dark:shadow-md dark:shadow-blue-950/50"
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
@@ -170,7 +197,7 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
           <button
             type="button"
             onClick={() => setMode("topP95")}
-            className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors ${
+            className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2 py-1 font-medium transition-colors cursor-pointer ${
               mode === "topP95"
                 ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white dark:shadow-md dark:shadow-blue-950/50"
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
@@ -188,8 +215,8 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
           No chart data available yet.
         </div>
       ) : (
-        <div className="h-[340px] px-3 py-3">
-          <ResponsiveContainer width="100%" height={320}>
+        <div style={{ height: chartLayout === "wide" ? 400 : 340 }} className="px-3 py-3 w-full">
+          <ResponsiveContainer width="100%" height="100%">
             {mode === "dailyTrend" ? (
               <ComposedChart data={dailyStats} margin={{ top: 10, right: 16, left: 0, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />

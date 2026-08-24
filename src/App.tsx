@@ -14,6 +14,7 @@ export function App() {
     const c = s.result?.cronSummary;
     return !!c && c.starts + c.dones + c.fails > 0;
   });
+  const chartLayout = useAnalysisStore((s) => s.chartLayout);
   const apiRows = useFilteredApiRows();
   const cronRows = useFilteredCronRows();
 
@@ -24,14 +25,21 @@ export function App() {
         <IngestPanel />
         <KpiRow />
         <FilterBar />
-        <div className="grid gap-4 lg:grid-cols-5">
-          <div className="lg:col-span-3">
+        {chartLayout === "wide" ? (
+          <div className="flex flex-col gap-4">
+            <LatencyChart rows={apiRows} />
             <ApiTable rows={apiRows} />
           </div>
-          <div className="lg:col-span-2">
-            <LatencyChart rows={apiRows} />
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-5">
+            <div className="lg:col-span-3">
+              <ApiTable rows={apiRows} />
+            </div>
+            <div className="lg:col-span-2">
+              <LatencyChart rows={apiRows} />
+            </div>
           </div>
-        </div>
+        )}
         {hasCron && <CronTable rows={cronRows} />}
         <SkippedDisclosure />
         <footer className="pb-6 pt-2 text-center text-[11px] text-slate-400">

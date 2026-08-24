@@ -79,9 +79,11 @@ const DEFAULT_FILTERS: AnalysisFilters = {
 };
 
 export type Theme = "light" | "dark";
+export type ChartLayout = "split" | "wide";
 
 type AnalysisState = {
   theme: Theme;
+  chartLayout: ChartLayout;
   sourceKind: SourceKind;
   fileName: string | null;
   fileNames: string[];
@@ -99,6 +101,8 @@ type AnalysisState = {
 
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
+  toggleChartLayout: () => void;
+  setChartLayout: (layout: ChartLayout) => void;
   setWorkerReady: (ready: boolean) => void;
   setParsing: (parsing: boolean) => void;
   setProgress: (progress: ParseProgress | null) => void;
@@ -125,6 +129,7 @@ export const useAnalysisStore = create<AnalysisState>()(
   persist(
     (set, get) => ({
       theme: "light",
+      chartLayout: "split",
       sourceKind: "none",
       fileName: null,
       fileNames: [],
@@ -149,6 +154,11 @@ export const useAnalysisStore = create<AnalysisState>()(
         document.documentElement.classList.toggle("dark", theme === "dark");
         set({ theme });
       },
+      toggleChartLayout: () => {
+        const next = get().chartLayout === "split" ? "wide" : "split";
+        set({ chartLayout: next });
+      },
+      setChartLayout: (chartLayout) => set({ chartLayout }),
       setWorkerReady: (ready) => set({ isWorkerReady: ready }),
       setParsing: (parsing) => set({ isParsing: parsing }),
       setProgress: (progress) => set({ progress }),
@@ -300,7 +310,7 @@ export const useAnalysisStore = create<AnalysisState>()(
     }),
     {
       name: "pm2-analyzer-filters",
-      partialize: (s) => ({ filters: s.filters, theme: s.theme }),
+      partialize: (s) => ({ filters: s.filters, theme: s.theme, chartLayout: s.chartLayout }),
     },
   ),
 );
