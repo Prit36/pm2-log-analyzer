@@ -6,7 +6,7 @@ import type { CronAggregated } from "../parser";
 import { EMPTY_CRON, useAnalysisStore, type CronSortKey } from "../store/analysisStore";
 import { reaggregate } from "../hooks/useParserWorker";
 import { formatMs, formatNum } from "../utils/format";
-import { buildCronTsv } from "../utils/exportSpreadsheet";
+import { buildCronTsv, sortCronJobs } from "../utils/exportSpreadsheet";
 import { cn } from "../utils/cn";
 
 const fieldClass =
@@ -87,17 +87,7 @@ export function useFilteredCronRows(): CronAggregated[] {
     })),
   );
   return useMemo(() => {
-    return [...cron].sort((a, b) => {
-      let cmp = 0;
-      if (sortKey === "name") {
-        cmp = a.name.localeCompare(b.name);
-      } else {
-        const valA = a[sortKey] ?? (sortDir === "asc" ? Infinity : -Infinity);
-        const valB = b[sortKey] ?? (sortDir === "asc" ? Infinity : -Infinity);
-        cmp = valA - valB;
-      }
-      return sortDir === "asc" ? cmp : -cmp;
-    });
+    return sortCronJobs(cron, sortKey, sortDir);
   }, [cron, sortKey, sortDir]);
 }
 

@@ -5,7 +5,7 @@ import { useShallow } from "zustand/react/shallow";
 import type { AggregatedEndpoint } from "../parser";
 import { EMPTY_API, useAnalysisStore, type ApiSortKey } from "../store/analysisStore";
 import { formatMs, formatNum } from "../utils/format";
-import { buildApiTsv } from "../utils/exportSpreadsheet";
+import { buildApiTsv, filterApiEndpoints, sortApiEndpoints } from "../utils/exportSpreadsheet";
 import { cn } from "../utils/cn";
 
 type RowProps = {
@@ -110,24 +110,9 @@ export function useFilteredApiRows(): AggregatedEndpoint[] {
   );
 
   return useMemo(() => {
-    const methodSet = methods.length > 0 ? new Set(methods) : null;
-    const q = query.trim().toLowerCase();
-    let rows = api;
-    if (methodSet) rows = rows.filter((r) => methodSet.has(r.method));
-    if (q)
-      rows = rows.filter(
-        (r) => r.path.toLowerCase().includes(q) || r.key.toLowerCase().includes(q),
-      );
-    rows = [...rows].sort((a, b) => {
-      let cmp = 0;
-      if (sortKey === "path") {
-        cmp = a.path.localeCompare(b.path);
-      } else {
-        cmp = (a[sortKey] ?? 0) - (b[sortKey] ?? 0);
-      }
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-    return rows.slice(0, topN);
+    const filtered = filterApiEndpoints(api, methods, query);
+    const sorted = sortApiEndpoints(filtered, sortKey, sortDir);
+    return sorted.slice(0, topN);
   }, [api, methods, query, sortKey, sortDir, topN]);
 }
 

@@ -5,10 +5,67 @@ import type {
   HourlyBucket,
   LogSummary,
 } from "../parser";
-import { useAnalysisStore, type ApiSortKey, type CronSortKey } from "../store/analysisStore";
+import {
+  useAnalysisStore,
+  type AnalysisFilters,
+  type ApiSortKey,
+  type CronSortKey,
+  type SortDirection,
+} from "../store/analysisStore";
 import { generateAllChartImages } from "./chartRenderer";
-import { formatDate, formatMs, formatNum } from "./format";
+import { formatBytes, formatDate, formatMs, formatNum } from "./format";
 import type ExcelJS from "exceljs";
+
+export function sortApiEndpoints(
+  rows: AggregatedEndpoint[],
+  sortKey: ApiSortKey,
+  sortDir: SortDirection = "desc",
+): AggregatedEndpoint[] {
+  return [...rows].sort((a, b) => {
+    let cmp = 0;
+    if (sortKey === "path") {
+      cmp = a.path.localeCompare(b.path);
+    } else {
+      cmp = (a[sortKey] ?? 0) - (b[sortKey] ?? 0);
+    }
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+}
+
+export function filterApiEndpoints(
+  rows: AggregatedEndpoint[],
+  methods: string[],
+  query: string,
+): AggregatedEndpoint[] {
+  const methodSet = methods.length > 0 ? new Set(methods) : null;
+  const q = query.trim().toLowerCase();
+  let result = rows;
+  if (methodSet) result = result.filter((r) => methodSet.has(r.method));
+  if (q) {
+    result = result.filter(
+      (r) => r.path.toLowerCase().includes(q) || r.key.toLowerCase().includes(q),
+    );
+  }
+  return result;
+}
+
+export function sortCronJobs(
+  rows: CronAggregated[],
+  sortKey: CronSortKey,
+  sortDir: SortDirection = "desc",
+): CronAggregated[] {
+  return [...rows].sort((a, b) => {
+    let cmp = 0;
+    if (sortKey === "name") {
+      cmp = a.name.localeCompare(b.name);
+    } else {
+      const valA = a[sortKey] ?? (sortDir === "asc" ? Infinity : -Infinity);
+      const valB = b[sortKey] ?? (sortDir === "asc" ? Infinity : -Infinity);
+      cmp = valA - valB;
+    }
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+}
 
 const MS_FMT = '#,##0.0" ms"';
 const TABLE_HEADER_ROW = 4;
@@ -106,12 +163,75 @@ function highlightErrors(ws: ExcelJS.Worksheet, colLetter: string, rowCount: num
   });
 }
 
+function buildApiFilterMeta(
+  filters?: Partial<AnalysisFilters>,
+  sortKey?: ApiSortKey,
+  sortDir: SortDirection = "desc",
+  endpointCount?: number,
+  sourceLabel?: string | null,
+): string {
+  const parts: string[] = [`Generated: ${new Date().toLocaleString()}`];
+  if (sourceLabel) parts.push(`Source: ${sourceLabel}`);
+  if (endpointCount !== undefined) parts.push(`Endpoints: ${endpointCount}`);
+  if (sortKey) parts.push(`Sorted by: ${API_SORT_LABEL[sortKey]} (${sortDir})`);
+  if (filters?.dateFilter && filters.dateFilter !== "all") {
+    parts.push(`Day: ${formatDate(filters.dateFilter)}`);
+  }
+  if (filters?.methods && filters.methods.length > 0) {
+    parts.push(`Methods: ${filters.methods.join(", ")}`);
+  }
+  if (filters?.query?.trim()) {
+    parts.push(`Search: "${filters.query.trim()}"`);
+  }
+  if (filters?.statusFamily && filters.statusFamily !== "all") {
+    parts.push(`Status: ${filters.statusFamily}`);
+  }
+  if (filters?.minMs && filters.minMs > 0) {
+    parts.push(`Min Latency: ≥${filters.minMs}ms`);
+  }
+  if (filters?.normalizeMode && filters.normalizeMode !== "collapseIds") {
+    parts.push(
+      `Normalize: ${filters.normalizeMode === "stripQuery" ? "Strip query" : "Exact path"}`,
+    );
+  }
+  return parts.join("  |  ");
+}
+
+function buildCronFilterMeta(
+  filters?: Partial<AnalysisFilters>,
+  sortKey?: CronSortKey,
+  sortDir: SortDirection = "desc",
+  jobCount?: number,
+  sourceLabel?: string | null,
+): string {
+  const parts: string[] = [`Generated: ${new Date().toLocaleString()}`];
+  if (sourceLabel) parts.push(`Source: ${sourceLabel}`);
+  if (jobCount !== undefined) parts.push(`Jobs: ${jobCount}`);
+  if (sortKey) parts.push(`Sorted by: ${CRON_SORT_LABEL[sortKey]} (${sortDir})`);
+  if (filters?.cronQuery?.trim()) {
+    parts.push(`Search: "${filters.cronQuery.trim()}"`);
+  }
+  if (filters?.cronMinMs && filters.cronMinMs > 0) {
+    parts.push(`Min Duration: ≥${filters.cronMinMs}ms`);
+  }
+  if (filters?.cronShowFailedOnly) {
+    parts.push("Filter: Failures only");
+  }
+  if (filters?.dateFilter && filters.dateFilter !== "all") {
+    parts.push(`Day: ${formatDate(filters.dateFilter)}`);
+  }
+  return parts.join("  |  ");
+}
+
 function buildApiSheet(
   wb: ExcelJS.Workbook,
   rows: AggregatedEndpoint[],
   sortKey: ApiSortKey,
-  dateFilter?: string | null,
+  sortDir: SortDirection = "desc",
+  filters?: Partial<AnalysisFilters>,
+  sourceLabel?: string | null,
 ) {
+  const sortedRows = sortApiEndpoints(rows, sortKey, sortDir);
   const ws = wb.addWorksheet("API Endpoints", {
     views: [{ state: "frozen", ySplit: TABLE_HEADER_ROW }],
   });
@@ -127,17 +247,14 @@ function buildApiSheet(
     { width: 10 },
   ];
 
-  const generated = new Date().toLocaleString();
-  const dateMeta =
-    dateFilter && dateFilter !== "all" ? `  |  Day Filter: ${formatDate(dateFilter)}` : "";
   styleTitleMeta(
     ws,
     9,
     "PM2 Log Analyzer — API Endpoints",
-    `Generated: ${generated}  |  Endpoints: ${rows.length}  |  Sorted by: ${API_SORT_LABEL[sortKey]} (desc)${dateMeta}`,
+    buildApiFilterMeta(filters, sortKey, sortDir, sortedRows.length, sourceLabel),
   );
 
-  const tableRows = rows.map((r) => [
+  const tableRows = sortedRows.map((r) => [
     r.method,
     r.path,
     r.count,
@@ -169,12 +286,16 @@ function buildApiSheet(
     rows: tableRows,
   });
 
-  applyMethodBadges(ws, rows.length);
-  applyMsFmt(ws, [4, 5, 6, 7, 8], rows.length);
-  highlightErrors(ws, "I", rows.length);
+  applyMethodBadges(ws, sortedRows.length);
+  applyMsFmt(ws, [4, 5, 6, 7, 8], sortedRows.length);
+  highlightErrors(ws, "I", sortedRows.length);
 }
 
-function buildDailySummarySheet(wb: ExcelJS.Workbook, dailyStats: DaySummary[]) {
+function buildDailySummarySheet(
+  wb: ExcelJS.Workbook,
+  dailyStats: DaySummary[],
+  sourceLabel?: string | null,
+) {
   if (!dailyStats.length) return;
   const ws = wb.addWorksheet("Daily Summary", {
     views: [{ state: "frozen", ySplit: TABLE_HEADER_ROW }],
@@ -190,13 +311,11 @@ function buildDailySummarySheet(wb: ExcelJS.Workbook, dailyStats: DaySummary[]) 
     { width: 14 },
   ];
 
-  const generated = new Date().toLocaleString();
-  styleTitleMeta(
-    ws,
-    8,
-    "PM2 Log Analyzer — Daily Summary",
-    `Generated: ${generated}  |  Days: ${dailyStats.length}`,
-  );
+  const metaParts = [`Generated: ${new Date().toLocaleString()}`];
+  if (sourceLabel) metaParts.push(`Source: ${sourceLabel}`);
+  metaParts.push(`Days: ${dailyStats.length}`);
+
+  styleTitleMeta(ws, 8, "PM2 Log Analyzer — Daily Summary", metaParts.join("  |  "));
 
   const tableRows = dailyStats.map((d) => [
     formatDate(d.date),
@@ -232,7 +351,15 @@ function buildDailySummarySheet(wb: ExcelJS.Workbook, dailyStats: DaySummary[]) 
   highlightErrors(ws, "G", dailyStats.length);
 }
 
-function buildCronSheet(wb: ExcelJS.Workbook, rows: CronAggregated[], sortKey: CronSortKey) {
+function buildCronSheet(
+  wb: ExcelJS.Workbook,
+  rows: CronAggregated[],
+  sortKey: CronSortKey,
+  sortDir: SortDirection = "desc",
+  filters?: Partial<AnalysisFilters>,
+  sourceLabel?: string | null,
+) {
+  const sortedRows = sortCronJobs(rows, sortKey, sortDir);
   const ws = wb.addWorksheet("Cron Jobs", {
     views: [{ state: "frozen", ySplit: TABLE_HEADER_ROW }],
   });
@@ -250,15 +377,14 @@ function buildCronSheet(wb: ExcelJS.Workbook, rows: CronAggregated[], sortKey: C
     { width: 14 },
   ];
 
-  const generated = new Date().toLocaleString();
   styleTitleMeta(
     ws,
     11,
     "PM2 Log Analyzer — Cron Jobs",
-    `Generated: ${generated}  |  Jobs: ${rows.length}  |  Sorted by: ${CRON_SORT_LABEL[sortKey]} (desc)`,
+    buildCronFilterMeta(filters, sortKey, sortDir, sortedRows.length, sourceLabel),
   );
 
-  const tableRows = rows.map((r) => [
+  const tableRows = sortedRows.map((r) => [
     r.name,
     r.runs,
     r.starts,
@@ -294,14 +420,16 @@ function buildCronSheet(wb: ExcelJS.Workbook, rows: CronAggregated[], sortKey: C
     rows: tableRows,
   });
 
-  applyMsFmt(ws, [5, 6, 7, 8, 9, 11], rows.length);
-  highlightErrors(ws, "D", rows.length);
+  applyMsFmt(ws, [5, 6, 7, 8, 9, 11], sortedRows.length);
+  highlightErrors(ws, "D", sortedRows.length);
 }
 
 function buildHourlyAndDistributionSheet(
   wb: ExcelJS.Workbook,
   hourlyStats: HourlyBucket[],
   apiRows: AggregatedEndpoint[],
+  filters?: Partial<AnalysisFilters>,
+  sourceLabel?: string | null,
 ) {
   if (!hourlyStats.length && !apiRows.length) return;
   const ws = wb.addWorksheet("Hourly & Distribution", {
@@ -311,11 +439,17 @@ function buildHourlyAndDistributionSheet(
     .fill({ width: 15 })
     .concat([{ width: 6 }, { width: 18 }, { width: 18 }]);
 
+  const metaParts = [`Generated: ${new Date().toLocaleString()}`];
+  if (sourceLabel) metaParts.push(`Source: ${sourceLabel}`);
+  if (filters?.dateFilter && filters.dateFilter !== "all") {
+    metaParts.push(`Day: ${formatDate(filters.dateFilter)}`);
+  }
+
   styleTitleMeta(
     ws,
     9,
     "PM2 Log Analyzer — Hourly Trends & Distribution Data",
-    `Generated: ${new Date().toLocaleString()}`,
+    metaParts.join("  |  "),
   );
 
   if (hourlyStats.length > 0) {
@@ -385,6 +519,8 @@ async function buildVisualAnalyticsSheet(
   hourlyStats: HourlyBucket[],
   summary?: LogSummary | null,
   dailyStats: DaySummary[] = [],
+  filters?: Partial<AnalysisFilters>,
+  sourceLabel?: string | null,
 ) {
   const ws = wb.addWorksheet("Visual Analytics");
   ws.columns = [
@@ -405,24 +541,49 @@ async function buildVisualAnalyticsSheet(
     { width: 13 },
   ];
 
-  const generated = new Date().toLocaleString();
-  const totalCount = summary?.matched ?? apiRows.reduce((acc, r) => acc + r.count, 0);
-  const totalErrors = summary?.errors ?? apiRows.reduce((acc, r) => acc + r.errorCount, 0);
-  const errorRate = totalCount > 0 ? ((totalErrors / totalCount) * 100).toFixed(2) : "0.00";
+  const metaParts = [`Generated: ${new Date().toLocaleString()}`];
+  if (sourceLabel) metaParts.push(`Source: ${sourceLabel}`);
+  if (filters?.dateFilter && filters.dateFilter !== "all") {
+    metaParts.push(`Day: ${formatDate(filters.dateFilter)}`);
+  }
+  if (filters?.methods && filters.methods.length > 0) {
+    metaParts.push(`Methods: ${filters.methods.join(", ")}`);
+  }
+  if (filters?.query?.trim()) {
+    metaParts.push(`Search: "${filters.query.trim()}"`);
+  }
 
-  styleTitleMeta(
-    ws,
-    15,
-    "PM2 Log Analyzer — Visual Analytics & Charts",
-    `Generated: ${generated}  |  Total Requests: ${formatNum(totalCount)}  |  Endpoints: ${apiRows.length}`,
-  );
+  const isFiltered =
+    Boolean(filters?.methods && filters.methods.length > 0) || Boolean(filters?.query?.trim());
+  const totalCount = isFiltered
+    ? apiRows.reduce((acc, r) => acc + r.count, 0)
+    : (summary?.matched ?? apiRows.reduce((acc, r) => acc + r.count, 0));
+  const totalErrors = isFiltered
+    ? apiRows.reduce((acc, r) => acc + r.errorCount, 0)
+    : (summary?.errors ?? apiRows.reduce((acc, r) => acc + r.errorCount, 0));
+  const errorRate = totalCount > 0 ? ((totalErrors / totalCount) * 100).toFixed(2) : "0.00";
+  const avgMs = isFiltered
+    ? totalCount > 0
+      ? apiRows.reduce((acc, r) => acc + r.avgMs * r.count, 0) / totalCount
+      : 0
+    : (summary?.avg ?? 0);
+  const p95Ms = isFiltered
+    ? apiRows.length > 0
+      ? Math.max(...apiRows.map((r) => r.p95Ms))
+      : 0
+    : (summary?.p95Ms ?? 0);
+
+  metaParts.push(`Total Requests: ${formatNum(totalCount)}`);
+  metaParts.push(`Endpoints: ${apiRows.length}`);
+
+  styleTitleMeta(ws, 15, "PM2 Log Analyzer — Visual Analytics & Charts", metaParts.join("  |  "));
 
   const kpis = [
     ["Total Requests", totalCount],
     ["Total Errors", totalErrors],
     ["Error Rate", `${errorRate}%`],
-    ["Avg Latency", formatMs(summary?.avg ?? 0)],
-    ["P95 Latency", formatMs(summary?.p95Ms ?? 0)],
+    ["Avg Latency", formatMs(avgMs)],
+    ["P95 Latency", formatMs(p95Ms)],
     ["Unique Endpoints", apiRows.length],
   ];
 
@@ -516,27 +677,43 @@ export async function downloadExcel(
   apiRows: AggregatedEndpoint[],
   cronRows: CronAggregated[],
   sort: {
-    api: import("../store/analysisStore").ApiSortKey;
-    cron: import("../store/analysisStore").CronSortKey;
+    api: ApiSortKey;
+    cron: CronSortKey;
+    apiDir?: SortDirection;
+    cronDir?: SortDirection;
   },
-  hourlyStats: import("../parser").HourlyBucket[] = [],
-  summary?: import("../parser").LogSummary | null,
-  dailyStats: import("../parser").DaySummary[] = [],
-  dateFilter?: string | null,
+  hourlyStats: HourlyBucket[] = [],
+  summary?: LogSummary | null,
+  dailyStats: DaySummary[] = [],
+  filters?: Partial<AnalysisFilters>,
+  sourceLabel?: string | null,
 ): Promise<void> {
   const ExcelJS = (await import("exceljs")).default;
   const wb = new ExcelJS.Workbook();
   wb.creator = "PM2 Log Analyzer";
   wb.created = new Date();
   wb.title = "PM2 Log Analyzer Report";
+  if (sourceLabel) {
+    wb.subject = sourceLabel;
+    wb.description = `Source: ${sourceLabel}`;
+  }
 
   // API Endpoints is the default / first tab
-  buildApiSheet(wb, apiRows, sort.api, dateFilter);
-  if (dailyStats.length > 1) buildDailySummarySheet(wb, dailyStats);
-  if (cronRows.length > 0) buildCronSheet(wb, cronRows, sort.cron);
-  buildHourlyAndDistributionSheet(wb, hourlyStats, apiRows);
+  buildApiSheet(wb, apiRows, sort.api, sort.apiDir ?? "desc", filters, sourceLabel);
+  if (dailyStats.length > 1) buildDailySummarySheet(wb, dailyStats, sourceLabel);
+  if (cronRows.length > 0)
+    buildCronSheet(wb, cronRows, sort.cron, sort.cronDir ?? "desc", filters, sourceLabel);
+  buildHourlyAndDistributionSheet(wb, hourlyStats, apiRows, filters, sourceLabel);
   // Analytics is the last tab
-  await buildVisualAnalyticsSheet(wb, apiRows, hourlyStats, summary, dailyStats);
+  await buildVisualAnalyticsSheet(
+    wb,
+    apiRows,
+    hourlyStats,
+    summary,
+    dailyStats,
+    filters,
+    sourceLabel,
+  );
 
   wb.views = [
     {
@@ -570,25 +747,47 @@ export async function exportSpreadsheetData(
   explicitCronRows?: CronAggregated[],
 ) {
   const state = useAnalysisStore.getState();
-  const api = explicitApiRows ?? state.result?.api ?? [];
+  const rawApi = state.result?.api ?? [];
+  const filters = state.filters;
+  const {
+    sortKey: apiSortKey,
+    sortDir: apiSortDir,
+    cronSortKey,
+    cronSortDir,
+    methods,
+    query,
+  } = filters;
+  const api = explicitApiRows ?? filterApiEndpoints(rawApi, methods, query);
   const cron = explicitCronRows ?? state.result?.cron ?? [];
   if (api.length === 0 && cron.length === 0) {
     state.showToast("Nothing to export yet");
     return;
   }
-  const { sortKey: apiSortKey, cronSortKey, dateFilter } = state.filters;
   const summary = state.result?.summary;
   const hourlyStats = state.result?.hourlyStats;
   const dailyStats = state.result?.dailyStats;
+  const sourceLabel =
+    state.sourceKind === "file" && state.fileName
+      ? `${state.fileName}${state.fileSize != null ? ` (${formatBytes(state.fileSize)})` : ""}`
+      : state.sourceKind === "paste"
+        ? "Pasted text"
+        : null;
+
   try {
     await downloadExcel(
       api,
       cron,
-      { api: apiSortKey, cron: cronSortKey },
+      {
+        api: apiSortKey,
+        cron: cronSortKey,
+        apiDir: apiSortDir,
+        cronDir: cronSortDir,
+      },
       hourlyStats,
       summary,
       dailyStats,
-      dateFilter,
+      filters,
+      sourceLabel,
     );
     state.showToast(
       cron.length > 0
