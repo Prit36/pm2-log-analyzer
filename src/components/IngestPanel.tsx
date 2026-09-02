@@ -8,11 +8,18 @@ import { cn } from "../utils/cn";
 
 export const PASTE_WARN_BYTES = 8 * 1024 * 1024;
 
-const { appendLoadedFiles, setLoadedFiles, setPasteOpen, setSourcePaste, showToast } = useAnalysisStore.getState();
+const { appendLoadedFiles, setLoadedFiles, setPasteOpen, setSourcePaste, showToast } =
+  useAnalysisStore.getState();
 
 function filterValidFiles(fileList: FileList | File[] | null | undefined): File[] {
   if (!fileList || fileList.length === 0) return [];
-  return Array.from(fileList).filter((f) => /\.log\d*$/i.test(f.name) || f.name.endsWith(".txt") || f.type === "text/plain" || f.type === "");
+  return Array.from(fileList).filter(
+    (f) =>
+      /\.log\d*$/i.test(f.name) ||
+      f.name.endsWith(".txt") ||
+      f.type === "text/plain" ||
+      f.type === "",
+  );
 }
 
 function useIngestHandlers(params: {
@@ -26,7 +33,16 @@ function useIngestHandlers(params: {
   inputRef: React.RefObject<HTMLInputElement | null>;
   setUploadMode: (v: "replace" | "append") => void;
 }) {
-  const { busy, hasData, loadedFiles, uploadMode, setPendingDrop, setDragOver, inputRef, setUploadMode } = params;
+  const {
+    busy,
+    hasData,
+    loadedFiles,
+    uploadMode,
+    setPendingDrop,
+    setDragOver,
+    inputRef,
+    setUploadMode,
+  } = params;
 
   const executeAppend = (files: File[]) => {
     setPendingDrop(null);
@@ -76,11 +92,23 @@ function useIngestHandlers(params: {
     e.target.value = "";
   };
 
-  return { executeAppend, executeReplace, onDrop, handleAppendClick, handleReplaceClick, onInputChange };
+  return {
+    executeAppend,
+    executeReplace,
+    onDrop,
+    handleAppendClick,
+    handleReplaceClick,
+    onInputChange,
+  };
 }
 
 function LoadedFilesDisplay({ files }: { files: File[] }) {
-  if (files.length === 0) return <span className="truncate text-xs font-medium text-slate-700 dark:text-slate-300">Logs loaded</span>;
+  if (files.length === 0)
+    return (
+      <span className="truncate text-xs font-medium text-slate-700 dark:text-slate-300">
+        Logs loaded
+      </span>
+    );
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
       <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -93,10 +121,16 @@ function LoadedFilesDisplay({ files }: { files: File[] }) {
           title={`${f.name} (${formatBytes(f.size)})`}
         >
           <span className="max-w-[150px] truncate">{f.name}</span>
-          <span className="text-[10px] text-slate-400 dark:text-slate-500">{formatBytes(f.size)}</span>
+          <span className="text-[10px] text-slate-400 dark:text-slate-500">
+            {formatBytes(f.size)}
+          </span>
         </span>
       ))}
-      {files.length > 5 && <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">+{files.length - 5} more</span>}
+      {files.length > 5 && (
+        <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+          +{files.length - 5} more
+        </span>
+      )}
     </div>
   );
 }
@@ -122,7 +156,9 @@ function HasDataActions({
         {progress && (
           <div className="flex items-center gap-2 font-mono-data text-xs text-slate-600 dark:text-slate-300">
             <span className="capitalize">{progress.stage}</span>
-            <span className="font-semibold text-blue-600 dark:text-blue-400">{progress.percent}%</span>
+            <span className="font-semibold text-blue-600 dark:text-blue-400">
+              {progress.percent}%
+            </span>
           </div>
         )}
         <button
@@ -137,7 +173,12 @@ function HasDataActions({
   }
   return (
     <>
-      <button type="button" disabled={busy} onClick={onAppend} className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onAppend}
+        className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+      >
         <FilePlus className="size-3.5" aria-hidden />
         Add / Append
       </button>
@@ -194,11 +235,21 @@ function HasDataPanel(props: {
         <LoadedFilesDisplay files={props.loadedFiles} />
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <HasDataActions isParsing={props.isParsing} busy={props.busy} progress={props.progress} pasteOpen={props.pasteOpen} onAppend={props.onAppend} onReplace={props.onReplace} />
+        <HasDataActions
+          isParsing={props.isParsing}
+          busy={props.busy}
+          progress={props.progress}
+          pasteOpen={props.pasteOpen}
+          onAppend={props.onAppend}
+          onReplace={props.onReplace}
+        />
       </div>
       {props.isParsing && props.progress && (
         <div className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-slate-100 dark:bg-slate-800">
-          <div className="h-full bg-blue-600 transition-[width] duration-150" style={{ width: `${props.progress.percent}%` }} />
+          <div
+            className="h-full bg-blue-600 transition-[width] duration-150"
+            style={{ width: `${props.progress.percent}%` }}
+          />
         </div>
       )}
     </div>
@@ -231,8 +282,12 @@ function EmptyPanel(props: {
     >
       <Upload className="size-8 text-slate-400 dark:text-slate-500" aria-hidden />
       <div>
-        <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{props.isParsing ? "Parsing PM2 log file(s)…" : "Drop PM2 log file(s)"}</p>
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">.log / .log1 / .txt — multi-file &amp; multi-day log analysis supported</p>
+        <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+          {props.isParsing ? "Parsing PM2 log file(s)…" : "Drop PM2 log file(s)"}
+        </p>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          .log / .log1 / .txt — multi-file &amp; multi-day log analysis supported
+        </p>
       </div>
       {props.isParsing ? (
         <div className="w-full max-w-md space-y-3">
@@ -240,21 +295,35 @@ function EmptyPanel(props: {
             <div>
               <div className="mb-1.5 flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
                 <span className="capitalize">{props.progress.stage}</span>
-                <span className="font-mono-data font-semibold text-blue-600 dark:text-blue-400">{props.progress.percent}%</span>
+                <span className="font-mono-data font-semibold text-blue-600 dark:text-blue-400">
+                  {props.progress.percent}%
+                </span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                <div className="h-full bg-blue-600 transition-[width] duration-150" style={{ width: `${props.progress.percent}%` }} />
+                <div
+                  className="h-full bg-blue-600 transition-[width] duration-150"
+                  style={{ width: `${props.progress.percent}%` }}
+                />
               </div>
             </div>
           )}
-          <button type="button" onClick={cancel} className="rounded border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60">
+          <button
+            type="button"
+            onClick={cancel}
+            className="rounded border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
+          >
             Cancel
           </button>
         </div>
       ) : (
         <>
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <button type="button" disabled={props.busy} onClick={props.onReplace} className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40">
+            <button
+              type="button"
+              disabled={props.busy}
+              onClick={props.onReplace}
+              className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+            >
               Browse files
             </button>
             <button
@@ -267,7 +336,9 @@ function EmptyPanel(props: {
               Paste logs
             </button>
           </div>
-          <p className="max-w-lg font-mono-data text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">Example: 2026-07-24T00:00:10: GET /api/health 200 12.5 ms - 42</p>
+          <p className="max-w-lg font-mono-data text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
+            Example: 2026-07-24T00:00:10: GET /api/health 200 12.5 ms - 42
+          </p>
         </>
       )}
     </div>
@@ -288,10 +359,16 @@ function PendingDropBanner(props: {
           You dropped {props.pendingDrop.length} file{props.pendingDrop.length > 1 ? "s" : ""}
         </p>
         <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
-          {props.loadedCount} file{props.loadedCount > 1 ? "s currently loaded" : " currently loaded"}. How would you like to proceed?
+          {props.loadedCount} file
+          {props.loadedCount > 1 ? "s currently loaded" : " currently loaded"}. How would you like
+          to proceed?
         </p>
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => props.onAppend(props.pendingDrop)} className="inline-flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700">
+          <button
+            type="button"
+            onClick={() => props.onAppend(props.pendingDrop)}
+            className="inline-flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700"
+          >
             <Plus className="size-3.5" />
             Append to current
           </button>
@@ -303,7 +380,12 @@ function PendingDropBanner(props: {
             <RefreshCw className="size-3.5" />
             Replace current
           </button>
-          <button type="button" onClick={props.onCancel} className="rounded p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title="Cancel">
+          <button
+            type="button"
+            onClick={props.onCancel}
+            className="rounded p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            title="Cancel"
+          >
             <X className="size-3.5" />
           </button>
         </div>
@@ -312,7 +394,11 @@ function PendingDropBanner(props: {
   );
 }
 
-function PastePanel(props: { busy: boolean; pasteText: string; setPasteText: (v: string) => void }) {
+function PastePanel(props: {
+  busy: boolean;
+  pasteText: string;
+  setPasteText: (v: string) => void;
+}) {
   const handlePasteAnalyze = () => {
     const text = props.pasteText.trim();
     if (!text) {
@@ -321,7 +407,9 @@ function PastePanel(props: { busy: boolean; pasteText: string; setPasteText: (v:
     }
     const bytes = new Blob([text]).size;
     if (bytes > PASTE_WARN_BYTES) {
-      showToast(`Paste is ${formatBytes(bytes)} — save as a .log file and upload instead (limit ~${formatBytes(PASTE_WARN_BYTES)})`);
+      showToast(
+        `Paste is ${formatBytes(bytes)} — save as a .log file and upload instead (limit ~${formatBytes(PASTE_WARN_BYTES)})`,
+      );
       return;
     }
     setSourcePaste();
@@ -330,7 +418,10 @@ function PastePanel(props: { busy: boolean; pasteText: string; setPasteText: (v:
 
   return (
     <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">
-      <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300" htmlFor="paste-logs">
+      <label
+        className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300"
+        htmlFor="paste-logs"
+      >
         Paste log lines (not persisted; max ~{formatBytes(PASTE_WARN_BYTES)})
       </label>
       <textarea
@@ -343,7 +434,12 @@ function PastePanel(props: { busy: boolean; pasteText: string; setPasteText: (v:
         className="w-full resize-y rounded border border-slate-200 bg-slate-50 px-3 py-2 font-mono-data text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-900"
       />
       <div className="mt-2 flex justify-end">
-        <button type="button" disabled={props.busy} onClick={handlePasteAnalyze} className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40">
+        <button
+          type="button"
+          disabled={props.busy}
+          onClick={handlePasteAnalyze}
+          className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+        >
           Analyze paste
         </button>
       </div>
@@ -369,7 +465,14 @@ export function IngestPanel() {
     })),
   );
 
-  const { executeAppend, executeReplace, onDrop, handleAppendClick, handleReplaceClick, onInputChange } = useIngestHandlers({
+  const {
+    executeAppend,
+    executeReplace,
+    onDrop,
+    handleAppendClick,
+    handleReplaceClick,
+    onInputChange,
+  } = useIngestHandlers({
     busy,
     hasData,
     loadedFiles,
@@ -409,7 +512,13 @@ export function IngestPanel() {
         />
       )}
       {pendingDrop && (
-        <PendingDropBanner pendingDrop={pendingDrop} loadedCount={loadedFiles.length} onAppend={executeAppend} onReplace={executeReplace} onCancel={() => setPendingDrop(null)} />
+        <PendingDropBanner
+          pendingDrop={pendingDrop}
+          loadedCount={loadedFiles.length}
+          onAppend={executeAppend}
+          onReplace={executeReplace}
+          onCancel={() => setPendingDrop(null)}
+        />
       )}
       <input
         ref={inputRef}

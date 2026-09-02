@@ -22,7 +22,15 @@ export const PALETTE = {
     error: "#ef4444",
     errorDark: "#f87171",
   },
-  distribution: ["#22c55e", "#84cc16", "#eab308", "#f97316", "#ef4444", "#b91c1c", "#7f1d1d"] as const,
+  distribution: [
+    "#22c55e",
+    "#84cc16",
+    "#eab308",
+    "#f97316",
+    "#ef4444",
+    "#b91c1c",
+    "#7f1d1d",
+  ] as const,
   daily: {
     bar: { dark: "#60a5fa", light: "#3b82f6" },
     p95: { dark: "#a78bfa", light: "#7c3aed" },

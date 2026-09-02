@@ -19,11 +19,21 @@ function isNormalizeMode(value: string): value is NormalizeMode {
 }
 
 function isStatusFamily(value: string): value is StatusFamily {
-  return value === "all" || value === "2xx" || value === "3xx" || value === "4xx" || value === "5xx";
+  return (
+    value === "all" || value === "2xx" || value === "3xx" || value === "4xx" || value === "5xx"
+  );
 }
 
 function isApiSortKey(value: string): value is ApiSortKey {
-  return value === "p95Ms" || value === "p99Ms" || value === "avgMs" || value === "maxMs" || value === "count" || value === "errorCount" || value === "path";
+  return (
+    value === "p95Ms" ||
+    value === "p99Ms" ||
+    value === "avgMs" ||
+    value === "maxMs" ||
+    value === "count" ||
+    value === "errorCount" ||
+    value === "path"
+  );
 }
 
 const { setFilters, setMethodFilter, toggleMethod } = useAnalysisStore.getState();
@@ -32,7 +42,11 @@ function useSlashShortcut(): void {
   window.addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
     const t = e.target;
-    if (t instanceof HTMLElement && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    if (
+      t instanceof HTMLElement &&
+      (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)
+    )
+      return;
     const input = document.querySelector<HTMLInputElement>("input[data-filter-search]");
     if (input) {
       e.preventDefault();
@@ -152,7 +166,9 @@ function TopNField({ value }: { value: number }) {
         min={1}
         max={500}
         value={value}
-        onChange={(e) => setFilters({ topN: Math.min(500, Math.max(1, Number(e.target.value) || 1)) })}
+        onChange={(e) =>
+          setFilters({ topN: Math.min(500, Math.max(1, Number(e.target.value) || 1)) })
+        }
         className={cn(fieldClass, "w-20")}
       />
     </Field>
@@ -182,7 +198,9 @@ function TopFilterRow(props: {
 function DateFilterChips({ dates, active }: { dates: string[]; active: string }) {
   return (
     <div data-testid="filter-date" className="flex flex-wrap items-center gap-1.5">
-      <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Day</span>
+      <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        Day
+      </span>
       <button
         type="button"
         onClick={() => {
@@ -223,13 +241,19 @@ function DateFilterChips({ dates, active }: { dates: string[]; active: string })
 function MethodFilterChips({ methods, allSelected }: { methods: string[]; allSelected: boolean }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Methods</span>
+      <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        Methods
+      </span>
       <MethodChip label="All" allSelected={allSelected} />
       {methods.map((m) => (
         <MethodChip key={m} method={m} label={m} allSelected={allSelected} />
       ))}
       {!allSelected && (
-        <button type="button" onClick={() => setMethodFilter([])} className="text-[11px] text-slate-500 underline-offset-2 hover:underline dark:text-slate-400">
+        <button
+          type="button"
+          onClick={() => setMethodFilter([])}
+          className="text-[11px] text-slate-500 underline-offset-2 hover:underline dark:text-slate-400"
+        >
           Reset
         </button>
       )}
@@ -237,56 +261,106 @@ function MethodFilterChips({ methods, allSelected }: { methods: string[]; allSel
   );
 }
 
-function SecondaryFilterRow(props: { dates: string[]; dateFilter: string; methods: string[]; allSelected: boolean }) {
+function SecondaryFilterRow(props: {
+  dates: string[];
+  dateFilter: string;
+  methods: string[];
+  allSelected: boolean;
+}) {
   if (props.dates.length <= 1 && props.methods.length === 0) return null;
   return (
     <div className="mt-2.5 flex flex-wrap items-center gap-3">
       {props.dates.length > 1 && <DateFilterChips dates={props.dates} active={props.dateFilter} />}
-      {props.dates.length > 1 && props.methods.length > 0 && <div className="hidden h-4 w-px bg-slate-200 sm:block dark:bg-slate-700" />}
-      {props.methods.length > 0 && <MethodFilterChips methods={props.methods} allSelected={props.allSelected} />}
+      {props.dates.length > 1 && props.methods.length > 0 && (
+        <div className="hidden h-4 w-px bg-slate-200 sm:block dark:bg-slate-700" />
+      )}
+      {props.methods.length > 0 && (
+        <MethodFilterChips methods={props.methods} allSelected={props.allSelected} />
+      )}
     </div>
   );
 }
 
 export function FilterBar() {
   useSlashShortcut();
-  const { query, normalizeMode, statusFamily, minMs, sortKey, topN, dateFilter, allSelected, methods, dates, hasData } =
-    useAnalysisStore(
-      useShallow((s) => ({
-        query: s.filters.query,
-        normalizeMode: s.filters.normalizeMode,
-        statusFamily: s.filters.statusFamily,
-        minMs: s.filters.minMs,
-        sortKey: s.filters.sortKey,
-        topN: s.filters.topN,
-        dateFilter: s.filters.dateFilter,
-        allSelected: s.filters.methods.length === 0,
-        methods: s.result?.methods ?? EMPTY_METHODS,
-        dates: s.result?.dates ?? EMPTY_DATES,
-        hasData: s.hasData,
-      })),
-    );
+  const {
+    query,
+    normalizeMode,
+    statusFamily,
+    minMs,
+    sortKey,
+    topN,
+    dateFilter,
+    allSelected,
+    methods,
+    dates,
+    hasData,
+  } = useAnalysisStore(
+    useShallow((s) => ({
+      query: s.filters.query,
+      normalizeMode: s.filters.normalizeMode,
+      statusFamily: s.filters.statusFamily,
+      minMs: s.filters.minMs,
+      sortKey: s.filters.sortKey,
+      topN: s.filters.topN,
+      dateFilter: s.filters.dateFilter,
+      allSelected: s.filters.methods.length === 0,
+      methods: s.result?.methods ?? EMPTY_METHODS,
+      dates: s.result?.dates ?? EMPTY_DATES,
+      hasData: s.hasData,
+    })),
+  );
 
   if (!hasData) return null;
 
   return (
     <section className="rounded border border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
-      <TopFilterRow query={query} normalizeMode={normalizeMode} statusFamily={statusFamily} minMs={minMs} sortKey={sortKey} topN={topN} />
-      <SecondaryFilterRow dates={dates} dateFilter={dateFilter} methods={methods} allSelected={allSelected} />
+      <TopFilterRow
+        query={query}
+        normalizeMode={normalizeMode}
+        statusFamily={statusFamily}
+        minMs={minMs}
+        sortKey={sortKey}
+        topN={topN}
+      />
+      <SecondaryFilterRow
+        dates={dates}
+        dateFilter={dateFilter}
+        methods={methods}
+        allSelected={allSelected}
+      />
     </section>
   );
 }
 
-function Field({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
+function Field({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
     <label className={cn("block", className)}>
-      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</span>
+      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        {label}
+      </span>
       {children}
     </label>
   );
 }
 
-function MethodChip({ method, label, allSelected }: { method?: string; label: string; allSelected: boolean }) {
+function MethodChip({
+  method,
+  label,
+  allSelected,
+}: {
+  method?: string;
+  label: string;
+  allSelected: boolean;
+}) {
   const isSelected = useAnalysisStore((s) => (method ? s.filters.methods.includes(method) : false));
   const active = allSelected || isSelected;
   const handleClick = () => {

@@ -402,7 +402,12 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
                   labelFormatter={(lbl) => `Latency Range: ${String(lbl)}`}
                   contentStyle={tooltipStyle}
                 />
-                <Bar dataKey="count" fill={PALETTE.latency.p95} radius={[4, 4, 0, 0]} maxBarSize={36} />
+                <Bar
+                  dataKey="count"
+                  fill={PALETTE.latency.p95}
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={36}
+                />
               </BarChart>
             ) : (
               <BarChart
@@ -435,7 +440,12 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
                   }}
                   contentStyle={tooltipStyle}
                 />
-                <Bar dataKey="p95" fill={PALETTE.latency.p95} radius={[0, 3, 3, 0]} maxBarSize={18} />
+                <Bar
+                  dataKey="p95"
+                  fill={PALETTE.latency.p95}
+                  radius={[0, 3, 3, 0]}
+                  maxBarSize={18}
+                />
               </BarChart>
             )}
           </ResponsiveContainer>

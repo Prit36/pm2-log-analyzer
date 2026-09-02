@@ -10,12 +10,18 @@ const { toggleTheme } = useAnalysisStore.getState();
 
 function buildDateRangeBadge(dates: string[] | undefined): string | null {
   if (!dates || dates.length === 0) return null;
-  if (dates.length > 1) return `${formatDate(dates[0])} → ${formatDate(dates[dates.length - 1])} (${dates.length} days)`;
+  if (dates.length > 1)
+    return `${formatDate(dates[0])} → ${formatDate(dates[dates.length - 1])} (${dates.length} days)`;
   return formatDate(dates[0]);
 }
 
-function buildSourceLabel(kind: string, fileName: string | null, fileSize: number | null): string | null {
-  if (kind === "file" && fileName) return `${fileName}${fileSize != null ? ` · ${formatBytes(fileSize)}` : ""}`;
+function buildSourceLabel(
+  kind: string,
+  fileName: string | null,
+  fileSize: number | null,
+): string | null {
+  if (kind === "file" && fileName)
+    return `${fileName}${fileSize != null ? ` · ${formatBytes(fileSize)}` : ""}`;
   if (kind === "paste") return "Pasted text";
   return null;
 }
@@ -25,16 +31,17 @@ function buildFileNamesTitle(fileNames: string[]): string | undefined {
 }
 
 export function AppHeader() {
-  const { isDark, canExport, canClear, fileNamesTitle, dateRangeBadge, sourceLabel } = useAnalysisStore(
-    useShallow((s) => ({
-      isDark: s.theme === "dark",
-      canExport: s.hasData && !s.isParsing,
-      canClear: s.hasData || s.sourceKind !== "none",
-      fileNamesTitle: buildFileNamesTitle(s.fileNames),
-      dateRangeBadge: buildDateRangeBadge(s.result?.dates),
-      sourceLabel: buildSourceLabel(s.sourceKind, s.fileName, s.fileSize),
-    })),
-  );
+  const { isDark, canExport, canClear, fileNamesTitle, dateRangeBadge, sourceLabel } =
+    useAnalysisStore(
+      useShallow((s) => ({
+        isDark: s.theme === "dark",
+        canExport: s.hasData && !s.isParsing,
+        canClear: s.hasData || s.sourceKind !== "none",
+        fileNamesTitle: buildFileNamesTitle(s.fileNames),
+        dateRangeBadge: buildDateRangeBadge(s.result?.dates),
+        sourceLabel: buildSourceLabel(s.sourceKind, s.fileName, s.fileSize),
+      })),
+    );
 
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">

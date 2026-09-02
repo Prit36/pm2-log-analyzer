@@ -44,7 +44,8 @@ function initChart(
   ctx.fillStyle = isDark ? "#0f172a" : "#ffffff";
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = isDark ? "#f8fafc" : "#0f172a";
-  ctx.font = '600 15px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  ctx.font =
+    '600 15px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
   ctx.textBaseline = "middle";
   ctx.fillText(title, 18, 24);
 
@@ -58,7 +59,21 @@ function initChart(
 
   const getY = (val: number) => padding.top + graphHeight - (val / Math.max(1, maxY)) * graphHeight;
 
-  drawGridAndAxes(ctx, width, height, padding, graphWidth, graphHeight, maxY, formatY, formatYRight, maxYRight, xLabels, getX, isDark);
+  drawGridAndAxes(
+    ctx,
+    width,
+    height,
+    padding,
+    graphWidth,
+    graphHeight,
+    maxY,
+    formatY,
+    formatYRight,
+    maxYRight,
+    xLabels,
+    getX,
+    isDark,
+  );
 
   return { canvas, ctx, graphWidth, graphHeight, getX, getY, isDark };
 }
@@ -79,7 +94,8 @@ function drawGridAndAxes(
   isDark: boolean,
 ) {
   const ySteps = 4;
-  ctx.font = '500 11px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  ctx.font =
+    '500 11px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
   ctx.lineWidth = 1;
 
   for (let i = 0; i <= ySteps; i++) {
@@ -136,7 +152,13 @@ function drawSeries(
   ctx.stroke();
 }
 
-function drawRoundedBar(ctx: CanvasRenderingContext2D, xCenter: number, barY: number, barW: number, barH: number) {
+function drawRoundedBar(
+  ctx: CanvasRenderingContext2D,
+  xCenter: number,
+  barY: number,
+  barW: number,
+  barH: number,
+) {
   ctx.beginPath();
   if ("roundRect" in CanvasRenderingContext2D.prototype) {
     ctx.roundRect(xCenter - barW / 2, barY, barW, barH, [3, 3, 0, 0]);
@@ -204,10 +226,32 @@ function drawTimeVsLatencySeries(
   bottomY: number,
   isDark: boolean,
 ) {
-  const ptsFor = (key: "p99Ms" | "p95Ms" | "avgMs") => hourlyStats.map((h, i) => ({ x: getX(i, count), y: getY(h[key]) }));
-  drawSeries(ctx, ptsFor("p99Ms"), topY, bottomY, isDark ? "#a78bfa" : "#7c3aed", isDark ? "rgba(167, 139, 250, 0.3)" : "rgba(124, 58, 237, 0.25)");
-  drawSeries(ctx, ptsFor("p95Ms"), topY, bottomY, isDark ? "#60a5fa" : "#2563eb", isDark ? "rgba(96, 165, 250, 0.35)" : "rgba(37, 99, 235, 0.35)");
-  drawSeries(ctx, ptsFor("avgMs"), topY, bottomY, isDark ? "#2dd4bf" : "#0d9488", isDark ? "rgba(45, 212, 191, 0.3)" : "rgba(13, 148, 136, 0.3)");
+  const ptsFor = (key: "p99Ms" | "p95Ms" | "avgMs") =>
+    hourlyStats.map((h, i) => ({ x: getX(i, count), y: getY(h[key]) }));
+  drawSeries(
+    ctx,
+    ptsFor("p99Ms"),
+    topY,
+    bottomY,
+    isDark ? "#a78bfa" : "#7c3aed",
+    isDark ? "rgba(167, 139, 250, 0.3)" : "rgba(124, 58, 237, 0.25)",
+  );
+  drawSeries(
+    ctx,
+    ptsFor("p95Ms"),
+    topY,
+    bottomY,
+    isDark ? "#60a5fa" : "#2563eb",
+    isDark ? "rgba(96, 165, 250, 0.35)" : "rgba(37, 99, 235, 0.35)",
+  );
+  drawSeries(
+    ctx,
+    ptsFor("avgMs"),
+    topY,
+    bottomY,
+    isDark ? "#2dd4bf" : "#0d9488",
+    isDark ? "rgba(45, 212, 191, 0.3)" : "rgba(13, 148, 136, 0.3)",
+  );
 }
 
 function drawTimeVsLatencyLegend(ctx: CanvasRenderingContext2D, isDark: boolean) {
@@ -223,16 +267,32 @@ function drawTimeVsLatencyLegend(ctx: CanvasRenderingContext2D, isDark: boolean)
     ctx.arc(x, 24, 4, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = isDark ? "#cbd5e1" : "#334155";
-    ctx.font = '500 11px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.font =
+      '500 11px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     ctx.textAlign = "left";
     ctx.fillText(item.label, x + 8, 25);
   });
 }
 
-export function renderTimeVsLatencyChart(hourlyStats: HourlyBucket[], theme: ChartTheme = "light"): string {
+export function renderTimeVsLatencyChart(
+  hourlyStats: HourlyBucket[],
+  theme: ChartTheme = "light",
+): string {
   if (!hourlyStats.length) return "";
   const maxMs = maxLatencyMs(hourlyStats);
-  const chart = initChart(600, 320, "Time vs Latency Trend", { top: 52, right: 24, bottom: 48, left: 68 }, maxMs, formatMs, hourlyStats.map((h) => h.label), undefined, undefined, false, theme);
+  const chart = initChart(
+    600,
+    320,
+    "Time vs Latency Trend",
+    { top: 52, right: 24, bottom: 48, left: 68 },
+    maxMs,
+    formatMs,
+    hourlyStats.map((h) => h.label),
+    undefined,
+    undefined,
+    false,
+    theme,
+  );
   if (!chart) return "";
   const { canvas, ctx, graphHeight, getX, getY, isDark } = chart;
   const count = hourlyStats.length;
@@ -269,7 +329,10 @@ function drawHourlyErrorLine(
   maxError: number,
   isDark: boolean,
 ) {
-  const errPts = hourlyStats.map((h, i) => ({ x: getX(i, count), y: 52 + graphHeight - (h.errorCount / maxError) * graphHeight }));
+  const errPts = hourlyStats.map((h, i) => ({
+    x: getX(i, count),
+    y: 52 + graphHeight - (h.errorCount / maxError) * graphHeight,
+  }));
   ctx.beginPath();
   errPts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
   ctx.strokeStyle = isDark ? "#f87171" : "#ef4444";
@@ -287,7 +350,8 @@ function drawHourlyVolumeLegend(ctx: CanvasRenderingContext2D, isDark: boolean) 
   ctx.fillStyle = isDark ? "#60a5fa" : "#3b82f6";
   ctx.fillRect(390, 18, 12, 10);
   ctx.fillStyle = isDark ? "#cbd5e1" : "#334155";
-  ctx.font = '500 11px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  ctx.font =
+    '500 11px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
   ctx.textAlign = "left";
   ctx.fillText("Total Requests", 406, 25);
   ctx.fillStyle = isDark ? "#f87171" : "#ef4444";
@@ -297,11 +361,26 @@ function drawHourlyVolumeLegend(ctx: CanvasRenderingContext2D, isDark: boolean) 
   ctx.fillText("Errors (4xx/5xx)", 515, 25);
 }
 
-export function renderHourlyVolumeChart(hourlyStats: HourlyBucket[], theme: ChartTheme = "light"): string {
+export function renderHourlyVolumeChart(
+  hourlyStats: HourlyBucket[],
+  theme: ChartTheme = "light",
+): string {
   if (!hourlyStats.length) return "";
   const maxCount = Math.ceil(Math.max(...hourlyStats.map((h) => h.count)) * 1.15) || 10;
   const maxError = Math.ceil(Math.max(...hourlyStats.map((h) => h.errorCount)) * 1.2) || 5;
-  const chart = initChart(600, 320, "Hourly Request Volume & Errors", { top: 52, right: 65, bottom: 48, left: 65 }, maxCount, formatNum, hourlyStats.map((h) => h.label), formatNum, maxError, true, theme);
+  const chart = initChart(
+    600,
+    320,
+    "Hourly Request Volume & Errors",
+    { top: 52, right: 65, bottom: 48, left: 65 },
+    maxCount,
+    formatNum,
+    hourlyStats.map((h) => h.label),
+    formatNum,
+    maxError,
+    true,
+    theme,
+  );
   if (!chart) return "";
   const { canvas, ctx, graphHeight, getX, isDark } = chart;
   drawHourlyBars(ctx, hourlyStats, getX, hourlyStats.length, graphHeight, maxCount, isDark);
@@ -338,7 +417,10 @@ function drawDailyP95Line(
   maxP95: number,
   isDark: boolean,
 ) {
-  const pts = dailyStats.map((d, i) => ({ x: getX(i, count), y: 52 + graphHeight - (d.p95Ms / maxP95) * graphHeight }));
+  const pts = dailyStats.map((d, i) => ({
+    x: getX(i, count),
+    y: 52 + graphHeight - (d.p95Ms / maxP95) * graphHeight,
+  }));
   ctx.beginPath();
   pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
   ctx.strokeStyle = isDark ? "#a78bfa" : "#7c3aed";
@@ -356,7 +438,8 @@ function drawDailyTrendLegend(ctx: CanvasRenderingContext2D, isDark: boolean) {
   ctx.fillStyle = isDark ? "#60a5fa" : "#3b82f6";
   ctx.fillRect(360, 18, 12, 10);
   ctx.fillStyle = isDark ? "#cbd5e1" : "#334155";
-  ctx.font = '500 11px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  ctx.font =
+    '500 11px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
   ctx.textAlign = "left";
   ctx.fillText("Total Requests", 376, 25);
   ctx.fillStyle = isDark ? "#a78bfa" : "#7c3aed";
@@ -366,11 +449,26 @@ function drawDailyTrendLegend(ctx: CanvasRenderingContext2D, isDark: boolean) {
   ctx.fillText("P95 Latency", 485, 25);
 }
 
-export function renderDailyTrendChart(dailyStats: DaySummary[], theme: ChartTheme = "light"): string {
+export function renderDailyTrendChart(
+  dailyStats: DaySummary[],
+  theme: ChartTheme = "light",
+): string {
   if (!dailyStats.length) return "";
   const maxCount = Math.ceil(Math.max(...dailyStats.map((d) => d.count)) * 1.15) || 10;
   const maxP95 = Math.ceil(Math.max(...dailyStats.map((d) => d.p95Ms)) * 1.2) || 100;
-  const chart = initChart(600, 320, "Daily Trend: Requests & Latency", { top: 52, right: 65, bottom: 48, left: 65 }, maxCount, formatNum, dailyStats.map((d) => formatDate(d.date)), formatMs, maxP95, true, theme);
+  const chart = initChart(
+    600,
+    320,
+    "Daily Trend: Requests & Latency",
+    { top: 52, right: 65, bottom: 48, left: 65 },
+    maxCount,
+    formatNum,
+    dailyStats.map((d) => formatDate(d.date)),
+    formatMs,
+    maxP95,
+    true,
+    theme,
+  );
   if (!chart) return "";
   const { canvas, ctx, graphHeight, getX, isDark } = chart;
   drawDailyBars(ctx, dailyStats, getX, dailyStats.length, graphHeight, maxCount, isDark);
@@ -395,23 +493,40 @@ function drawDistributionBars(
     const barY = 52 + graphHeight - barH;
     ctx.fillStyle = b.fill;
     ctx.beginPath();
-    if ("roundRect" in CanvasRenderingContext2D.prototype) ctx.roundRect(xCenter - barW / 2, barY, barW, barH, [4, 4, 0, 0]);
+    if ("roundRect" in CanvasRenderingContext2D.prototype)
+      ctx.roundRect(xCenter - barW / 2, barY, barW, barH, [4, 4, 0, 0]);
     else ctx.fillRect(xCenter - barW / 2, barY, barW, barH);
     ctx.fill();
     if (b.count > 0) {
       ctx.fillStyle = isDark ? "#f8fafc" : "#0f172a";
-      ctx.font = '600 11px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.font =
+        '600 11px "IBM Plex Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       ctx.textAlign = "center";
       ctx.fillText(formatNum(b.count), xCenter, barY - 5);
     }
   });
 }
 
-export function renderDistributionChart(rows: AggregatedEndpoint[], theme: ChartTheme = "light"): string {
+export function renderDistributionChart(
+  rows: AggregatedEndpoint[],
+  theme: ChartTheme = "light",
+): string {
   const buckets = createLatencyBuckets();
   fillLatencyBuckets(buckets, rows);
   const maxCount = Math.ceil(Math.max(...buckets.map((b) => b.count)) * 1.15) || 10;
-  const chart = initChart(600, 320, "Latency Distribution Breakdown", { top: 52, right: 24, bottom: 48, left: 68 }, maxCount, formatNum, buckets.map((b) => b.label), undefined, undefined, true, theme);
+  const chart = initChart(
+    600,
+    320,
+    "Latency Distribution Breakdown",
+    { top: 52, right: 24, bottom: 48, left: 68 },
+    maxCount,
+    formatNum,
+    buckets.map((b) => b.label),
+    undefined,
+    undefined,
+    true,
+    theme,
+  );
   if (!chart) return "";
   const { canvas, ctx, graphHeight, getX, isDark } = chart;
   drawDistributionBars(ctx, buckets, getX, buckets.length, graphHeight, maxCount, isDark);

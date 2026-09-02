@@ -298,7 +298,11 @@ const CRON_EVENTS = {
   fail: "fail",
 } as const satisfies Record<string, "start" | "done" | "fail">;
 
-function matchCronEvent(buf: Uint8Array, i: number, end: number): { event: "start" | "done" | "fail"; next: number } | null {
+function matchCronEvent(
+  buf: Uint8Array,
+  i: number,
+  end: number,
+): { event: "start" | "done" | "fail"; next: number } | null {
   // SAFETY: CRON_EVENTS keys are exactly "start"|"done"|"fail"
   for (const word of Object.keys(CRON_EVENTS) as (keyof typeof CRON_EVENTS)[]) {
     if (i + word.length > end) continue;
@@ -315,13 +319,21 @@ function bytesEqualWord(buf: Uint8Array, i: number, word: string): boolean {
   return true;
 }
 
-function hasOnlyWhitespaceToCron(buf: Uint8Array, from: number, cronIdx: number, end: number): boolean {
+function hasOnlyWhitespaceToCron(
+  buf: Uint8Array,
+  from: number,
+  cronIdx: number,
+  end: number,
+): boolean {
   let k = from;
   while (k < cronIdx) {
     k = skipAnsiBytes(buf, k, end);
     if (k >= cronIdx) break;
     const c = buf[k]!;
-    if (c === 32 || c === 9) { k++; continue; }
+    if (c === 32 || c === 9) {
+      k++;
+      continue;
+    }
     return false;
   }
   return true;
@@ -398,7 +410,8 @@ function isSocketAlphaNoise(body: Uint8Array): boolean {
   if (startsWithBytes(word, "Token") && startsWithBytes(after, "parts: [")) return true;
   if (isMethodSocketNoise(word, after)) return true;
   if (startsWithBytes(word, "address") && startsWithBytes(after, ": '::ffff:")) return true;
-  if (startsWithBytes(word, "id") && startsWithBytes(after, ": '") && body.length <= 64) return true;
+  if (startsWithBytes(word, "id") && startsWithBytes(after, ": '") && body.length <= 64)
+    return true;
   return false;
 }
 
