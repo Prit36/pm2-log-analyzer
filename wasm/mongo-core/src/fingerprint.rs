@@ -318,8 +318,28 @@ pub fn generate_fingerprint(
             };
             format!("getMore(batchSize={})", batch)
         }
-        MongoOp::Update => format!("update({})", collection),
-        MongoOp::Delete => format!("delete({})", collection),
+        MongoOp::Update => {
+            if let Some(q_obj) = find_sub_object(cmd, b"q") {
+                filter_keys = extract_top_keys(q_obj);
+            }
+            if filter_keys.is_empty() {
+                format!("update({})", collection)
+            } else {
+                let parts: Vec<String> = filter_keys.iter().map(|k| format!("\"{}\":\"?\"", k)).collect();
+                format!("update({} {{{}}})", collection, parts.join(", "))
+            }
+        }
+        MongoOp::Delete => {
+            if let Some(q_obj) = find_sub_object(cmd, b"q") {
+                filter_keys = extract_top_keys(q_obj);
+            }
+            if filter_keys.is_empty() {
+                format!("delete({})", collection)
+            } else {
+                let parts: Vec<String> = filter_keys.iter().map(|k| format!("\"{}\":\"?\"", k)).collect();
+                format!("delete({} {{{}}})", collection, parts.join(", "))
+            }
+        }
         MongoOp::FindAndModify => {
             if let Some(query_obj) = find_sub_object(cmd, b"query") {
                 filter_keys = extract_top_keys(query_obj);

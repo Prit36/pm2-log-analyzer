@@ -132,9 +132,7 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         }
 
         matched_indices.push(i);
-        if all_durations.len() < 50000 {
-            all_durations.push(dur);
-        }
+        all_durations.push(dur);
 
         sum_duration += dur as u64;
         if dur > max_duration {
@@ -235,9 +233,7 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
             if is_coll {
                 t_acc.collscan_count += 1;
             }
-            if t_acc.sample_durations.len() < 1000 {
-                t_acc.sample_durations.push(dur);
-            }
+            t_acc.sample_durations.push(dur);
         } else {
             time_map.insert(
                 hour_key.clone(),
@@ -351,7 +347,7 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         // Example query
         out.push_str("\"exampleQuery\":{");
         out.push_str(&format!("\"id\":\"query-example-{}\",", p.fp_id));
-        out.push_str(&format!("\"timestamp\":\"{}\",", "2026-09-01T00:00:00.000Z"));
+        out.push_str(&format!("\"timestamp\":\"{}\",", epoch_to_iso(engine.timestamps_ms[p.first_query_idx])));
         out.push_str(&format!("\"epochMs\":{},", engine.timestamps_ms[p.first_query_idx]));
         out.push_str(&format!("\"severity\":\"I\","));
         out.push_str(&format!("\"component\":\"COMMAND\","));
@@ -474,7 +470,7 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
 
         out.push_str("{");
         out.push_str(&format!("\"id\":\"query-{}\",", idx));
-        out.push_str(&format!("\"timestamp\":\"{}\",", "2026-09-01T00:00:00.000Z"));
+        out.push_str(&format!("\"timestamp\":\"{}\",", epoch_to_iso(engine.timestamps_ms[idx])));
         out.push_str(&format!("\"epochMs\":{},", engine.timestamps_ms[idx]));
         out.push_str(&format!("\"severity\":\"I\","));
         out.push_str(&format!("\"component\":\"COMMAND\","));
@@ -618,4 +614,45 @@ fn escape_json(s: &str) -> String {
         }
     }
     out
+}
+
+pub fn epoch_to_iso(epoch_ms: i64) -> String {
+    if epoch_ms <= 0 {
+        return String::from("1970-01-01T00:00:00.000Z");
+    }
+    let total_sec = epoch_ms / 1000;
+    let millis = epoch_ms % 1000;
+    let sec_in_day = (total_sec % 86400 + 86400) % 86400;
+    let hour = sec_in_day / 3600;
+    let min = (sec_in_day % 3600) / 60;
+    let sec = sec_in_day % 60;
+
+    let mut days = total_sec / 86400;
+    let mut year = 1970;
+    loop {
+        let leap = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) { 1 } else { 0 };
+        let days_in_year = 365 + leap;
+        if days >= days_in_year {
+            days -= days_in_year;
+            year += 1;
+        } else {
+            break;
+        }
+    }
+    let leap = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) { 1 } else { 0 };
+    let month_days = [31, 28 + leap, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut month = 1;
+    for &d in &month_days {
+        if days >= d {
+            days -= d;
+            month += 1;
+        } else {
+            break;
+        }
+    }
+    let day = days + 1;
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        year, month, day, hour, min, sec, millis
+    )
 }

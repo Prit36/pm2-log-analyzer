@@ -1044,5 +1044,81 @@
         "jsHeapUsedAfterMB": 8.442066192626953
       }
     ]
+  },
+  {
+    "id": "2026-09-02T17:48:03.730Z",
+    "method": "browser-app",
+    "app": "mongodb",
+    "note": "audit: dynamic timestamps, full percentiles, update/delete q extraction",
+    "git": {
+      "commit": "416cee2",
+      "branch": "feat/mongodb-log-analyzer",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\mongodb_logs_sample\\methaq-mongod.log",
+    "fileMB": 335.9213228225708,
+    "runs": 1,
+    "result": {
+      "slowQueryCount": 58273,
+      "collscanCount": 10050,
+      "patternsCount": 184,
+      "collectionsCount": 52,
+      "p95DurationMs": 4100
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 0.55,
+        "stddev": 0,
+        "min": 0.55,
+        "max": 0.55
+      },
+      "uploadToReadySec": {
+        "avg": 0.5657447,
+        "stddev": 0,
+        "min": 0.5657447,
+        "max": 0.5657447
+      },
+      "throughputMBps": {
+        "avg": 610.7660414955832,
+        "stddev": 0,
+        "min": 610.7660414955832,
+        "max": 610.7660414955832
+      },
+      "browserRssPeakMB": {
+        "avg": 674.81640625,
+        "stddev": 0,
+        "min": 674.81640625,
+        "max": 674.81640625
+      },
+      "jsHeapPeakMB": {
+        "avg": 8.443473815917969,
+        "stddev": 0,
+        "min": 8.443473815917969,
+        "max": 8.443473815917969
+      },
+      "reaggAvgMs": {
+        "avg": 20,
+        "stddev": 0,
+        "min": 20,
+        "max": 20
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 0.55,
+        "uploadToReadySec": 0.5657447,
+        "throughputMBps": 610.7660414955832,
+        "reaggAvgMs": 20,
+        "reaggWallMs": [
+          22,
+          20,
+          18
+        ],
+        "browserRssPeakMB": 674.81640625,
+        "jsHeapPeakMB": 8.443473815917969,
+        "jsHeapUsedAfterMB": 8.456111907958984
+      }
+    ]
   }
 ]
