@@ -19,7 +19,6 @@ type Pm2Bench = {
   cronJobs?: number;
   p95Ms?: number;
   crossOriginIsolated?: boolean;
-  /** Total Wasm linear memory across shard workers (MB). */
   workerWasmHeapMB?: number;
   stages?: ParsePerfStages;
   reaggTimes: number[];
@@ -47,6 +46,34 @@ function ensureBench(partial?: Partial<Pm2Bench>): Pm2Bench {
   return w.__PM2_BENCH__;
 }
 
+function createBenchForParse(source: Pm2Bench["source"], fileName?: string, fileBytes?: number) {
+  const partial: Partial<Pm2Bench> = {
+    at: new Date().toISOString(),
+    source,
+    crossOriginIsolated: window.crossOriginIsolated,
+    reaggTimes: [],
+    reaggStages: [],
+    parseWallMs: 0,
+    workerWasmHeapMB: 0,
+  };
+  if (fileName !== undefined) partial.fileName = fileName;
+  if (fileBytes !== undefined) partial.fileBytes = fileBytes;
+  ensureBench(partial);
+}
+
+function finalizeBench(parseWallMs: number) {
+  const result = useAnalysisStore.getState().result;
+  ensureBench({
+    parseWallMs,
+    matched: result?.summary.matched ?? 0,
+    unmatched: result?.summary.unmatched ?? 0,
+    apiEndpoints: result?.api.length ?? 0,
+    cronJobs: result?.cron.length ?? 0,
+    p95Ms: result?.summary.p95Ms ?? 0,
+  });
+  return result;
+}
+
 const { clearAnalysis, setError, setParsing, setProgress, setResult, setWorkerReady, showToast } =
   useAnalysisStore.getState();
 
@@ -54,63 +81,82 @@ let worker: Worker | null = null;
 let resolveFn: (() => void) | null = null;
 let rejectFn: ((reason: Error) => void) | null = null;
 
-export function getOrCreateWorker(): Worker {
-  if (!worker) {
-    worker = new LogParserWorker();
+function handlePerfMessage(payload: ParsePerfStages | ReaggPerfStages) {
+  const b = ensureBench();
+  if (payload.kind === "reagg") b.reaggStages = [...(b.reaggStages ?? []), payload];
+  else b.stages = payload;
+}
 
-    worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
-      const msg = e.data;
-      switch (msg.type) {
-        case "PROGRESS":
-          setProgress(msg.payload);
-          break;
-        case "PERF": {
-          const b = ensureBench();
-          if (msg.payload.kind === "reagg") {
-            b.reaggStages = [...(b.reaggStages ?? []), msg.payload];
-          } else {
-            b.stages = msg.payload;
-          }
-          break;
-        }
-        case "RESULT":
-          setResult(msg.payload);
-          if (useAnalysisStore.getState().isParsing) {
-            setProgress({ stage: "complete", processed: 100, total: 100, percent: 100 });
-            setParsing(false);
-          }
-          resolveFn?.();
-          resolveFn = null;
-          rejectFn = null;
-          break;
-        case "ERROR":
-          setError(msg.payload.message);
-          setParsing(false);
-          showToast(msg.payload.message);
-          rejectFn?.(new Error(msg.payload.message));
-          resolveFn = null;
-          rejectFn = null;
-          break;
-        case "DONE":
-          if (msg.payload?.workerWasmHeapMB != null) {
-            ensureBench({ workerWasmHeapMB: msg.payload.workerWasmHeapMB });
-          }
-          break;
-      }
-    };
-
-    worker.onerror = (err) => {
-      const message = err.message || "Worker error";
-      setError(message);
-      setParsing(false);
-      showToast(message);
-      rejectFn?.(new Error(message));
-      resolveFn = null;
-      rejectFn = null;
-    };
-
-    setWorkerReady(true);
+function handleResultMessage(payload: WorkerResponse & { type: "RESULT" }) {
+  setResult(payload.payload);
+  if (useAnalysisStore.getState().isParsing) {
+    setProgress({ stage: "complete", processed: 100, total: 100, percent: 100 });
+    setParsing(false);
   }
+  resolveFn?.();
+  resolveFn = null;
+  rejectFn = null;
+}
+
+function handleErrorMessage(payload: { message: string }) {
+  setError(payload.message);
+  setParsing(false);
+  showToast(payload.message);
+  rejectFn?.(new Error(payload.message));
+  resolveFn = null;
+  rejectFn = null;
+}
+
+const workerHandlers = {
+  PROGRESS: (msg: WorkerResponse) => {
+    // SAFETY: handler invoked only for matching type
+    setProgress((msg as Extract<WorkerResponse, { type: "PROGRESS" }>).payload);
+  },
+  PERF: (msg: WorkerResponse) => {
+    // SAFETY: payload kind checked inside handlePerfMessage
+    handlePerfMessage((msg as Extract<WorkerResponse, { type: "PERF" }>).payload);
+  },
+  RESULT: (msg: WorkerResponse) => {
+    // SAFETY: RESULT payload is AggregatedResult
+    handleResultMessage(msg as Extract<WorkerResponse, { type: "RESULT" }>);
+  },
+  ERROR: (msg: WorkerResponse) => {
+    // SAFETY: ERROR payload always has message
+    handleErrorMessage((msg as Extract<WorkerResponse, { type: "ERROR" }>).payload);
+  },
+  DONE: (msg: WorkerResponse) => {
+    // SAFETY: DONE payload optional workerWasmHeapMB
+    const p = (msg as Extract<WorkerResponse, { type: "DONE" }>).payload;
+    if (p?.workerWasmHeapMB != null) ensureBench({ workerWasmHeapMB: p.workerWasmHeapMB });
+  },
+} satisfies Record<WorkerResponse["type"], (msg: WorkerResponse) => void>;
+
+export function getOrCreateWorker(): Worker {
+  if (worker) return worker;
+  worker = new LogParserWorker();
+
+  worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
+    const msg = e.data;
+    // SAFETY: msg.type is a valid WorkerResponse discriminator — handler map is exhaustive
+    const handler = workerHandlers[msg.type as keyof typeof workerHandlers];
+    if (handler) {
+      // SAFETY: handler signature matches WorkerResponse union
+      const typedHandler = handler as (m: WorkerResponse) => void;
+      typedHandler(msg);
+    }
+  };
+
+  worker.onerror = (err) => {
+    const message = err.message || "Worker error";
+    setError(message);
+    setParsing(false);
+    showToast(message);
+    rejectFn?.(new Error(message));
+    resolveFn = null;
+    rejectFn = null;
+  };
+
+  setWorkerReady(true);
   return worker;
 }
 
@@ -138,90 +184,34 @@ export function runReagg(message: WorkerMessage): Promise<void> {
 
 export async function parseFile(file: File): Promise<void> {
   const options = workerParseOptions(useAnalysisStore.getState().filters);
-  // Create before PARSE so PERF messages can land stages.
-  ensureBench({
-    at: new Date().toISOString(),
-    source: "file",
-    fileName: file.name,
-    fileBytes: file.size,
-    crossOriginIsolated: window.crossOriginIsolated,
-    reaggTimes: [],
-    reaggStages: [],
-    parseWallMs: 0,
-    workerWasmHeapMB: 0,
-  });
+  createBenchForParse("file", file.name, file.size);
   const t0 = performance.now();
   await runParse({ type: "PARSE_FILE", payload: { file, options } });
   const ms = Math.round(performance.now() - t0);
-  const result = useAnalysisStore.getState().result;
-  ensureBench({
-    parseWallMs: ms,
-    matched: result?.summary.matched ?? 0,
-    unmatched: result?.summary.unmatched ?? 0,
-    apiEndpoints: result?.api.length ?? 0,
-    cronJobs: result?.cron.length ?? 0,
-    p95Ms: result?.summary.p95Ms ?? 0,
-  });
+  const result = finalizeBench(ms);
   showToast(`Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests in ${ms}ms`);
 }
 
 export async function parseFiles(files: File[]): Promise<void> {
   if (files.length === 0) return;
-  if (files.length === 1) {
-    return parseFile(files[0]!);
-  }
+  if (files.length === 1) return parseFile(files[0]!);
   const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
   const options = workerParseOptions(useAnalysisStore.getState().filters);
-  ensureBench({
-    at: new Date().toISOString(),
-    source: "files",
-    fileName: `${files.length} files`,
-    fileBytes: totalBytes,
-    crossOriginIsolated: window.crossOriginIsolated,
-    reaggTimes: [],
-    reaggStages: [],
-    parseWallMs: 0,
-    workerWasmHeapMB: 0,
-  });
+  createBenchForParse("files", `${files.length} files`, totalBytes);
   const t0 = performance.now();
   await runParse({ type: "PARSE_FILES", payload: { files, options } });
   const ms = Math.round(performance.now() - t0);
-  const result = useAnalysisStore.getState().result;
-  ensureBench({
-    parseWallMs: ms,
-    matched: result?.summary.matched ?? 0,
-    unmatched: result?.summary.unmatched ?? 0,
-    apiEndpoints: result?.api.length ?? 0,
-    cronJobs: result?.cron.length ?? 0,
-    p95Ms: result?.summary.p95Ms ?? 0,
-  });
-  showToast(
-    `Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests across ${files.length} files in ${ms}ms`,
-  );
+  const result = finalizeBench(ms);
+  showToast(`Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests across ${files.length} files in ${ms}ms`);
 }
 
 export async function parseText(text: string): Promise<void> {
   const options = workerParseOptions(useAnalysisStore.getState().filters);
-  ensureBench({
-    at: new Date().toISOString(),
-    source: "text",
-    reaggTimes: [],
-    reaggStages: [],
-    parseWallMs: 0,
-    workerWasmHeapMB: 0,
-  });
+  createBenchForParse("text");
   const t0 = performance.now();
   await runParse({ type: "PARSE_TEXT", payload: { text, options } });
   const ms = Math.round(performance.now() - t0);
-  const result = useAnalysisStore.getState().result;
-  ensureBench({
-    parseWallMs: ms,
-    matched: result?.summary.matched ?? 0,
-    unmatched: result?.summary.unmatched ?? 0,
-    apiEndpoints: result?.api.length ?? 0,
-    cronJobs: result?.cron.length ?? 0,
-    p95Ms: result?.summary.p95Ms ?? 0,
-  });
+  const result = finalizeBench(ms);
   showToast(`Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests in ${ms}ms`);
 }
 

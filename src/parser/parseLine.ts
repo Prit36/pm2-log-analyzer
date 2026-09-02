@@ -10,7 +10,6 @@ const ANSI_RE = /\u001b\[[0-9;]*m/g; // oxlint-disable-line no-control-regex -- 
 const CRON_MARK = [0x5b, 0x63, 0x72, 0x6f, 0x6e, 0x5d]; // [cron]
 const decoder = new TextDecoder("utf-8", { fatal: false });
 
-/** Strip ANSI (kept for callers / tests). Prefer in-scanner skip on the hot path. */
 export function stripAnsi(input: string): string {
   if (input.indexOf("\u001b") === -1) return input;
   return input.replace(ANSI_RE, "");
@@ -18,6 +17,24 @@ export function stripAnsi(input: string): string {
 
 function isDigit(c: number): boolean {
   return c >= 48 && c <= 57;
+}
+
+function isAlpha(c: number): boolean {
+  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+}
+
+function isAlphaNumeric(c: number): boolean {
+  return (c >= 48 && c <= 57) || isAlpha(c);
+}
+
+function decodeAscii(buf: Uint8Array, start: number, end: number): string {
+  return decoder.decode(buf.subarray(start, end));
+}
+
+function startsWithBytes(buf: Uint8Array, s: string): boolean {
+  if (buf.length < s.length) return false;
+  for (let k = 0; k < s.length; k++) if (buf[k] !== s.charCodeAt(k)) return false;
+  return true;
 }
 
 function skipAnsiBytes(buf: Uint8Array, i: number, end: number): number {
@@ -48,6 +65,37 @@ function onlySpaceAnsiLeftBytes(buf: Uint8Array, i: number, end: number): boolea
   return skipSpaceAnsiBytes(buf, i, end) >= end;
 }
 
+// ── Timestamp ───────────────────────────────────────────────────────────────
+
+function hasValidDatePrefix(buf: Uint8Array, a: number): boolean {
+  for (let k = 0; k < 10; k++) {
+    const c = buf[a + k]!;
+    if (k === 4 || k === 7) {
+      if (c !== 45) return false;
+    } else if (!isDigit(c)) return false;
+  }
+  return true;
+}
+
+function hasValidTimePrefix(buf: Uint8Array, a: number): boolean {
+  for (let k = 11; k < 19; k++) {
+    const c = buf[a + k]!;
+    if (k === 13 || k === 16) {
+      if (c !== 58) return false;
+    } else if (!isDigit(c)) return false;
+  }
+  return true;
+}
+
+function isTimestampSeparator(c: number): boolean {
+  return c === 84 || c === 32;
+}
+
+function extractTimestampHour(buf: Uint8Array, a: number): number {
+  const hour = (buf[a + 11]! - 48) * 10 + (buf[a + 12]! - 48);
+  return hour >= 0 && hour < 24 ? hour : 0;
+}
+
 function skipTimestampBytes(
   buf: Uint8Array,
   start: number,
@@ -55,30 +103,20 @@ function skipTimestampBytes(
 ): { i: number; tsStart: number; tsEnd: number; hour: number; dateStr: string } | null {
   if (end - start < 20) return null;
   const a = start;
-  for (let k = 0; k < 10; k++) {
-    const c = buf[a + k]!;
-    if (k === 4 || k === 7) {
-      if (c !== 45) return null;
-    } else if (!isDigit(c)) return null;
-  }
-  const sep = buf[a + 10]!;
-  if (sep !== 84 && sep !== 32) return null;
-  for (let k = 11; k < 19; k++) {
-    const c = buf[a + k]!;
-    if (k === 13 || k === 16) {
-      if (c !== 58) return null;
-    } else if (!isDigit(c)) return null;
-  }
+  if (!hasValidDatePrefix(buf, a)) return null;
+  if (!isTimestampSeparator(buf[a + 10]!)) return null;
+  if (!hasValidTimePrefix(buf, a)) return null;
   if (buf[a + 19] !== 58) return null;
-  const hour = (buf[a + 11]! - 48) * 10 + (buf[a + 12]! - 48);
   return {
     i: skipSpaceAnsiBytes(buf, a + 20, end),
     tsStart: a,
     tsEnd: a + 19,
-    hour: hour >= 0 && hour < 24 ? hour : 0,
+    hour: extractTimestampHour(buf, a),
     dateStr: decodeAscii(buf, a, a + 10),
   };
 }
+
+// ── Token helpers ───────────────────────────────────────────────────────────
 
 function parseMethodBytes(
   buf: Uint8Array,
@@ -88,21 +126,21 @@ function parseMethodBytes(
   i = skipSpaceAnsiBytes(buf, i, end);
   for (const { method, bytes } of METHOD_BYTES) {
     if (i + bytes.length > end) continue;
-    let ok = true;
-    for (let k = 0; k < bytes.length; k++) {
-      if (buf[i + k] !== bytes[k]) {
-        ok = false;
-        break;
-      }
-    }
-    if (!ok) continue;
+    if (!methodBytesMatch(buf, i, bytes)) continue;
     const after = i + bytes.length;
     const next = after < end ? buf[after]! : 32;
-    if (next === 32 || next === 9 || next === 0x1b || after >= end) {
-      return { method, i: after };
-    }
+    if (isMethodTerminator(next) || after >= end) return { method, i: after };
   }
   return null;
+}
+
+function methodBytesMatch(buf: Uint8Array, i: number, bytes: number[]): boolean {
+  for (let k = 0; k < bytes.length; k++) if (buf[i + k] !== bytes[k]) return false;
+  return true;
+}
+
+function isMethodTerminator(c: number): boolean {
+  return c === 32 || c === 9 || c === 0x1b;
 }
 
 function readTokenRange(
@@ -129,17 +167,23 @@ function parseFloatBytes(
 ): { value: number; i: number } | null {
   i = skipSpaceAnsiBytes(buf, i, end);
   const start = i;
-  while (i < end && isDigit(buf[i]!)) i++;
-  if (i < end && buf[i] === 46) {
-    i++;
-    while (i < end && isDigit(buf[i]!)) i++;
-  }
+  i = consumeDigits(buf, i, end);
+  if (i < end && buf[i] === 46) i = consumeDigits(buf, i + 1, end);
   if (i === start) return null;
+  return { value: decodeFloatBytes(buf, start, i), i };
+}
+
+function consumeDigits(buf: Uint8Array, i: number, end: number): number {
+  while (i < end && isDigit(buf[i]!)) i++;
+  return i;
+}
+
+function decodeFloatBytes(buf: Uint8Array, start: number, end: number): number {
   let value = 0;
   let frac = 0;
   let fracDiv = 1;
   let seenDot = false;
-  for (let k = start; k < i; k++) {
+  for (let k = start; k < end; k++) {
     const c = buf[k]!;
     if (c === 46) {
       seenDot = true;
@@ -151,22 +195,43 @@ function parseFloatBytes(
       fracDiv *= 10;
     }
   }
-  if (seenDot) value += frac / fracDiv;
-  return { value, i };
-}
-
-function decodeAscii(buf: Uint8Array, start: number, end: number): string {
-  return decoder.decode(buf.subarray(start, end));
+  return seenDot ? value + frac / fracDiv : value;
 }
 
 function findCronMark(buf: Uint8Array, from: number, end: number): number {
   outer: for (let i = from; i + CRON_MARK.length <= end; i++) {
-    for (let k = 0; k < CRON_MARK.length; k++) {
-      if (buf[i + k] !== CRON_MARK[k]) continue outer;
-    }
+    for (let k = 0; k < CRON_MARK.length; k++) if (buf[i + k] !== CRON_MARK[k]) continue outer;
     return i;
   }
   return -1;
+}
+
+// ── HTTP ────────────────────────────────────────────────────────────────────
+
+function parseStatusCode(buf: Uint8Array, tok: { start: number; end: number }): number | null {
+  if (tok.end - tok.start !== 3) return null;
+  const s0 = buf[tok.start]!;
+  const s1 = buf[tok.start + 1]!;
+  const s2 = buf[tok.start + 2]!;
+  if (!isDigit(s0) || !isDigit(s1) || !isDigit(s2)) return null;
+  return (s0 - 48) * 100 + (s1 - 48) * 10 + (s2 - 48);
+}
+
+function expectMsSuffix(buf: Uint8Array, i: number, end: number): number | null {
+  i = skipSpaceAnsiBytes(buf, i, end);
+  if (i + 1 >= end || buf[i] !== 0x6d || buf[i + 1] !== 0x73) return null;
+  return i + 2;
+}
+
+function expectDashWithPayload(buf: Uint8Array, i: number, end: number): number | null {
+  i = skipSpaceAnsiBytes(buf, i, end);
+  if (i >= end || buf[i] !== 45) return null;
+  i = skipSpaceAnsiBytes(buf, i + 1, end);
+  if (i >= end) return null;
+  if (buf[i] === 45) return i + 1;
+  const b0 = i;
+  while (i < end && isDigit(buf[i]!)) i++;
+  return i === b0 ? null : i;
 }
 
 function tryHttpABytes(buf: Uint8Array, start: number, end: number, out: LineScratch): boolean {
@@ -176,36 +241,20 @@ function tryHttpABytes(buf: Uint8Array, start: number, end: number, out: LineScr
 
   const meth = parseMethodBytes(buf, i, end);
   if (!meth) return false;
-  i = meth.i;
-
-  const pathTok = readTokenRange(buf, i, end);
+  const pathTok = readTokenRange(buf, meth.i, end);
   if (!pathTok) return false;
-  i = pathTok.i;
-
-  const statusTok = readTokenRange(buf, i, end);
-  if (!statusTok || statusTok.end - statusTok.start !== 3) return false;
-  const s0 = buf[statusTok.start]!;
-  const s1 = buf[statusTok.start + 1]!;
-  const s2 = buf[statusTok.start + 2]!;
-  if (!isDigit(s0) || !isDigit(s1) || !isDigit(s2)) return false;
-  const status = (s0 - 48) * 100 + (s1 - 48) * 10 + (s2 - 48);
-  i = statusTok.i;
-
-  const dur = parseFloatBytes(buf, i, end);
+  const statusTok = readTokenRange(buf, pathTok.i, end);
+  if (!statusTok) return false;
+  const status = parseStatusCode(buf, statusTok);
+  if (status === null) return false;
+  const dur = parseFloatBytes(buf, statusTok.i, end);
   if (!dur) return false;
-  i = skipSpaceAnsiBytes(buf, dur.i, end);
-  if (i + 1 >= end || buf[i] !== 0x6d || buf[i + 1] !== 0x73) return false; // ms
-  i = skipSpaceAnsiBytes(buf, i + 2, end);
-  if (i >= end || buf[i] !== 45) return false;
-  i = skipSpaceAnsiBytes(buf, i + 1, end);
-  if (i >= end) return false;
-  if (buf[i] === 45) i++;
-  else {
-    const b0 = i;
-    while (i < end && isDigit(buf[i]!)) i++;
-    if (i === b0) return false;
-  }
-  if (!onlySpaceAnsiLeftBytes(buf, i, end)) return false;
+
+  const afterMs = expectMsSuffix(buf, dur.i, end);
+  if (afterMs === null) return false;
+  const afterDash = expectDashWithPayload(buf, afterMs, end);
+  if (afterDash === null) return false;
+  if (!onlySpaceAnsiLeftBytes(buf, afterDash, end)) return false;
 
   out.kind = "http";
   out.method = meth.method;
@@ -222,15 +271,11 @@ function tryHttpBBytes(buf: Uint8Array, start: number, end: number, out: LineScr
   let i = skipSpaceAnsiBytes(buf, start, end);
   const dur = parseFloatBytes(buf, i, end);
   if (!dur) return false;
-  i = skipSpaceAnsiBytes(buf, dur.i, end);
-  if (i + 1 >= end || buf[i] !== 0x6d || buf[i + 1] !== 0x73) return false;
-  i = skipSpaceAnsiBytes(buf, i + 2, end);
-
-  const meth = parseMethodBytes(buf, i, end);
+  const afterMs = expectMsSuffix(buf, dur.i, end);
+  if (afterMs === null) return false;
+  const meth = parseMethodBytes(buf, afterMs, end);
   if (!meth) return false;
-  i = meth.i;
-
-  const pathTok = readTokenRange(buf, i, end);
+  const pathTok = readTokenRange(buf, meth.i, end);
   if (!pathTok) return false;
   if (!onlySpaceAnsiLeftBytes(buf, pathTok.i, end)) return false;
 
@@ -245,6 +290,50 @@ function tryHttpBBytes(buf: Uint8Array, start: number, end: number, out: LineScr
   return true;
 }
 
+// ── Cron ────────────────────────────────────────────────────────────────────
+
+const CRON_EVENTS = {
+  start: "start",
+  done: "done",
+  fail: "fail",
+} as const satisfies Record<string, "start" | "done" | "fail">;
+
+function matchCronEvent(buf: Uint8Array, i: number, end: number): { event: "start" | "done" | "fail"; next: number } | null {
+  // SAFETY: CRON_EVENTS keys are exactly "start"|"done"|"fail"
+  for (const word of Object.keys(CRON_EVENTS) as (keyof typeof CRON_EVENTS)[]) {
+    if (i + word.length > end) continue;
+    if (!bytesEqualWord(buf, i, word)) continue;
+    const after = i + word.length;
+    if (after < end && buf[after]! !== 32 && buf[after]! !== 9) continue;
+    return { event: CRON_EVENTS[word], next: after };
+  }
+  return null;
+}
+
+function bytesEqualWord(buf: Uint8Array, i: number, word: string): boolean {
+  for (let k = 0; k < word.length; k++) if (buf[i + k] !== word.charCodeAt(k)) return false;
+  return true;
+}
+
+function hasOnlyWhitespaceToCron(buf: Uint8Array, from: number, cronIdx: number, end: number): boolean {
+  let k = from;
+  while (k < cronIdx) {
+    k = skipAnsiBytes(buf, k, end);
+    if (k >= cronIdx) break;
+    const c = buf[k]!;
+    if (c === 32 || c === 9) { k++; continue; }
+    return false;
+  }
+  return true;
+}
+
+type CronDurationExtract = { name: string; durationMs?: number };
+function extractCronDuration(name: string): CronDurationExtract {
+  const durMatch = /^(.+?)\s+([0-9.]+)\s*ms\s*$/i.exec(name);
+  if (!durMatch) return { name };
+  return { name: durMatch[1]!.trim(), durationMs: Number(durMatch[2]) };
+}
+
 function tryCronBytes(buf: Uint8Array, start: number, end: number, out: LineScratch): boolean {
   let i = skipSpaceAnsiBytes(buf, start, end);
   const ts = skipTimestampBytes(buf, i, end);
@@ -252,72 +341,27 @@ function tryCronBytes(buf: Uint8Array, start: number, end: number, out: LineScra
 
   const cronIdx = findCronMark(buf, i, end);
   if (cronIdx === -1) return false;
-  let k = i;
-  while (k < cronIdx) {
-    k = skipAnsiBytes(buf, k, end);
-    if (k >= cronIdx) break;
-    const c = buf[k]!;
-    if (c === 32 || c === 9) {
-      k++;
-      continue;
-    }
-    return false;
-  }
+  if (!hasOnlyWhitespaceToCron(buf, i, cronIdx, end)) return false;
 
   i = skipSpaceAnsiBytes(buf, cronIdx + 6, end);
+  const matched = matchCronEvent(buf, i, end);
+  if (!matched) return false;
 
-  let event: "start" | "done" | "fail" | null = null;
-  if (
-    i + 5 <= end &&
-    buf[i] === 0x73 &&
-    buf[i + 1] === 0x74 &&
-    buf[i + 2] === 0x61 &&
-    buf[i + 3] === 0x72 &&
-    buf[i + 4] === 0x74 &&
-    (i + 5 >= end || buf[i + 5] === 32)
-  ) {
-    event = "start";
-    i += 5;
-  } else if (
-    i + 4 <= end &&
-    buf[i] === 0x64 &&
-    buf[i + 1] === 0x6f &&
-    buf[i + 2] === 0x6e &&
-    buf[i + 3] === 0x65 &&
-    (i + 4 >= end || buf[i + 4] === 32)
-  ) {
-    event = "done";
-    i += 4;
-  } else if (
-    i + 4 <= end &&
-    buf[i] === 0x66 &&
-    buf[i + 1] === 0x61 &&
-    buf[i + 2] === 0x69 &&
-    buf[i + 3] === 0x6c &&
-    (i + 4 >= end || buf[i + 4] === 32)
-  ) {
-    event = "fail";
-    i += 4;
-  } else return false;
-
-  i = skipSpaceAnsiBytes(buf, i, end);
+  i = skipSpaceAnsiBytes(buf, matched.next, end);
   let name = stripAnsi(decodeAscii(buf, i, end)).trim();
   if (!name) return false;
+  const extracted = extractCronDuration(name);
+  name = extracted.name;
 
-  let durationMs: number | undefined;
-  const durMatch = /^(.+?)\s+([0-9.]+)\s*ms\s*$/i.exec(name);
-  if (durMatch) {
-    name = durMatch[1]!.trim();
-    durationMs = Number(durMatch[2]);
-  }
-
-  const ev: CronEventCompact = { event, name };
+  const ev: CronEventCompact = { event: matched.event, name };
   if (ts) ev.ts = decodeAscii(buf, ts.tsStart, ts.tsEnd);
-  if (durationMs !== undefined) ev.durationMs = durationMs;
+  if (extracted.durationMs !== undefined) ev.durationMs = extracted.durationMs;
   out.kind = "cron";
   out.cron = ev;
   return true;
 }
+
+// ── Noise / misc ────────────────────────────────────────────────────────────
 
 function hasNonSpaceBytes(buf: Uint8Array, start: number, end: number): boolean {
   for (let i = start; i < end; i++) {
@@ -328,7 +372,6 @@ function hasNonSpaceBytes(buf: Uint8Array, start: number, end: number): boolean 
   return false;
 }
 
-/** Line content after the optional PM2 timestamp + leading whitespace. */
 function noiseBody(buf: Uint8Array, start: number, end: number): Uint8Array {
   let i = skipSpaceAnsiBytes(buf, start, end);
   const ts = skipTimestampBytes(buf, i, end);
@@ -337,75 +380,58 @@ function noiseBody(buf: Uint8Array, start: number, end: number): Uint8Array {
   return buf.subarray(i, end);
 }
 
-function isAlpha(c: number): boolean {
-  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
-}
-
-function isAlphaNumeric(c: number): boolean {
-  return (c >= 48 && c <= 57) || isAlpha(c);
-}
-
-function startsWithBytes(buf: Uint8Array, s: string): boolean {
-  if (buf.length < s.length) return false;
-  for (let k = 0; k < s.length; k++) {
-    if (buf[k] !== s.charCodeAt(k)) return false;
-  }
-  return true;
-}
-
-/**
- * Socket.IO / socket connection noise — chat/tracking lines with no HTTP value.
- * Mirrors wasm/pm2-core/src/parse.rs `is_socket_noise`.
- */
 function isSocketNoiseBytes(buf: Uint8Array, start: number, end: number): boolean {
   const body = noiseBody(buf, start, end);
   if (body.length === 0) return false;
   const c0 = body[0]!;
+  if (isAlpha(c0)) return isSocketAlphaNoise(body);
+  return isBareSocketFragment(body);
+}
 
-  if (isAlpha(c0)) {
-    // alphabetic word prefix (matches Rust `is_ascii_alphabetic`)
-    let w = 0;
-    while (w < body.length && isAlphaNumeric(body[w]!)) w++;
-    const word = body.subarray(0, w);
-    let after = body.subarray(w);
-    while (after.length && (after[0] === 32 || after[0] === 9)) after = after.subarray(1);
+function isSocketAlphaNoise(body: Uint8Array): boolean {
+  let w = 0;
+  while (w < body.length && isAlphaNumeric(body[w]!)) w++;
+  const word = body.subarray(0, w);
+  let after = body.subarray(w);
+  while (after.length && (after[0] === 32 || after[0] === 9)) after = after.subarray(1);
+  if (isSocketConnectionWord(word, after)) return true;
+  if (startsWithBytes(word, "Token") && startsWithBytes(after, "parts: [")) return true;
+  if (isMethodSocketNoise(word, after)) return true;
+  if (startsWithBytes(word, "address") && startsWithBytes(after, ": '::ffff:")) return true;
+  if (startsWithBytes(word, "id") && startsWithBytes(after, ": '") && body.length <= 64) return true;
+  return false;
+}
 
-    const isSocketWord =
-      startsWithBytes(word, "New") ||
-      startsWithBytes(word, "disconnected") ||
-      startsWithBytes(word, "join") ||
-      startsWithBytes(word, "leave");
-    if (isSocketWord && (startsWithBytes(after, "Connection {") || startsWithBytes(after, "{"))) {
-      return true;
-    }
-    if (startsWithBytes(word, "Token") && startsWithBytes(after, "parts: [")) return true;
-    if (
-      startsWithBytes(word, "method") &&
-      (startsWithBytes(after, ": 'join'") || startsWithBytes(after, ": 'disconnect'"))
-    )
-      return true;
-    if (startsWithBytes(word, "address") && startsWithBytes(after, ": '::ffff:")) return true;
-    if (startsWithBytes(word, "id") && startsWithBytes(after, ": '") && body.length <= 64)
-      return true;
-    return false;
-  }
+function isSocketConnectionWord(word: Uint8Array, after: Uint8Array): boolean {
+  const isSocketWord =
+    startsWithBytes(word, "New") ||
+    startsWithBytes(word, "disconnected") ||
+    startsWithBytes(word, "join") ||
+    startsWithBytes(word, "leave");
+  return isSocketWord && (startsWithBytes(after, "Connection {") || startsWithBytes(after, "{"));
+}
 
-  // Bare Socket.IO fragment lines: `{ …`, `}`, `} ,` , `[ …`, `]`, `] { …`, `] Length: …`
-  if (c0 === 0x7b || c0 === 0x7d || c0 === 0x5b || c0 === 0x5d) {
-    const tail = body.subarray(1);
-    const bareTail = Array.from(tail).every((c) => c === 32 || c === 9 || c === 44);
-    if (c0 === 0x7b) return bareTail || startsWithBytes(body, "{ '");
-    if (c0 === 0x5b) return bareTail;
-    if (c0 === 0x7d) return bareTail;
-    if (c0 === 0x5d) {
-      if (startsWithBytes(body, "] {") || startsWithBytes(body, "] Length:")) return true;
-      return bareTail;
-    }
+function isMethodSocketNoise(word: Uint8Array, after: Uint8Array): boolean {
+  if (!startsWithBytes(word, "method")) return false;
+  return startsWithBytes(after, ": 'join'") || startsWithBytes(after, ": 'disconnect'");
+}
+
+function isBareSocketFragment(body: Uint8Array): boolean {
+  const c0 = body[0]!;
+  const tail = body.subarray(1);
+  const bareTail = Array.from(tail).every((c) => c === 32 || c === 9 || c === 44);
+  if (c0 === 0x7b) return bareTail || startsWithBytes(body, "{ '");
+  if (c0 === 0x5b) return bareTail;
+  if (c0 === 0x7d) return bareTail;
+  if (c0 === 0x5d) {
+    if (startsWithBytes(body, "] {") || startsWithBytes(body, "] Length:")) return true;
+    return bareTail;
   }
   return false;
 }
 
-/** Reusable parse output — avoids per-line object alloc in the worker. */
+// ── Public API ──────────────────────────────────────────────────────────────
+
 export type LineScratch = {
   kind: "empty" | "http" | "cron" | "unmatched";
   method: LogMethod;
@@ -430,22 +456,18 @@ export function createLineScratch(): LineScratch {
   };
 }
 
-/** Hot path: parse one line from raw bytes [start, end). */
 export function parseLineBytes(
   buf: Uint8Array,
   start: number,
   end: number,
   out: LineScratch,
 ): void {
-  // trim trailing CR
   if (end > start && buf[end - 1] === 0x0d) end--;
-
   if (!hasNonSpaceBytes(buf, start, end)) {
     out.kind = "empty";
     out.cron = null;
     return;
   }
-
   if (findCronMark(buf, start, end) !== -1 && tryCronBytes(buf, start, end, out)) return;
   if (tryHttpABytes(buf, start, end, out)) return;
   if (tryHttpBBytes(buf, start, end, out)) return;
@@ -454,13 +476,11 @@ export function parseLineBytes(
     out.cron = null;
     return;
   }
-
   out.kind = "unmatched";
   out.cron = null;
 }
 
 export function parseLineInto(line: string, out: LineScratch): void {
-  // Encode once for paste / selfcheck path — shards use parseLineBytes directly
   const enc = new TextEncoder().encode(line);
   parseLineBytes(enc, 0, enc.length, out);
 }

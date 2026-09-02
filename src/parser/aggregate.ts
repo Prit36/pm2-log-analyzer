@@ -31,7 +31,6 @@ export type ColumnarStore = {
   methodSeen: Set<string>;
 };
 
-/** Serializable per-(method, normalized path) bucket from a column slice. */
 export type NormBucketWire = {
   method: LogMethod;
   path: string;
@@ -71,39 +70,149 @@ function sketchQuantile(sketch: RelHist, q: number, n: number): number {
   return sketch.quantile(q);
 }
 
+const LOG_METHOD_SET = new Set<string>(METHODS);
+
 function isLogMethod(m: string): m is LogMethod {
-  switch (m) {
-    case "GET":
-    case "POST":
-    case "PUT":
-    case "PATCH":
-    case "DELETE":
-    case "HEAD":
-      return true;
-    default:
-      return false;
-  }
+  return LOG_METHOD_SET.has(m);
 }
 
 function methodOkMask(options: ParseOptions): Uint8Array {
   const methodOk = new Uint8Array(METHODS.length);
-  if (options.methodFilter && options.methodFilter.length > 0) {
-    for (const m of options.methodFilter) {
-      if (isLogMethod(m)) {
-        const i = METHODS.indexOf(m);
-        if (i >= 0) methodOk[i] = 1;
-      }
+  const filter = options.methodFilter;
+  if (filter && filter.length > 0) {
+    for (const m of filter) {
+      if (!isLogMethod(m)) continue;
+      const idx = METHODS.indexOf(m);
+      if (idx >= 0) methodOk[idx] = 1;
     }
-  } else {
-    methodOk.fill(1);
+    return methodOk;
   }
+  methodOk.fill(1);
   return methodOk;
 }
 
-/**
- * Aggregate [start, end). Scan keys by pathId<<3|method (no normalize in the hot loop),
- * then collapse unique raw keys → normalized endpoint buckets for a small wire payload.
- */
+// ── Column slice ────────────────────────────────────────────────────────────
+
+type RawEntry = {
+  sketch: RelHist;
+  count: number;
+  sum: number;
+  min: number;
+  max: number;
+  errorCount: number;
+};
+
+type SummaryCtx = {
+  sum: number;
+  max: number;
+  errors: number;
+  slow: number;
+  sketch: RelHist | null;
+};
+
+function createSummaryCtx(needSummary: boolean): SummaryCtx {
+  return {
+    sum: 0,
+    max: 0,
+    errors: 0,
+    slow: 0,
+    sketch: needSummary ? makeRelHist() : null,
+  };
+}
+
+function trackSummary(ctx: SummaryCtx, durationMs: number, status: number): void {
+  const sk = ctx.sketch;
+  if (!sk) return;
+  ctx.sum += durationMs;
+  sk.accept(durationMs);
+  if (durationMs > ctx.max) ctx.max = durationMs;
+  if (status >= 400) ctx.errors++;
+  if (durationMs >= 3000) ctx.slow++;
+}
+
+function isHitFiltered(
+  durationMs: number,
+  status: number,
+  methodCode: number,
+  methodOk: Uint8Array,
+  statusWant: number,
+  minMs: number,
+): boolean {
+  if (durationMs < minMs) return true;
+  if (!methodOk[methodCode]) return true;
+  if (statusWant !== -1 && ((status / 100) | 0) !== statusWant) return true;
+  return false;
+}
+
+function getOrCreateRawEntry(byRaw: Map<number, RawEntry>, rawKey: number): RawEntry {
+  let entry = byRaw.get(rawKey);
+  if (entry) return entry;
+  entry = {
+    sketch: makeRelHist(),
+    count: 0,
+    sum: 0,
+    min: Infinity,
+    max: -Infinity,
+    errorCount: 0,
+  };
+  byRaw.set(rawKey, entry);
+  return entry;
+}
+
+function updateRawEntry(entry: RawEntry, durationMs: number, status: number): void {
+  entry.sketch.accept(durationMs);
+  entry.count++;
+  entry.sum += durationMs;
+  if (durationMs < entry.min) entry.min = durationMs;
+  if (durationMs > entry.max) entry.max = durationMs;
+  if (status >= 400) entry.errorCount++;
+}
+
+type NormEntry = {
+  method: LogMethod;
+  path: string;
+  sketch: RelHist;
+  count: number;
+  sum: number;
+  min: number;
+  max: number;
+  errorCount: number;
+};
+
+function collapseRawToNorm(
+  byRaw: Map<number, RawEntry>,
+  pathTable: string[],
+  normalizeMode: ParseOptions["normalizeMode"],
+): Map<string, NormEntry> {
+  const byNorm = new Map<string, NormEntry>();
+  for (const [rawKey, e] of byRaw) {
+    const method = METHODS[rawKey & 7]!;
+    const normPath = normalizePath(pathTable[rawKey >>> 3]!, normalizeMode);
+    const key = `${method} ${normPath}`;
+    const dest = byNorm.get(key);
+    if (!dest) {
+      byNorm.set(key, {
+        method,
+        path: normPath,
+        sketch: e.sketch,
+        count: e.count,
+        sum: e.sum,
+        min: e.min,
+        max: e.max,
+        errorCount: e.errorCount,
+      });
+    } else {
+      dest.sketch.merge(e.sketch);
+      dest.count += e.count;
+      dest.sum += e.sum;
+      if (e.min < dest.min) dest.min = e.min;
+      if (e.max > dest.max) dest.max = e.max;
+      dest.errorCount += e.errorCount;
+    }
+  }
+  return byNorm;
+}
+
 export function aggregateColumnSlice(
   methodCodes: Uint8Array,
   statuses: Uint16Array,
@@ -117,102 +226,21 @@ export function aggregateColumnSlice(
 ): AggPartial {
   const methodOk = methodOkMask(options);
   const statusWant = options.statusFamily === "all" ? -1 : Number(options.statusFamily[0]);
-  const minMs = options.minMs;
-  const normalizeMode = options.normalizeMode;
-
-  type RawEntry = {
-    sketch: RelHist;
-    count: number;
-    sum: number;
-    min: number;
-    max: number;
-    errorCount: number;
-  };
+  const summary = createSummaryCtx(needSummary);
   const byRaw = new Map<number, RawEntry>();
-
-  let sumMax = 0;
-  let sumSum = 0;
-  let sumErrors = 0;
-  let sumSlow = 0;
-  const sumSketch = needSummary ? makeRelHist() : null;
 
   for (let i = start; i < end; i++) {
     const durationMs = durations[i]!;
     const status = statuses[i]!;
-
-    if (sumSketch) {
-      sumSum += durationMs;
-      sumSketch.accept(durationMs);
-      if (durationMs > sumMax) sumMax = durationMs;
-      if (status >= 400) sumErrors++;
-      if (durationMs >= 3000) sumSlow++;
-    }
-
-    if (durationMs < minMs) continue;
-
+    trackSummary(summary, durationMs, status);
     const methodCode = methodCodes[i]!;
-    if (!methodOk[methodCode]) continue;
-    if (statusWant !== -1 && ((status / 100) | 0) !== statusWant) continue;
-
+    if (isHitFiltered(durationMs, status, methodCode, methodOk, statusWant, options.minMs)) continue;
     const rawKey = (pathIds[i]! << 3) | methodCode;
-    let entry = byRaw.get(rawKey);
-    if (!entry) {
-      entry = {
-        sketch: makeRelHist(),
-        count: 0,
-        sum: 0,
-        min: Infinity,
-        max: -Infinity,
-        errorCount: 0,
-      };
-      byRaw.set(rawKey, entry);
-    }
-    entry.sketch.accept(durationMs);
-    entry.count++;
-    entry.sum += durationMs;
-    if (durationMs < entry.min) entry.min = durationMs;
-    if (durationMs > entry.max) entry.max = durationMs;
-    if (status >= 400) entry.errorCount++;
+    const entry = getOrCreateRawEntry(byRaw, rawKey);
+    updateRawEntry(entry, durationMs, status);
   }
 
-  type NormEntry = {
-    method: LogMethod;
-    path: string;
-    sketch: RelHist;
-    count: number;
-    sum: number;
-    min: number;
-    max: number;
-    errorCount: number;
-  };
-  const byNorm = new Map<string, NormEntry>();
-  for (const [rawKey, e] of byRaw) {
-    const method = METHODS[rawKey & 7]!;
-    const normPath = normalizePath(pathTable[rawKey >>> 3]!, normalizeMode);
-    const key = `${method} ${normPath}`;
-    let dest = byNorm.get(key);
-    if (!dest) {
-      dest = {
-        method,
-        path: normPath,
-        sketch: e.sketch,
-        count: e.count,
-        sum: e.sum,
-        min: e.min,
-        max: e.max,
-        errorCount: e.errorCount,
-      };
-      byNorm.set(key, dest);
-    } else {
-      dest.sketch.merge(e.sketch);
-      dest.count += e.count;
-      dest.sum += e.sum;
-      if (e.min < dest.min) dest.min = e.min;
-      if (e.max > dest.max) dest.max = e.max;
-      dest.errorCount += e.errorCount;
-    }
-  }
-
+  const byNorm = collapseRawToNorm(byRaw, pathTable, options.normalizeMode);
   const buckets: NormBucketWire[] = [];
   for (const e of byNorm.values()) {
     buckets.push({
@@ -229,13 +257,13 @@ export function aggregateColumnSlice(
 
   return {
     buckets,
-    summary: sumSketch
+    summary: summary.sketch
       ? {
-          sum: sumSum,
-          max: sumMax,
-          errors: sumErrors,
-          slow: sumSlow,
-          sketch: sumSketch.toWire(),
+          sum: summary.sum,
+          max: summary.max,
+          errors: summary.errors,
+          slow: summary.slow,
+          sketch: summary.sketch.toWire(),
         }
       : null,
   };
@@ -246,88 +274,65 @@ export type ApiReaggregateResult = {
   summary: LogSummary | null;
 };
 
-/** Merge normalized-path partials into API rows (+ optional summary). */
-export function finishApiFromPartials(
-  partials: AggPartial[],
-  options: ParseOptions,
-  storeMeta: { count: number; unmatchedCount: number },
-): ApiReaggregateResult {
-  type Merged = {
-    method: LogMethod;
-    path: string;
-    sketch: RelHist;
-    count: number;
-    sum: number;
-    min: number;
-    max: number;
-    errorCount: number;
-  };
-  const byNorm = new Map<string, Merged>();
+// ── Finish / merge ──────────────────────────────────────────────────────────
 
-  let sumMax = 0;
-  let sumSum = 0;
-  let sumErrors = 0;
-  let sumSlow = 0;
-  let sumSketch: RelHist | null = null;
+type Merged = {
+  method: LogMethod;
+  path: string;
+  sketch: RelHist;
+  count: number;
+  sum: number;
+  min: number;
+  max: number;
+  errorCount: number;
+};
 
-  for (let pi = 0; pi < partials.length; pi++) {
-    const p = partials[pi]!;
-    if (p.summary) {
-      if (!sumSketch) sumSketch = makeRelHist();
-      sumSketch.mergeWire(p.summary.sketch);
-      sumSum += p.summary.sum;
-      if (p.summary.max > sumMax) sumMax = p.summary.max;
-      sumErrors += p.summary.errors;
-      sumSlow += p.summary.slow;
-    }
-    const buckets = p.buckets;
-    const bucketLen = buckets.length;
-    if (pi === 0) {
-      for (let bi = 0; bi < bucketLen; bi++) {
-        const b = buckets[bi]!;
-        const key = b.method + " " + b.path;
-        byNorm.set(key, {
-          method: b.method,
-          path: b.path,
-          sketch: RelHist.fromWire(b.sketch),
-          count: b.count,
-          sum: b.sum,
-          min: b.min,
-          max: b.max,
-          errorCount: b.errorCount,
-        });
-      }
-    } else {
-      for (let bi = 0; bi < bucketLen; bi++) {
-        const b = buckets[bi]!;
-        const key = b.method + " " + b.path;
-        const m = byNorm.get(key);
-        if (!m) {
-          byNorm.set(key, {
-            method: b.method,
-            path: b.path,
-            sketch: RelHist.fromWire(b.sketch),
-            count: b.count,
-            sum: b.sum,
-            min: b.min,
-            max: b.max,
-            errorCount: b.errorCount,
-          });
-        } else {
-          m.sketch.mergeWire(b.sketch);
-          m.count += b.count;
-          m.sum += b.sum;
-          if (b.min < m.min) m.min = b.min;
-          if (b.max > m.max) m.max = b.max;
-          m.errorCount += b.errorCount;
-        }
-      }
-    }
+type SummaryMergeCtx = {
+  sum: number;
+  max: number;
+  errors: number;
+  slow: number;
+  sketch: RelHist | null;
+};
+
+function createSummaryMergeCtx(): SummaryMergeCtx {
+  return { sum: 0, max: 0, errors: 0, slow: 0, sketch: null };
+}
+
+function mergeSummaryWire(ctx: SummaryMergeCtx, wire: NonNullable<AggPartial["summary"]>): void {
+  if (!ctx.sketch) ctx.sketch = makeRelHist();
+  ctx.sketch.mergeWire(wire.sketch);
+  ctx.sum += wire.sum;
+  if (wire.max > ctx.max) ctx.max = wire.max;
+  ctx.errors += wire.errors;
+  ctx.slow += wire.slow;
+}
+
+function upsertMerged(byNorm: Map<string, Merged>, b: NormBucketWire): void {
+  const key = b.method + " " + b.path;
+  const existing = byNorm.get(key);
+  if (!existing) {
+    byNorm.set(key, {
+      method: b.method,
+      path: b.path,
+      sketch: RelHist.fromWire(b.sketch),
+      count: b.count,
+      sum: b.sum,
+      min: b.min,
+      max: b.max,
+      errorCount: b.errorCount,
+    });
+    return;
   }
+  existing.sketch.mergeWire(b.sketch);
+  existing.count += b.count;
+  existing.sum += b.sum;
+  if (b.min < existing.min) existing.min = b.min;
+  if (b.max > existing.max) existing.max = b.max;
+  existing.errorCount += b.errorCount;
+}
 
-  // filters already applied in slices
-  void options;
-
+function buildApiRows(byNorm: Map<string, Merged>): AggregatedEndpoint[] {
   const api: AggregatedEndpoint[] = [];
   for (const [key, v] of byNorm) {
     const c = v.count;
@@ -347,72 +352,105 @@ export function finishApiFromPartials(
       errorCount: v.errorCount,
     });
   }
+  return api;
+}
 
+export function finishApiFromPartials(
+  partials: AggPartial[],
+  options: ParseOptions,
+  storeMeta: { count: number; unmatchedCount: number },
+): ApiReaggregateResult {
+  void options;
+  const byNorm = new Map<string, Merged>();
+  const sumCtx = createSummaryMergeCtx();
+
+  for (const p of partials) {
+    if (p.summary) mergeSummaryWire(sumCtx, p.summary);
+    for (const b of p.buckets) upsertMerged(byNorm, b);
+  }
+
+  const api = buildApiRows(byNorm);
   const summary =
-    sumSketch != null
+    sumCtx.sketch != null
       ? {
           matched: storeMeta.count,
           unmatched: storeMeta.unmatchedCount,
-          max: sumMax,
-          avg: storeMeta.count ? sumSum / storeMeta.count : 0,
-          p95Ms: sketchQuantile(sumSketch, 0.95, storeMeta.count),
-          errors: sumErrors,
-          slow: sumSlow,
+          max: sumCtx.max,
+          avg: storeMeta.count ? sumCtx.sum / storeMeta.count : 0,
+          p95Ms: sketchQuantile(sumCtx.sketch, 0.95, storeMeta.count),
+          errors: sumCtx.errors,
+          slow: sumCtx.slow,
         }
       : null;
 
   return { api, summary };
 }
 
-export function aggregateCron(events: CronEventCompact[], options: ParseOptions): CronAggregated[] {
-  const q = options.cronQuery.trim().toLowerCase();
-  const minMs = options.cronMinMs;
-  const dateFilter = options.dateFilter && options.dateFilter !== "all" ? options.dateFilter : null;
-  const map = new Map<
-    string,
-    {
-      name: string;
-      starts: number;
-      durations: number[];
-      fails: number;
-      lastRunTs?: string;
-      lastDurationMs?: number;
-    }
-  >();
-  const startMap = new Map<string, string | undefined>();
+// ── Cron ────────────────────────────────────────────────────────────────────
 
-  for (const ev of events) {
-    if (dateFilter && ev.ts && !ev.ts.startsWith(dateFilter)) continue;
-    if (q && !ev.name.toLowerCase().includes(q)) continue;
-    const bucket = map.get(ev.name) ?? { name: ev.name, starts: 0, durations: [], fails: 0 };
+type CronBucket = {
+  name: string;
+  starts: number;
+  durations: number[];
+  fails: number;
+  lastRunTs?: string;
+  lastDurationMs?: number;
+};
 
-    if (ev.event === "start") {
-      bucket.starts++;
-      startMap.set(ev.name, ev.ts);
-    } else if (ev.event === "done" || ev.event === "fail") {
-      let dur = ev.durationMs;
-      if (dur === undefined) {
-        const startTs = startMap.get(ev.name);
-        if (startTs && ev.ts) {
-          const s = Date.parse(startTs.replace(" ", "T"));
-          const e = Date.parse(ev.ts.replace(" ", "T"));
-          if (!Number.isNaN(s) && !Number.isNaN(e) && e >= s) dur = e - s;
-        }
-        startMap.delete(ev.name);
-      }
-      if (dur !== undefined && dur >= minMs) {
-        bucket.durations.push(dur);
-        bucket.lastDurationMs = dur;
-        if (ev.ts) bucket.lastRunTs = ev.ts;
-      }
-      if (ev.event === "fail") bucket.fails++;
-    }
-    map.set(ev.name, bucket);
+function shouldSkipCronEvent(ev: CronEventCompact, dateFilter: string | null, q: string): boolean {
+  if (dateFilter && ev.ts && !ev.ts.startsWith(dateFilter)) return true;
+  if (q && !ev.name.toLowerCase().includes(q)) return true;
+  return false;
+}
+
+function getOrCreateCronBucket(map: Map<string, CronBucket>, name: string): CronBucket {
+  let bucket = map.get(name);
+  if (bucket) return bucket;
+  bucket = { name, starts: 0, durations: [], fails: 0 };
+  map.set(name, bucket);
+  return bucket;
+}
+
+function resolveCronDuration(
+  ev: CronEventCompact,
+  startMap: Map<string, string | undefined>,
+  minMs: number,
+): number | undefined {
+  if (ev.durationMs !== undefined) return ev.durationMs >= minMs ? ev.durationMs : undefined;
+  const startTs = startMap.get(ev.name);
+  if (!startTs || !ev.ts) return undefined;
+  const s = Date.parse(startTs.replace(" ", "T"));
+  const e = Date.parse(ev.ts.replace(" ", "T"));
+  if (Number.isNaN(s) || Number.isNaN(e) || e < s) return undefined;
+  const dur = e - s;
+  return dur >= minMs ? dur : undefined;
+}
+
+function handleCronStart(bucket: CronBucket, ev: CronEventCompact, startMap: Map<string, string | undefined>): void {
+  bucket.starts++;
+  startMap.set(ev.name, ev.ts);
+}
+
+function handleCronCompletion(
+  bucket: CronBucket,
+  ev: CronEventCompact,
+  startMap: Map<string, string | undefined>,
+  minMs: number,
+): void {
+  const dur = resolveCronDuration(ev, startMap, minMs);
+  startMap.delete(ev.name);
+  if (dur !== undefined) {
+    bucket.durations.push(dur);
+    bucket.lastDurationMs = dur;
+    if (ev.ts) bucket.lastRunTs = ev.ts;
   }
+  if (ev.event === "fail") bucket.fails++;
+}
 
+function buildCronRows(map: Map<string, CronBucket>, cronShowFailedOnly: boolean): CronAggregated[] {
   const out: CronAggregated[] = [];
   for (const b of map.values()) {
-    if (options.cronShowFailedOnly && b.fails === 0) continue;
+    if (cronShowFailedOnly && b.fails === 0) continue;
     const sorted = sortAsc(b.durations);
     const runs = sorted.length;
     const sum = sorted.reduce((a, x) => a + x, 0);
@@ -436,7 +474,23 @@ export function aggregateCron(events: CronEventCompact[], options: ParseOptions)
   return out;
 }
 
-/** One store pass: filtered API buckets + optional unfiltered summary. */
+export function aggregateCron(events: CronEventCompact[], options: ParseOptions): CronAggregated[] {
+  const q = options.cronQuery.trim().toLowerCase();
+  const minMs = options.cronMinMs;
+  const dateFilter = options.dateFilter && options.dateFilter !== "all" ? options.dateFilter : null;
+  const map = new Map<string, CronBucket>();
+  const startMap = new Map<string, string | undefined>();
+
+  for (const ev of events) {
+    if (shouldSkipCronEvent(ev, dateFilter, q)) continue;
+    const bucket = getOrCreateCronBucket(map, ev.name);
+    if (ev.event === "start") handleCronStart(bucket, ev, startMap);
+    else handleCronCompletion(bucket, ev, startMap, minMs);
+  }
+
+  return buildCronRows(map, options.cronShowFailedOnly);
+}
+
 export function aggregateApiWithSummary(
   store: ColumnarStore,
   options: ParseOptions,
@@ -529,66 +583,61 @@ export type DailyPartial = {
 
 export type MergedDailyResult = DailyPartial;
 
+function ensureDayEntry(
+  map: Map<string, { date: string; count: number; errorCount: number; slowCount: number; sum: number; max: number; sketch: RelHist; hourly: { count: number; errorCount: number; sum: number; max: number; sketch: RelHist }[] }>,
+  date: string,
+) {
+  let target = map.get(date);
+  if (target) return target;
+  target = {
+    date,
+    count: 0,
+    errorCount: 0,
+    slowCount: 0,
+    sum: 0,
+    max: 0,
+    sketch: makeRelHist(),
+    hourly: Array.from({ length: 24 }, () => ({
+      count: 0,
+      errorCount: 0,
+      sum: 0,
+      max: 0,
+      sketch: makeRelHist(),
+    })),
+  };
+  map.set(date, target);
+  return target;
+}
+
+function mergeDayFromPartial(
+  target: ReturnType<typeof ensureDayEntry>,
+  d: DayMerged,
+): void {
+  target.count += d.count;
+  target.errorCount += d.errorCount;
+  target.slowCount += d.slowCount;
+  target.sum += d.sum;
+  if (d.max > target.max) target.max = d.max;
+  target.sketch.mergeWire(d.sketch);
+  for (let h = 0; h < 24; h++) {
+    const srcH = d.hourly[h];
+    if (!srcH) continue;
+    const tgtH = target.hourly[h]!;
+    tgtH.count += srcH.count;
+    tgtH.errorCount += srcH.errorCount;
+    tgtH.sum += srcH.sum;
+    if (srcH.max > tgtH.max) tgtH.max = srcH.max;
+    tgtH.sketch.mergeWire(srcH.sketch);
+  }
+}
+
 export function mergeDailyPartials(partials: DailyPartial[]): MergedDailyResult {
-  const map = new Map<
-    string,
-    {
-      date: string;
-      count: number;
-      errorCount: number;
-      slowCount: number;
-      sum: number;
-      max: number;
-      sketch: RelHist;
-      hourly: {
-        count: number;
-        errorCount: number;
-        sum: number;
-        max: number;
-        sketch: RelHist;
-      }[];
-    }
-  >();
+  const map = new Map<string, ReturnType<typeof ensureDayEntry>>();
 
   for (const partial of partials) {
     for (const d of partial.days) {
-      let target = map.get(d.date);
-      if (!target) {
-        target = {
-          date: d.date,
-          count: 0,
-          errorCount: 0,
-          slowCount: 0,
-          sum: 0,
-          max: 0,
-          sketch: makeRelHist(),
-          hourly: Array.from({ length: 24 }, () => ({
-            count: 0,
-            errorCount: 0,
-            sum: 0,
-            max: 0,
-            sketch: makeRelHist(),
-          })),
-        };
-        map.set(d.date, target);
-      }
-      target.count += d.count;
-      target.errorCount += d.errorCount;
-      target.slowCount += d.slowCount;
-      target.sum += d.sum;
-      if (d.max > target.max) target.max = d.max;
-      target.sketch.mergeWire(d.sketch);
-
-      for (let h = 0; h < 24; h++) {
-        const srcH = d.hourly[h];
-        if (!srcH) continue;
-        const tgtH = target.hourly[h]!;
-        tgtH.count += srcH.count;
-        tgtH.errorCount += srcH.errorCount;
-        tgtH.sum += srcH.sum;
-        if (srcH.max > tgtH.max) tgtH.max = srcH.max;
-        tgtH.sketch.mergeWire(srcH.sketch);
-      }
+      const target = ensureDayEntry(map, d.date);
+      mergeDayFromPartial(target, d);
     }
   }
 
@@ -644,18 +693,28 @@ export function finalizeDailyStats(partial: MergedDailyResult): DaySummary[] {
   });
 }
 
-export function buildDailyStats(store: ColumnarStore | undefined): DaySummary[] {
-  if (!store || !store.dates || store.dates.length === 0 || !store.dateIds) {
-    return [];
-  }
-  const dates = store.dates;
-  const dateIds = store.dateIds;
-  const len = store.count;
-  const durations = store.durations;
-  const statuses = store.statuses;
-  const hours = store.hours;
+// ── Daily / Hourly builders ─────────────────────────────────────────────────
 
-  const daysData = dates.map((date) => ({
+type DaySkeleton = {
+  date: string;
+  count: number;
+  errorCount: number;
+  slowCount: number;
+  sum: number;
+  max: number;
+  sketch: RelHist;
+  hourly: {
+    hour: number;
+    count: number;
+    errorCount: number;
+    sumMs: number;
+    maxMs: number;
+    sketch: RelHist;
+  }[];
+};
+
+function createDaySkeletons(dates: string[]): DaySkeleton[] {
+  return dates.map((date) => ({
     date,
     count: 0,
     errorCount: 0,
@@ -672,40 +731,34 @@ export function buildDailyStats(store: ColumnarStore | undefined): DaySummary[] 
       sketch: makeRelHist(),
     })),
   }));
+}
 
-  for (let i = 0; i < len; i++) {
-    const dId = dateIds[i];
-    if (dId !== undefined && dId > 0 && dId <= dates.length) {
-      const day = daysData[dId - 1]!;
-      const dur = durations[i] ?? 0;
-      const st = statuses[i] ?? 200;
-      day.count++;
-      day.sum += dur;
-      if (dur > day.max) day.max = dur;
-      if (st >= 400) day.errorCount++;
-      if (dur >= 3000) day.slowCount++;
-      day.sketch.accept(dur);
+function updateDayWithHit(day: DaySkeleton, dur: number, status: number, hour: number | undefined): void {
+  day.count++;
+  day.sum += dur;
+  if (dur > day.max) day.max = dur;
+  if (status >= 400) day.errorCount++;
+  if (dur >= 3000) day.slowCount++;
+  day.sketch.accept(dur);
+  if (hour === undefined || hour < 0 || hour >= 24) return;
+  const hb = day.hourly[hour]!;
+  hb.count++;
+  hb.sumMs += dur;
+  if (dur > hb.maxMs) hb.maxMs = dur;
+  if (status >= 400) hb.errorCount++;
+  hb.sketch.accept(dur);
+}
 
-      const h = hours ? hours[i] : undefined;
-      if (h !== undefined && h >= 0 && h < 24) {
-        const hb = day.hourly[h]!;
-        hb.count++;
-        hb.sumMs += dur;
-        if (dur > hb.maxMs) hb.maxMs = dur;
-        if (st >= 400) hb.errorCount++;
-        hb.sketch.accept(dur);
-      }
-    }
-  }
-
-  return daysData.map((d) => ({
+function daySkeletonToSummary(d: DaySkeleton): DaySummary {
+  const sk = d.sketch;
+  return {
     date: d.date,
     count: d.count,
     errorCount: d.errorCount,
     slowCount: d.slowCount,
     avgMs: d.count > 0 ? Math.round(d.sum / d.count) : 0,
-    p95Ms: Math.round(sketchQuantile(d.sketch, 0.95, d.count)),
-    p99Ms: Math.round(sketchQuantile(d.sketch, 0.99, d.count)),
+    p95Ms: Math.round(sketchQuantile(sk, 0.95, d.count)),
+    p99Ms: Math.round(sketchQuantile(sk, 0.99, d.count)),
     maxMs: Math.round(d.max),
     hourlyStats: d.hourly.map((b) => ({
       hour: b.hour,
@@ -717,7 +770,23 @@ export function buildDailyStats(store: ColumnarStore | undefined): DaySummary[] 
       p99Ms: Math.round(sketchQuantile(b.sketch, 0.99, b.count)),
       maxMs: Math.round(b.maxMs),
     })),
-  }));
+  };
+}
+
+export function buildDailyStats(store: ColumnarStore | undefined): DaySummary[] {
+  if (!store || !store.dates || store.dates.length === 0 || !store.dateIds) return [];
+  const daysData = createDaySkeletons(store.dates);
+  const len = store.count;
+  for (let i = 0; i < len; i++) {
+    const dId = store.dateIds![i];
+    if (dId === undefined || dId === 0 || dId > store.dates.length) continue;
+    const day = daysData[dId - 1]!;
+    const dur = store.durations[i] ?? 0;
+    const st = store.statuses[i] ?? 200;
+    const h = store.hours ? store.hours[i] : undefined;
+    updateDayWithHit(day, dur, st, h);
+  }
+  return daysData.map(daySkeletonToSummary);
 }
 
 export function finalizeHourlyStats(partial: HourlyPartial): HourlyBucket[] {
@@ -736,8 +805,10 @@ export function finalizeHourlyStats(partial: HourlyPartial): HourlyBucket[] {
   });
 }
 
-export function buildHourlyStats(store: ColumnarStore | undefined): HourlyBucket[] {
-  const buckets = Array.from({ length: 24 }, (_, i) => ({
+type HourlyAcc = { hour: number; count: number; errorCount: number; sumMs: number; maxMs: number; sketch: RelHist };
+
+function createHourlyAccs(): HourlyAcc[] {
+  return Array.from({ length: 24 }, (_, i) => ({
     hour: i,
     count: 0,
     errorCount: 0,
@@ -745,28 +816,23 @@ export function buildHourlyStats(store: ColumnarStore | undefined): HourlyBucket
     maxMs: 0,
     sketch: makeRelHist(),
   }));
+}
 
-  if (store && store.hours && store.hours.length > 0) {
-    const len = store.count;
-    const hours = store.hours;
-    const durations = store.durations;
-    const statuses = store.statuses;
+function updateHourlyAcc(buckets: HourlyAcc[], hour: number | undefined, dur: number, status: number): void {
+  if (hour === undefined || hour < 0 || hour >= 24) return;
+  const b = buckets[hour]!;
+  b.count++;
+  b.sumMs += dur;
+  if (dur > b.maxMs) b.maxMs = dur;
+  if (status >= 400) b.errorCount++;
+  b.sketch.accept(dur);
+}
 
-    for (let i = 0; i < len; i++) {
-      const h = hours[i];
-      if (h !== undefined && h >= 0 && h < 24) {
-        const dur = durations[i] ?? 0;
-        const st = statuses[i] ?? 200;
-        const b = buckets[h]!;
-        b.count++;
-        b.sumMs += dur;
-        if (dur > b.maxMs) b.maxMs = dur;
-        if (st >= 400) b.errorCount++;
-        b.sketch.accept(dur);
-      }
-    }
+export function buildHourlyStats(store: ColumnarStore | undefined): HourlyBucket[] {
+  const buckets = createHourlyAccs();
+  if (store?.hours?.length) {
+    for (let i = 0; i < store.count; i++) updateHourlyAcc(buckets, store.hours[i], store.durations[i] ?? 0, store.statuses[i] ?? 200);
   }
-
   return buckets.map((b) => ({
     hour: b.hour,
     label: `${String(b.hour).padStart(2, "0")}:00`,
@@ -779,7 +845,6 @@ export function buildHourlyStats(store: ColumnarStore | undefined): HourlyBucket
   }));
 }
 
-/** Summary/methods/unmatched are store-wide (ignore filters). Cron summary jobs count uses filtered cron rows. */
 export function buildResult(store: ColumnarStore, options: ParseOptions): AggregatedResult {
   const { api, summary } = aggregateApiWithSummary(store, options, true);
   const cron = aggregateCron(store.cronEvents, options);
@@ -797,7 +862,6 @@ export function buildResult(store: ColumnarStore, options: ParseOptions): Aggreg
   };
 }
 
-/** Avoid rebuilding summary on every REAGGREGATE — summary is filter-independent. */
 export function buildResultCached(
   store: ColumnarStore,
   options: ParseOptions,
@@ -806,15 +870,13 @@ export function buildResultCached(
   const needSummary = !cached?.summary;
   const { api, summary: built } = aggregateApiWithSummary(store, options, needSummary);
   const cron = aggregateCron(store.cronEvents, options);
-  const summary = cached?.summary ?? built!;
-  const methods = cached?.methods ?? Array.from(store.methodSeen).sort();
   return {
     api,
     cron,
-    summary,
+    summary: cached?.summary ?? built!,
     cronSummary: buildCronSummary(store.cronEvents, cron),
     hourlyStats: buildHourlyStats(store),
-    methods,
+    methods: cached?.methods ?? Array.from(store.methodSeen).sort(),
     unmatchedSample: store.unmatchedSample,
     unmatchedCount: store.unmatchedCount,
     dates: store.dates ? [...store.dates].sort() : [],
@@ -822,7 +884,6 @@ export function buildResultCached(
   };
 }
 
-/** Build result from parallel AggPartial slices (coordinator merge). */
 export function buildResultFromPartials(
   store: ColumnarStore,
   options: ParseOptions,
@@ -836,15 +897,13 @@ export function buildResultFromPartials(
     { count: store.count, unmatchedCount: store.unmatchedCount },
   );
   const cron = aggregateCron(store.cronEvents, options);
-  const summary = cached?.summary ?? built!;
-  const methods = cached?.methods ?? Array.from(store.methodSeen).sort();
   return {
     api,
     cron,
-    summary,
+    summary: cached?.summary ?? built!,
     cronSummary: buildCronSummary(store.cronEvents, cron),
     hourlyStats: buildHourlyStats(store),
-    methods,
+    methods: cached?.methods ?? Array.from(store.methodSeen).sort(),
     unmatchedSample: store.unmatchedSample,
     unmatchedCount: store.unmatchedCount,
     dates: store.dates ? [...store.dates].sort() : [],

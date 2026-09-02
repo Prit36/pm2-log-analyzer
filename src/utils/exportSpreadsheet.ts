@@ -22,12 +22,7 @@ export function sortApiEndpoints(
   sortDir: SortDirection = "desc",
 ): AggregatedEndpoint[] {
   return [...rows].sort((a, b) => {
-    let cmp = 0;
-    if (sortKey === "path") {
-      cmp = a.path.localeCompare(b.path);
-    } else {
-      cmp = (a[sortKey] ?? 0) - (b[sortKey] ?? 0);
-    }
+    const cmp = sortKey === "path" ? a.path.localeCompare(b.path) : (a[sortKey] ?? 0) - (b[sortKey] ?? 0);
     return sortDir === "asc" ? cmp : -cmp;
   });
 }
@@ -41,11 +36,7 @@ export function filterApiEndpoints(
   const q = query.trim().toLowerCase();
   let result = rows;
   if (methodSet) result = result.filter((r) => methodSet.has(r.method));
-  if (q) {
-    result = result.filter(
-      (r) => r.path.toLowerCase().includes(q) || r.key.toLowerCase().includes(q),
-    );
-  }
+  if (q) result = result.filter((r) => r.path.toLowerCase().includes(q) || r.key.toLowerCase().includes(q));
   return result;
 }
 
@@ -55,14 +46,10 @@ export function sortCronJobs(
   sortDir: SortDirection = "desc",
 ): CronAggregated[] {
   return [...rows].sort((a, b) => {
-    let cmp = 0;
-    if (sortKey === "name") {
-      cmp = a.name.localeCompare(b.name);
-    } else {
-      const valA = a[sortKey] ?? (sortDir === "asc" ? Infinity : -Infinity);
-      const valB = b[sortKey] ?? (sortDir === "asc" ? Infinity : -Infinity);
-      cmp = valA - valB;
-    }
+    if (sortKey === "name") return sortDir === "asc" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+    const valA = a[sortKey] ?? (sortDir === "asc" ? Infinity : -Infinity);
+    const valB = b[sortKey] ?? (sortDir === "asc" ? Infinity : -Infinity);
+    const cmp = valA - valB;
     return sortDir === "asc" ? cmp : -cmp;
   });
 }
@@ -93,13 +80,10 @@ const CRON_SORT_LABEL = {
 } satisfies Record<CronSortKey, string>;
 
 type MethodStyle = { argb: string; text: string };
-type MethodFillMap = { readonly GET: MethodStyle; readonly POST: MethodStyle };
-
 const METHOD_FILL = {
   GET: { argb: "FFDBEAFE", text: "FF1E40AF" },
   POST: { argb: "FFD1FAE5", text: "FF065F46" },
-} satisfies MethodFillMap;
-
+} as const;
 const METHOD_OTHER: MethodStyle = { argb: "FFFEF3C7", text: "FF92400E" };
 
 function methodFill(method: string): MethodStyle {
@@ -128,8 +112,7 @@ function styleTitleMeta(ws: ExcelJS.Worksheet, lastCol: number, title: string, m
 function applyMethodBadges(ws: ExcelJS.Worksheet, rowCount: number, col = 1) {
   for (let i = 0; i < rowCount; i++) {
     const cell = ws.getCell(TABLE_HEADER_ROW + 1 + i, col);
-    const method = String(cell.value ?? "");
-    const fill = methodFill(method);
+    const fill = methodFill(String(cell.value ?? ""));
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill.argb } };
     cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: fill.text } };
     cell.alignment = { horizontal: "center", vertical: "middle" };
@@ -139,9 +122,7 @@ function applyMethodBadges(ws: ExcelJS.Worksheet, rowCount: number, col = 1) {
 function applyMsFmt(ws: ExcelJS.Worksheet, cols: number[], rowCount: number) {
   for (let i = 0; i < rowCount; i++) {
     const row = TABLE_HEADER_ROW + 1 + i;
-    for (const col of cols) {
-      ws.getCell(row, col).numFmt = MS_FMT;
-    }
+    for (const col of cols) ws.getCell(row, col).numFmt = MS_FMT;
   }
 }
 
@@ -163,6 +144,12 @@ function highlightErrors(ws: ExcelJS.Worksheet, colLetter: string, rowCount: num
   });
 }
 
+// ── Filter meta ─────────────────────────────────────────────────────────────
+
+function pushIf(parts: string[], condition: boolean, value: string): void {
+  if (condition) parts.push(value);
+}
+
 function buildApiFilterMeta(
   filters?: Partial<AnalysisFilters>,
   sortKey?: ApiSortKey,
@@ -171,29 +158,16 @@ function buildApiFilterMeta(
   sourceLabel?: string | null,
 ): string {
   const parts: string[] = [`Generated: ${new Date().toLocaleString()}`];
-  if (sourceLabel) parts.push(`Source: ${sourceLabel}`);
-  if (endpointCount !== undefined) parts.push(`Endpoints: ${endpointCount}`);
-  if (sortKey) parts.push(`Sorted by: ${API_SORT_LABEL[sortKey]} (${sortDir})`);
-  if (filters?.dateFilter && filters.dateFilter !== "all") {
-    parts.push(`Day: ${formatDate(filters.dateFilter)}`);
-  }
-  if (filters?.methods && filters.methods.length > 0) {
-    parts.push(`Methods: ${filters.methods.join(", ")}`);
-  }
-  if (filters?.query?.trim()) {
-    parts.push(`Search: "${filters.query.trim()}"`);
-  }
-  if (filters?.statusFamily && filters.statusFamily !== "all") {
-    parts.push(`Status: ${filters.statusFamily}`);
-  }
-  if (filters?.minMs && filters.minMs > 0) {
-    parts.push(`Min Latency: ≥${filters.minMs}ms`);
-  }
-  if (filters?.normalizeMode && filters.normalizeMode !== "collapseIds") {
-    parts.push(
-      `Normalize: ${filters.normalizeMode === "stripQuery" ? "Strip query" : "Exact path"}`,
-    );
-  }
+  pushIf(parts, !!sourceLabel, `Source: ${sourceLabel}`);
+  pushIf(parts, endpointCount !== undefined, `Endpoints: ${endpointCount}`);
+  pushIf(parts, !!sortKey, `Sorted by: ${API_SORT_LABEL[sortKey!]} (${sortDir})`);
+  pushIf(parts, !!filters?.dateFilter && filters.dateFilter !== "all", `Day: ${formatDate(filters!.dateFilter!)}`);
+  pushIf(parts, !!filters?.methods?.length, `Methods: ${filters!.methods!.join(", ")}`);
+  pushIf(parts, !!filters?.query?.trim(), `Search: "${filters!.query!.trim()}"`);
+  pushIf(parts, !!filters?.statusFamily && filters.statusFamily !== "all", `Status: ${filters!.statusFamily}`);
+  pushIf(parts, !!filters?.minMs && filters.minMs > 0, `Min Latency: ≥${filters!.minMs}ms`);
+  const isNonDefaultNormalize = !!filters?.normalizeMode && filters.normalizeMode !== "collapseIds";
+  pushIf(parts, isNonDefaultNormalize, `Normalize: ${filters!.normalizeMode === "stripQuery" ? "Strip query" : "Exact path"}`);
   return parts.join("  |  ");
 }
 
@@ -205,23 +179,17 @@ function buildCronFilterMeta(
   sourceLabel?: string | null,
 ): string {
   const parts: string[] = [`Generated: ${new Date().toLocaleString()}`];
-  if (sourceLabel) parts.push(`Source: ${sourceLabel}`);
-  if (jobCount !== undefined) parts.push(`Jobs: ${jobCount}`);
-  if (sortKey) parts.push(`Sorted by: ${CRON_SORT_LABEL[sortKey]} (${sortDir})`);
-  if (filters?.cronQuery?.trim()) {
-    parts.push(`Search: "${filters.cronQuery.trim()}"`);
-  }
-  if (filters?.cronMinMs && filters.cronMinMs > 0) {
-    parts.push(`Min Duration: ≥${filters.cronMinMs}ms`);
-  }
-  if (filters?.cronShowFailedOnly) {
-    parts.push("Filter: Failures only");
-  }
-  if (filters?.dateFilter && filters.dateFilter !== "all") {
-    parts.push(`Day: ${formatDate(filters.dateFilter)}`);
-  }
+  pushIf(parts, !!sourceLabel, `Source: ${sourceLabel}`);
+  pushIf(parts, jobCount !== undefined, `Jobs: ${jobCount}`);
+  pushIf(parts, !!sortKey, `Sorted by: ${CRON_SORT_LABEL[sortKey!]} (${sortDir})`);
+  pushIf(parts, !!filters?.cronQuery?.trim(), `Search: "${filters!.cronQuery!.trim()}"`);
+  pushIf(parts, !!filters?.cronMinMs && filters.cronMinMs > 0, `Min Duration: ≥${filters!.cronMinMs}ms`);
+  pushIf(parts, !!filters?.cronShowFailedOnly, "Filter: Failures only");
+  pushIf(parts, !!filters?.dateFilter && filters.dateFilter !== "all", `Day: ${formatDate(filters!.dateFilter!)}`);
   return parts.join("  |  ");
 }
+
+// ── Sheets ──────────────────────────────────────────────────────────────────
 
 function buildApiSheet(
   wb: ExcelJS.Workbook,
@@ -254,17 +222,7 @@ function buildApiSheet(
     buildApiFilterMeta(filters, sortKey, sortDir, sortedRows.length, sourceLabel),
   );
 
-  const tableRows = sortedRows.map((r) => [
-    r.method,
-    r.path,
-    r.count,
-    r.avgMs,
-    r.p95Ms,
-    r.p99Ms,
-    r.maxMs,
-    r.minMs,
-    r.errorCount,
-  ]);
+  const tableRows = sortedRows.map((r) => [r.method, r.path, r.count, r.avgMs, r.p95Ms, r.p99Ms, r.maxMs, r.minMs, r.errorCount]);
 
   ws.addTable({
     name: "ApiEndpoints",
@@ -314,19 +272,9 @@ function buildDailySummarySheet(
   const metaParts = [`Generated: ${new Date().toLocaleString()}`];
   if (sourceLabel) metaParts.push(`Source: ${sourceLabel}`);
   metaParts.push(`Days: ${dailyStats.length}`);
-
   styleTitleMeta(ws, 8, "PM2 Log Analyzer — Daily Summary", metaParts.join("  |  "));
 
-  const tableRows = dailyStats.map((d) => [
-    formatDate(d.date),
-    d.count,
-    d.avgMs,
-    d.p95Ms,
-    d.p99Ms,
-    d.maxMs,
-    d.errorCount,
-    d.slowCount,
-  ]);
+  const tableRows = dailyStats.map((d) => [formatDate(d.date), d.count, d.avgMs, d.p95Ms, d.p99Ms, d.maxMs, d.errorCount, d.slowCount]);
 
   ws.addTable({
     name: "DailySummary",
@@ -384,19 +332,7 @@ function buildCronSheet(
     buildCronFilterMeta(filters, sortKey, sortDir, sortedRows.length, sourceLabel),
   );
 
-  const tableRows = sortedRows.map((r) => [
-    r.name,
-    r.runs,
-    r.starts,
-    r.fails,
-    r.avgMs,
-    r.p95Ms,
-    r.p99Ms,
-    r.maxMs,
-    r.minMs,
-    r.lastRunTs ?? "-",
-    r.lastDurationMs ?? null,
-  ]);
+  const tableRows = sortedRows.map((r) => [r.name, r.runs, r.starts, r.fails, r.avgMs, r.p95Ms, r.p99Ms, r.maxMs, r.minMs, r.lastRunTs ?? "-", r.lastDurationMs ?? null]);
 
   ws.addTable({
     name: "CronJobs",
@@ -424,6 +360,84 @@ function buildCronSheet(
   highlightErrors(ws, "D", sortedRows.length);
 }
 
+// ── Hourly & Distribution split ─────────────────────────────────────────────
+
+function classifyMs(ms: number): number {
+  if (ms < 50) return 0;
+  if (ms < 100) return 1;
+  if (ms < 300) return 2;
+  if (ms < 500) return 3;
+  if (ms < 1000) return 4;
+  if (ms < 3000) return 5;
+  return 6;
+}
+
+function createDistributionBuckets() {
+  return [
+    { label: "<50ms", count: 0 },
+    { label: "50-100ms", count: 0 },
+    { label: "100-300ms", count: 0 },
+    { label: "300-500ms", count: 0 },
+    { label: "500ms-1s", count: 0 },
+    { label: "1s-3s", count: 0 },
+    { label: ">3s", count: 0 },
+  ];
+}
+
+function fillDistributionBuckets(buckets: { label: string; count: number }[], apiRows: AggregatedEndpoint[]): void {
+  for (const r of apiRows) {
+    if (r.count <= 0) continue;
+    const c50 = Math.round(r.count * 0.5);
+    const c90 = Math.round(r.count * 0.4);
+    const c95 = Math.round(r.count * 0.05);
+    const c99 = Math.round(r.count * 0.04);
+    const cMax = Math.max(0, r.count - c50 - c90 - c95 - c99);
+    buckets[classifyMs(r.p50Ms)]!.count += c50;
+    buckets[classifyMs((r.p50Ms + r.p90Ms) / 2)]!.count += c90;
+    buckets[classifyMs((r.p90Ms + r.p95Ms) / 2)]!.count += c95;
+    buckets[classifyMs((r.p95Ms + r.p99Ms) / 2)]!.count += c99;
+    buckets[classifyMs(r.maxMs)]!.count += cMax;
+  }
+}
+
+function addHourlyTrendsTable(ws: ExcelJS.Worksheet, hourlyStats: HourlyBucket[]): void {
+  ws.addTable({
+    name: "HourlyTrends",
+    ref: `A${TABLE_HEADER_ROW}`,
+    headerRow: true,
+    totalsRow: true,
+    style: { theme: "TableStyleMedium2", showRowStripes: true },
+    columns: [
+      { name: "Hour", filterButton: true, totalsRowLabel: "Total" },
+      { name: "Total Requests", filterButton: true, totalsRowFunction: "sum" },
+      { name: "Avg Latency", filterButton: true },
+      { name: "P95 Latency", filterButton: true },
+      { name: "P99 Latency", filterButton: true },
+      { name: "Errors", filterButton: true, totalsRowFunction: "sum" },
+    ],
+    rows: hourlyStats.map((h) => [h.label, h.count, h.avgMs, h.p95Ms, h.p99Ms, h.errorCount]),
+  });
+  applyMsFmt(ws, [3, 4, 5], hourlyStats.length);
+  highlightErrors(ws, "F", hourlyStats.length);
+}
+
+function addDistributionTable(ws: ExcelJS.Worksheet, apiRows: AggregatedEndpoint[]): void {
+  const buckets = createDistributionBuckets();
+  fillDistributionBuckets(buckets, apiRows);
+  ws.addTable({
+    name: "LatencyDistribution",
+    ref: `H${TABLE_HEADER_ROW}`,
+    headerRow: true,
+    totalsRow: true,
+    style: { theme: "TableStyleMedium2", showRowStripes: true },
+    columns: [
+      { name: "Latency Range", filterButton: true, totalsRowLabel: "Total" },
+      { name: "Request Count", filterButton: true, totalsRowFunction: "sum" },
+    ],
+    rows: buckets.map((b) => [b.label, b.count]),
+  });
+}
+
 function buildHourlyAndDistributionSheet(
   wb: ExcelJS.Workbook,
   hourlyStats: HourlyBucket[],
@@ -441,75 +455,63 @@ function buildHourlyAndDistributionSheet(
 
   const metaParts = [`Generated: ${new Date().toLocaleString()}`];
   if (sourceLabel) metaParts.push(`Source: ${sourceLabel}`);
-  if (filters?.dateFilter && filters.dateFilter !== "all") {
-    metaParts.push(`Day: ${formatDate(filters.dateFilter)}`);
-  }
+  if (filters?.dateFilter && filters.dateFilter !== "all") metaParts.push(`Day: ${formatDate(filters.dateFilter)}`);
 
-  styleTitleMeta(
-    ws,
-    9,
-    "PM2 Log Analyzer — Hourly Trends & Distribution Data",
-    metaParts.join("  |  "),
-  );
+  styleTitleMeta(ws, 9, "PM2 Log Analyzer — Hourly Trends & Distribution Data", metaParts.join("  |  "));
 
-  if (hourlyStats.length > 0) {
-    ws.addTable({
-      name: "HourlyTrends",
-      ref: `A${TABLE_HEADER_ROW}`,
-      headerRow: true,
-      totalsRow: true,
-      style: { theme: "TableStyleMedium2", showRowStripes: true },
-      columns: [
-        { name: "Hour", filterButton: true, totalsRowLabel: "Total" },
-        { name: "Total Requests", filterButton: true, totalsRowFunction: "sum" },
-        { name: "Avg Latency", filterButton: true },
-        { name: "P95 Latency", filterButton: true },
-        { name: "P99 Latency", filterButton: true },
-        { name: "Errors", filterButton: true, totalsRowFunction: "sum" },
-      ],
-      rows: hourlyStats.map((h) => [h.label, h.count, h.avgMs, h.p95Ms, h.p99Ms, h.errorCount]),
-    });
-    applyMsFmt(ws, [3, 4, 5], hourlyStats.length);
-    highlightErrors(ws, "F", hourlyStats.length);
-  }
+  if (hourlyStats.length > 0) addHourlyTrendsTable(ws, hourlyStats);
+  addDistributionTable(ws, apiRows);
+}
 
-  const buckets = [
-    { label: "<50ms", count: 0 },
-    { label: "50-100ms", count: 0 },
-    { label: "100-300ms", count: 0 },
-    { label: "300-500ms", count: 0 },
-    { label: "500ms-1s", count: 0 },
-    { label: "1s-3s", count: 0 },
-    { label: ">3s", count: 0 },
-  ];
-  const classify = (ms: number) =>
-    ms < 50 ? 0 : ms < 100 ? 1 : ms < 300 ? 2 : ms < 500 ? 3 : ms < 1000 ? 4 : ms < 3000 ? 5 : 6;
+// ── Visual analytics ────────────────────────────────────────────────────────
 
-  for (const r of apiRows) {
-    if (r.count <= 0) continue;
-    const c50 = Math.round(r.count * 0.5);
-    const c90 = Math.round(r.count * 0.4);
-    const c95 = Math.round(r.count * 0.05);
-    const c99 = Math.round(r.count * 0.04);
-    const cMax = Math.max(0, r.count - c50 - c90 - c95 - c99);
-    buckets[classify(r.p50Ms)]!.count += c50;
-    buckets[classify((r.p50Ms + r.p90Ms) / 2)]!.count += c90;
-    buckets[classify((r.p90Ms + r.p95Ms) / 2)]!.count += c95;
-    buckets[classify((r.p95Ms + r.p99Ms) / 2)]!.count += c99;
-    buckets[classify(r.maxMs)]!.count += cMax;
-  }
+function isVisualFiltered(filters: Partial<AnalysisFilters> | undefined): boolean {
+  return Boolean(filters?.methods?.length) || Boolean(filters?.query?.trim());
+}
 
-  ws.addTable({
-    name: "LatencyDistribution",
-    ref: `H${TABLE_HEADER_ROW}`,
-    headerRow: true,
-    totalsRow: true,
-    style: { theme: "TableStyleMedium2", showRowStripes: true },
-    columns: [
-      { name: "Latency Range", filterButton: true, totalsRowLabel: "Total" },
-      { name: "Request Count", filterButton: true, totalsRowFunction: "sum" },
-    ],
-    rows: buckets.map((b) => [b.label, b.count]),
+function sumCounts(rows: AggregatedEndpoint[], key: "count" | "errorCount"): number {
+  return rows.reduce((s, r) => s + r[key], 0);
+}
+
+function resolveVisualCounts(apiRows: AggregatedEndpoint[], summary: LogSummary | null | undefined, isFiltered: boolean) {
+  const totalCount = isFiltered ? sumCounts(apiRows, "count") : (summary?.matched ?? sumCounts(apiRows, "count"));
+  const totalErrors = isFiltered ? sumCounts(apiRows, "errorCount") : (summary?.errors ?? sumCounts(apiRows, "errorCount"));
+  return { totalCount, totalErrors };
+}
+
+function resolveVisualLatency(apiRows: AggregatedEndpoint[], summary: LogSummary | null | undefined, isFiltered: boolean, totalCount: number) {
+  const avgMs = isFiltered ? (totalCount > 0 ? apiRows.reduce((s, r) => s + r.avgMs * r.count, 0) / totalCount : 0) : (summary?.avg ?? 0);
+  const p95Ms = isFiltered ? (apiRows.length > 0 ? Math.max(...apiRows.map((r) => r.p95Ms)) : 0) : (summary?.p95Ms ?? 0);
+  return { avgMs, p95Ms };
+}
+
+function resolveVisualKpis(
+  apiRows: AggregatedEndpoint[],
+  hourlyStats: HourlyBucket[],
+  summary: LogSummary | null | undefined,
+  filters: Partial<AnalysisFilters> | undefined,
+) {
+  void hourlyStats;
+  const isFiltered = isVisualFiltered(filters);
+  const { totalCount, totalErrors } = resolveVisualCounts(apiRows, summary, isFiltered);
+  const errorRate = totalCount > 0 ? ((totalErrors / totalCount) * 100).toFixed(2) : "0.00";
+  const { avgMs, p95Ms } = resolveVisualLatency(apiRows, summary, isFiltered, totalCount);
+  return { totalCount, totalErrors, errorRate, avgMs, p95Ms };
+}
+
+function renderKpiRows(ws: ExcelJS.Worksheet, kpis: [string, string | number][]) {
+  ws.getRow(4).height = 20;
+  ws.getRow(5).height = 24;
+  kpis.forEach(([title, val], c) => {
+    const hCell = ws.getCell(4, c + 1);
+    hCell.value = title;
+    hCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF475569" } };
+    hCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } };
+    hCell.alignment = { horizontal: "center", vertical: "middle" };
+    const vCell = ws.getCell(5, c + 1);
+    vCell.value = val;
+    vCell.font = { name: "Calibri", size: 12, bold: true, color: { argb: "FF0F172A" } };
+    vCell.alignment = { horizontal: "center", vertical: "middle" };
   });
 }
 
@@ -531,7 +533,7 @@ async function buildVisualAnalyticsSheet(
     { width: 13 },
     { width: 13 },
     { width: 13 },
-    { width: 4 }, // Col H Spacer
+    { width: 4 },
     { width: 13 },
     { width: 13 },
     { width: 13 },
@@ -543,42 +545,17 @@ async function buildVisualAnalyticsSheet(
 
   const metaParts = [`Generated: ${new Date().toLocaleString()}`];
   if (sourceLabel) metaParts.push(`Source: ${sourceLabel}`);
-  if (filters?.dateFilter && filters.dateFilter !== "all") {
-    metaParts.push(`Day: ${formatDate(filters.dateFilter)}`);
-  }
-  if (filters?.methods && filters.methods.length > 0) {
-    metaParts.push(`Methods: ${filters.methods.join(", ")}`);
-  }
-  if (filters?.query?.trim()) {
-    metaParts.push(`Search: "${filters.query.trim()}"`);
-  }
+  if (filters?.dateFilter && filters.dateFilter !== "all") metaParts.push(`Day: ${formatDate(filters.dateFilter)}`);
+  if (filters?.methods?.length) metaParts.push(`Methods: ${filters.methods.join(", ")}`);
+  if (filters?.query?.trim()) metaParts.push(`Search: "${filters.query.trim()}"`);
 
-  const isFiltered =
-    Boolean(filters?.methods && filters.methods.length > 0) || Boolean(filters?.query?.trim());
-  const totalCount = isFiltered
-    ? apiRows.reduce((acc, r) => acc + r.count, 0)
-    : (summary?.matched ?? apiRows.reduce((acc, r) => acc + r.count, 0));
-  const totalErrors = isFiltered
-    ? apiRows.reduce((acc, r) => acc + r.errorCount, 0)
-    : (summary?.errors ?? apiRows.reduce((acc, r) => acc + r.errorCount, 0));
-  const errorRate = totalCount > 0 ? ((totalErrors / totalCount) * 100).toFixed(2) : "0.00";
-  const avgMs = isFiltered
-    ? totalCount > 0
-      ? apiRows.reduce((acc, r) => acc + r.avgMs * r.count, 0) / totalCount
-      : 0
-    : (summary?.avg ?? 0);
-  const p95Ms = isFiltered
-    ? apiRows.length > 0
-      ? Math.max(...apiRows.map((r) => r.p95Ms))
-      : 0
-    : (summary?.p95Ms ?? 0);
-
+  const { totalCount, totalErrors, errorRate, avgMs, p95Ms } = resolveVisualKpis(apiRows, hourlyStats, summary, filters);
   metaParts.push(`Total Requests: ${formatNum(totalCount)}`);
   metaParts.push(`Endpoints: ${apiRows.length}`);
 
   styleTitleMeta(ws, 15, "PM2 Log Analyzer — Visual Analytics & Charts", metaParts.join("  |  "));
 
-  const kpis = [
+  const kpis: [string, string | number][] = [
     ["Total Requests", totalCount],
     ["Total Errors", totalErrors],
     ["Error Rate", `${errorRate}%`],
@@ -586,37 +563,20 @@ async function buildVisualAnalyticsSheet(
     ["P95 Latency", formatMs(p95Ms)],
     ["Unique Endpoints", apiRows.length],
   ];
-
-  ws.getRow(4).height = 20;
-  ws.getRow(5).height = 24;
-  kpis.forEach(([title, val], c) => {
-    const hCell = ws.getCell(4, c + 1);
-    hCell.value = title;
-    hCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF475569" } };
-    hCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } };
-    hCell.alignment = { horizontal: "center", vertical: "middle" };
-
-    const vCell = ws.getCell(5, c + 1);
-    vCell.value = val;
-    vCell.font = { name: "Calibri", size: 12, bold: true, color: { argb: "FF0F172A" } };
-    vCell.alignment = { horizontal: "center", vertical: "middle" };
-  });
+  renderKpiRows(ws, kpis);
 
   const chartImages = await generateAllChartImages(apiRows, hourlyStats, dailyStats);
-
   const addChart = (img?: string, range = "A8:G24") => {
     if (!img) return;
-    const cleanBase64 = img.replace(/^data:image\/\w+;base64,/, "");
-    const imgId = wb.addImage({ base64: cleanBase64, extension: "png" });
+    const base64 = img.replace(/^data:image\/\w+;base64,/, "");
+    const imgId = wb.addImage({ base64, extension: "png" });
     ws.addImage(imgId, range);
   };
 
   addChart(chartImages.timeVsLatency, "A8:G24");
   addChart(chartImages.hourlyVolume, "I8:P24");
   addChart(chartImages.distribution, "A27:G43");
-  if (chartImages.dailyTrend) {
-    addChart(chartImages.dailyTrend, "I27:P43");
-  }
+  if (chartImages.dailyTrend) addChart(chartImages.dailyTrend, "I27:P43");
 }
 
 export function buildApiTsv(rows: AggregatedEndpoint[]): string {
@@ -624,35 +584,13 @@ export function buildApiTsv(rows: AggregatedEndpoint[]): string {
   return [
     h.join("\t"),
     ...rows.map((r) =>
-      [
-        r.method,
-        r.path,
-        formatNum(r.count),
-        formatMs(r.avgMs),
-        formatMs(r.p95Ms),
-        formatMs(r.p99Ms),
-        formatMs(r.maxMs),
-        formatMs(r.minMs),
-        formatNum(r.errorCount),
-      ].join("\t"),
+      [r.method, r.path, formatNum(r.count), formatMs(r.avgMs), formatMs(r.p95Ms), formatMs(r.p99Ms), formatMs(r.maxMs), formatMs(r.minMs), formatNum(r.errorCount)].join("\t"),
     ),
   ].join("\r\n");
 }
 
 export function buildCronTsv(rows: CronAggregated[]): string {
-  const h = [
-    "Cron Job",
-    "Runs",
-    "Starts",
-    "Fails",
-    "Avg",
-    "p95",
-    "p99",
-    "Max",
-    "Min",
-    "Last Run",
-    "Last Duration",
-  ];
+  const h = ["Cron Job", "Runs", "Starts", "Fails", "Avg", "p95", "p99", "Max", "Min", "Last Run", "Last Duration"];
   return [
     h.join("\t"),
     ...rows.map((r) =>
@@ -676,12 +614,7 @@ export function buildCronTsv(rows: CronAggregated[]): string {
 export async function downloadExcel(
   apiRows: AggregatedEndpoint[],
   cronRows: CronAggregated[],
-  sort: {
-    api: ApiSortKey;
-    cron: CronSortKey;
-    apiDir?: SortDirection;
-    cronDir?: SortDirection;
-  },
+  sort: { api: ApiSortKey; cron: CronSortKey; apiDir?: SortDirection; cronDir?: SortDirection },
   hourlyStats: HourlyBucket[] = [],
   summary?: LogSummary | null,
   dailyStats: DaySummary[] = [],
@@ -698,39 +631,16 @@ export async function downloadExcel(
     wb.description = `Source: ${sourceLabel}`;
   }
 
-  // API Endpoints is the default / first tab
   buildApiSheet(wb, apiRows, sort.api, sort.apiDir ?? "desc", filters, sourceLabel);
   if (dailyStats.length > 1) buildDailySummarySheet(wb, dailyStats, sourceLabel);
-  if (cronRows.length > 0)
-    buildCronSheet(wb, cronRows, sort.cron, sort.cronDir ?? "desc", filters, sourceLabel);
+  if (cronRows.length > 0) buildCronSheet(wb, cronRows, sort.cron, sort.cronDir ?? "desc", filters, sourceLabel);
   buildHourlyAndDistributionSheet(wb, hourlyStats, apiRows, filters, sourceLabel);
-  // Analytics is the last tab
-  await buildVisualAnalyticsSheet(
-    wb,
-    apiRows,
-    hourlyStats,
-    summary,
-    dailyStats,
-    filters,
-    sourceLabel,
-  );
+  await buildVisualAnalyticsSheet(wb, apiRows, hourlyStats, summary, dailyStats, filters, sourceLabel);
 
-  wb.views = [
-    {
-      x: 0,
-      y: 0,
-      width: 10000,
-      height: 20000,
-      firstSheet: 0,
-      activeTab: 0,
-      visibility: "visible",
-    },
-  ];
+  wb.views = [{ x: 0, y: 0, width: 10000, height: 20000, firstSheet: 0, activeTab: 0, visibility: "visible" }];
 
   const buffer = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buffer], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -742,58 +652,44 @@ export async function downloadExcel(
   URL.revokeObjectURL(url);
 }
 
+function resolveExportRows(state: ReturnType<typeof useAnalysisStore.getState>, explicitApi?: AggregatedEndpoint[], explicitCron?: CronAggregated[]) {
+  const rawApi = state.result?.api ?? [];
+  const api = explicitApi ?? filterApiEndpoints(rawApi, state.filters.methods, state.filters.query);
+  const cron = explicitCron ?? state.result?.cron ?? [];
+  return { api, cron };
+}
+
+function buildSourceLabel(state: ReturnType<typeof useAnalysisStore.getState>): string | null {
+  if (state.sourceKind === "file" && state.fileName) {
+    return `${state.fileName}${state.fileSize != null ? ` (${formatBytes(state.fileSize)})` : ""}`;
+  }
+  if (state.sourceKind === "paste") return "Pasted text";
+  return null;
+}
+
 export async function exportSpreadsheetData(
   explicitApiRows?: AggregatedEndpoint[],
   explicitCronRows?: CronAggregated[],
 ) {
   const state = useAnalysisStore.getState();
-  const rawApi = state.result?.api ?? [];
-  const filters = state.filters;
-  const {
-    sortKey: apiSortKey,
-    sortDir: apiSortDir,
-    cronSortKey,
-    cronSortDir,
-    methods,
-    query,
-  } = filters;
-  const api = explicitApiRows ?? filterApiEndpoints(rawApi, methods, query);
-  const cron = explicitCronRows ?? state.result?.cron ?? [];
+  const { api, cron } = resolveExportRows(state, explicitApiRows, explicitCronRows);
   if (api.length === 0 && cron.length === 0) {
     state.showToast("Nothing to export yet");
     return;
   }
-  const summary = state.result?.summary;
-  const hourlyStats = state.result?.hourlyStats;
-  const dailyStats = state.result?.dailyStats;
-  const sourceLabel =
-    state.sourceKind === "file" && state.fileName
-      ? `${state.fileName}${state.fileSize != null ? ` (${formatBytes(state.fileSize)})` : ""}`
-      : state.sourceKind === "paste"
-        ? "Pasted text"
-        : null;
-
+  const sourceLabel = buildSourceLabel(state);
   try {
     await downloadExcel(
       api,
       cron,
-      {
-        api: apiSortKey,
-        cron: cronSortKey,
-        apiDir: apiSortDir,
-        cronDir: cronSortDir,
-      },
-      hourlyStats,
-      summary,
-      dailyStats,
-      filters,
+      { api: state.filters.sortKey, cron: state.filters.cronSortKey, apiDir: state.filters.sortDir, cronDir: state.filters.cronSortDir },
+      state.result?.hourlyStats,
+      state.result?.summary,
+      state.result?.dailyStats,
+      state.filters,
       sourceLabel,
     );
-    state.showToast(
-      cron.length > 0
-        ? "Excel downloaded — Visual Analytics + Data sheets"
-        : "Excel downloaded — Visual Analytics + API sheets",
-    );
+    state.showToast(cron.length > 0 ? "Excel downloaded — Visual Analytics + Data sheets" : "Excel downloaded — Visual Analytics + API sheets");
   } catch {
     state.showToast("Excel export failed");
   }
