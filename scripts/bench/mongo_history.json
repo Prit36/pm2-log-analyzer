@@ -1,0 +1,78 @@
+[
+  {
+    "id": "2026-09-02T16:22:14.611Z",
+    "method": "browser-app",
+    "app": "mongodb",
+    "note": null,
+    "git": {
+      "commit": "77f94ea",
+      "branch": "feat/mongodb-log-analyzer",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\mongodb_logs_sample\\methaq-mongod.log",
+    "fileMB": 335.9213228225708,
+    "runs": 1,
+    "result": {
+      "slowQueryCount": 58273,
+      "collscanCount": 10050,
+      "patternsCount": 547,
+      "collectionsCount": 52,
+      "p95DurationMs": 4099
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 6.475,
+        "stddev": 0,
+        "min": 6.475,
+        "max": 6.475
+      },
+      "uploadToReadySec": {
+        "avg": 7.044827499999999,
+        "stddev": 0,
+        "min": 7.044827499999999,
+        "max": 7.044827499999999
+      },
+      "throughputMBps": {
+        "avg": 51.87974097645881,
+        "stddev": 0,
+        "min": 51.87974097645881,
+        "max": 51.87974097645881
+      },
+      "browserRssPeakMB": {
+        "avg": 2845.21875,
+        "stddev": 0,
+        "min": 2845.21875,
+        "max": 2845.21875
+      },
+      "jsHeapPeakMB": {
+        "avg": 1164.9515953063965,
+        "stddev": 0,
+        "min": 1164.9515953063965,
+        "max": 1164.9515953063965
+      },
+      "reaggAvgMs": {
+        "avg": 2598,
+        "stddev": 0,
+        "min": 2598,
+        "max": 2598
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 6.475,
+        "uploadToReadySec": 7.044827499999999,
+        "throughputMBps": 51.87974097645881,
+        "reaggAvgMs": 2598,
+        "reaggWallMs": [
+          273,
+          3695,
+          3826
+        ],
+        "browserRssPeakMB": 2845.21875,
+        "jsHeapPeakMB": 1164.9515953063965,
+        "jsHeapUsedAfterMB": 1024.4177169799805
+      }
+    ]
+  }
+]

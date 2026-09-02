@@ -22,7 +22,11 @@ export function MongoKpiRow() {
       : 0;
 
   return (
-    <section aria-label="MongoDB Key Performance Indicators" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+    <section
+      data-testid="mongo-kpi-row"
+      aria-label="MongoDB Key Performance Indicators"
+      className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"
+    >
       {/* 1. Total Slow Queries */}
       <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center justify-between">

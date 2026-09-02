@@ -156,6 +156,7 @@ export function MongoIngestPanel() {
           ref={inputRef}
           type="file"
           multiple
+          data-testid="mongo-log-file-input"
           className="hidden"
           onChange={onFileChange}
           accept=".log*,.txt,.json"

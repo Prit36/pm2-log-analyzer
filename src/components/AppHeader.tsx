@@ -130,6 +130,7 @@ export function AppHeader() {
         <div className="flex shrink-0 items-center rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
           <button
             type="button"
+            data-testid="app-switcher-pm2"
             onClick={() => handleSwitchMode("pm2")}
             className={cn(
               "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
@@ -143,6 +144,7 @@ export function AppHeader() {
           </button>
           <button
             type="button"
+            data-testid="app-switcher-mongo"
             onClick={() => handleSwitchMode("mongo")}
             className={cn(
               "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",

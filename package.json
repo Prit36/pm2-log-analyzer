@@ -14,7 +14,8 @@
     "fmt:check": "oxfmt --check",
     "selfcheck": "tsx src/parser/selfcheck.ts",
     "wasm:build": "node scripts/wasm-build.mjs",
-    "bench": "node scripts/bench/bench.mjs"
+    "bench": "node scripts/bench/bench.mjs",
+    "bench:mongo": "node scripts/bench/bench_mongo.mjs"
   },
   "dependencies": {
     "clsx": "2.1.1",

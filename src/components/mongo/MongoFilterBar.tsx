@@ -158,6 +158,7 @@ export function MongoFilterBar() {
           <span className="text-[11px] font-medium text-slate-400">Plan:</span>
           <button
             type="button"
+            data-testid="mongo-filter-plan-all"
             onClick={() => handlePlanChange("all")}
             className={cn(
               "rounded px-2 py-0.5 text-xs font-medium transition-colors",
@@ -170,6 +171,7 @@ export function MongoFilterBar() {
           </button>
           <button
             type="button"
+            data-testid="mongo-filter-plan-collscan"
             onClick={() => handlePlanChange(filters.planFilter === "collscan_only" ? "all" : "collscan_only")}
             className={cn(
               "flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold transition-colors",
@@ -183,6 +185,7 @@ export function MongoFilterBar() {
           </button>
           <button
             type="button"
+            data-testid="mongo-filter-plan-ixscan"
             onClick={() => handlePlanChange(filters.planFilter === "ixscan_only" ? "all" : "ixscan_only")}
             className={cn(
               "rounded px-2 py-0.5 text-xs font-medium transition-colors",
@@ -242,6 +245,7 @@ export function MongoFilterBar() {
             <button
               key={preset.ms}
               type="button"
+              data-testid={`mongo-filter-duration-${preset.ms}`}
               onClick={() => handleMinDuration(preset.ms)}
               className={cn(
                 "rounded px-2 py-0.5 text-xs font-medium transition-colors",

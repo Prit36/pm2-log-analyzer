@@ -5,6 +5,46 @@ import type {
 import MongoParserWorker from "../workers/mongoParserWorker.ts?worker&inline";
 import { useMongoStore } from "../store/mongoStore";
 
+export type MongoBench = {
+  at: string;
+  source: string;
+  fileName?: string | undefined;
+  fileBytes?: number | undefined;
+  parseWallMs: number;
+  slowQueryCount: number;
+  collscanCount: number;
+  patternsCount: number;
+  collectionsCount: number;
+  p95DurationMs: number;
+  reaggTimes: number[];
+  lastReaggMs?: number | undefined;
+};
+
+declare global {
+  interface Window {
+    __MONGO_BENCH__?: MongoBench;
+  }
+}
+
+function ensureMongoBench(partial?: Partial<MongoBench>): MongoBench {
+  const w = window;
+  if (!w.__MONGO_BENCH__) {
+    w.__MONGO_BENCH__ = {
+      at: new Date().toISOString(),
+      source: "unknown",
+      parseWallMs: 0,
+      slowQueryCount: 0,
+      collscanCount: 0,
+      patternsCount: 0,
+      collectionsCount: 0,
+      p95DurationMs: 0,
+      reaggTimes: [],
+    };
+  }
+  if (partial) Object.assign(w.__MONGO_BENCH__, partial);
+  return w.__MONGO_BENCH__;
+}
+
 const {
   clearAnalysis,
   setError,
@@ -92,12 +132,28 @@ export function runMongoReagg(message: MongoWorkerMessage): Promise<void> {
 
 export async function parseMongoFile(file: File): Promise<void> {
   const filters = useMongoStore.getState().filters;
+  ensureMongoBench({
+    at: new Date().toISOString(),
+    source: "file",
+    fileName: file.name,
+    fileBytes: file.size,
+    parseWallMs: 0,
+    reaggTimes: [],
+  });
   const t0 = performance.now();
   await runMongoParse({ type: "PARSE_FILE", payload: { file, filters } });
   const ms = Math.round(performance.now() - t0);
   const result = useMongoStore.getState().result;
   const count = result?.summary.slowQueryCount ?? 0;
   const collscans = result?.summary.collscanCount ?? 0;
+  ensureMongoBench({
+    parseWallMs: ms,
+    slowQueryCount: count,
+    collscanCount: collscans,
+    patternsCount: result?.patterns.length ?? 0,
+    collectionsCount: result?.collections.length ?? 0,
+    p95DurationMs: result?.summary.p95DurationMs ?? 0,
+  });
   showToast(`Parsed ${count.toLocaleString()} slow queries (${collscans.toLocaleString()} COLLSCANs) in ${ms}ms`);
 }
 
@@ -105,27 +161,66 @@ export async function parseMongoFiles(files: File[]): Promise<void> {
   if (files.length === 0) return;
   if (files.length === 1) return parseMongoFile(files[0]!);
   const filters = useMongoStore.getState().filters;
+  const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
+  ensureMongoBench({
+    at: new Date().toISOString(),
+    source: "files",
+    fileName: `${files.length} files`,
+    fileBytes: totalBytes,
+    parseWallMs: 0,
+    reaggTimes: [],
+  });
   const t0 = performance.now();
   await runMongoParse({ type: "PARSE_FILES", payload: { files, filters } });
   const ms = Math.round(performance.now() - t0);
   const result = useMongoStore.getState().result;
   const count = result?.summary.slowQueryCount ?? 0;
+  const collscans = result?.summary.collscanCount ?? 0;
+  ensureMongoBench({
+    parseWallMs: ms,
+    slowQueryCount: count,
+    collscanCount: collscans,
+    patternsCount: result?.patterns.length ?? 0,
+    collectionsCount: result?.collections.length ?? 0,
+    p95DurationMs: result?.summary.p95DurationMs ?? 0,
+  });
   showToast(`Parsed ${count.toLocaleString()} slow queries across ${files.length} files in ${ms}ms`);
 }
 
 export async function parseMongoText(text: string): Promise<void> {
   const filters = useMongoStore.getState().filters;
+  ensureMongoBench({
+    at: new Date().toISOString(),
+    source: "paste",
+    fileBytes: text.length,
+    parseWallMs: 0,
+    reaggTimes: [],
+  });
   const t0 = performance.now();
   await runMongoParse({ type: "PARSE_TEXT", payload: { text, filters } });
   const ms = Math.round(performance.now() - t0);
   const result = useMongoStore.getState().result;
   const count = result?.summary.slowQueryCount ?? 0;
+  const collscans = result?.summary.collscanCount ?? 0;
+  ensureMongoBench({
+    parseWallMs: ms,
+    slowQueryCount: count,
+    collscanCount: collscans,
+    patternsCount: result?.patterns.length ?? 0,
+    collectionsCount: result?.collections.length ?? 0,
+    p95DurationMs: result?.summary.p95DurationMs ?? 0,
+  });
   showToast(`Parsed ${count.toLocaleString()} slow queries in ${ms}ms`);
 }
 
 export async function reaggregateMongo(): Promise<void> {
   const filters = useMongoStore.getState().filters;
+  const t0 = performance.now();
   await runMongoReagg({ type: "REAGGREGATE", payload: { filters } });
+  const ms = Math.round(performance.now() - t0);
+  const bench = ensureMongoBench();
+  bench.lastReaggMs = ms;
+  bench.reaggTimes = [...bench.reaggTimes, ms];
 }
 
 export function cancelMongo(): void {
