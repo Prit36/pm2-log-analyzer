@@ -202,7 +202,9 @@ export async function parseFiles(files: File[]): Promise<void> {
   await runParse({ type: "PARSE_FILES", payload: { files, options } });
   const ms = Math.round(performance.now() - t0);
   const result = finalizeBench(ms);
-  showToast(`Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests across ${files.length} files in ${ms}ms`);
+  showToast(
+    `Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests across ${files.length} files in ${ms}ms`,
+  );
 }
 
 export async function parseText(text: string): Promise<void> {

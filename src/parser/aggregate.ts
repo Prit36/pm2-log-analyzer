@@ -234,7 +234,8 @@ export function aggregateColumnSlice(
     const status = statuses[i]!;
     trackSummary(summary, durationMs, status);
     const methodCode = methodCodes[i]!;
-    if (isHitFiltered(durationMs, status, methodCode, methodOk, statusWant, options.minMs)) continue;
+    if (isHitFiltered(durationMs, status, methodCode, methodOk, statusWant, options.minMs))
+      continue;
     const rawKey = (pathIds[i]! << 3) | methodCode;
     const entry = getOrCreateRawEntry(byRaw, rawKey);
     updateRawEntry(entry, durationMs, status);
@@ -426,7 +427,11 @@ function resolveCronDuration(
   return dur >= minMs ? dur : undefined;
 }
 
-function handleCronStart(bucket: CronBucket, ev: CronEventCompact, startMap: Map<string, string | undefined>): void {
+function handleCronStart(
+  bucket: CronBucket,
+  ev: CronEventCompact,
+  startMap: Map<string, string | undefined>,
+): void {
   bucket.starts++;
   startMap.set(ev.name, ev.ts);
 }
@@ -447,7 +452,10 @@ function handleCronCompletion(
   if (ev.event === "fail") bucket.fails++;
 }
 
-function buildCronRows(map: Map<string, CronBucket>, cronShowFailedOnly: boolean): CronAggregated[] {
+function buildCronRows(
+  map: Map<string, CronBucket>,
+  cronShowFailedOnly: boolean,
+): CronAggregated[] {
   const out: CronAggregated[] = [];
   for (const b of map.values()) {
     if (cronShowFailedOnly && b.fails === 0) continue;
@@ -584,7 +592,19 @@ export type DailyPartial = {
 export type MergedDailyResult = DailyPartial;
 
 function ensureDayEntry(
-  map: Map<string, { date: string; count: number; errorCount: number; slowCount: number; sum: number; max: number; sketch: RelHist; hourly: { count: number; errorCount: number; sum: number; max: number; sketch: RelHist }[] }>,
+  map: Map<
+    string,
+    {
+      date: string;
+      count: number;
+      errorCount: number;
+      slowCount: number;
+      sum: number;
+      max: number;
+      sketch: RelHist;
+      hourly: { count: number; errorCount: number; sum: number; max: number; sketch: RelHist }[];
+    }
+  >,
   date: string,
 ) {
   let target = map.get(date);
@@ -609,10 +629,7 @@ function ensureDayEntry(
   return target;
 }
 
-function mergeDayFromPartial(
-  target: ReturnType<typeof ensureDayEntry>,
-  d: DayMerged,
-): void {
+function mergeDayFromPartial(target: ReturnType<typeof ensureDayEntry>, d: DayMerged): void {
   target.count += d.count;
   target.errorCount += d.errorCount;
   target.slowCount += d.slowCount;
@@ -733,7 +750,12 @@ function createDaySkeletons(dates: string[]): DaySkeleton[] {
   }));
 }
 
-function updateDayWithHit(day: DaySkeleton, dur: number, status: number, hour: number | undefined): void {
+function updateDayWithHit(
+  day: DaySkeleton,
+  dur: number,
+  status: number,
+  hour: number | undefined,
+): void {
   day.count++;
   day.sum += dur;
   if (dur > day.max) day.max = dur;
@@ -805,7 +827,14 @@ export function finalizeHourlyStats(partial: HourlyPartial): HourlyBucket[] {
   });
 }
 
-type HourlyAcc = { hour: number; count: number; errorCount: number; sumMs: number; maxMs: number; sketch: RelHist };
+type HourlyAcc = {
+  hour: number;
+  count: number;
+  errorCount: number;
+  sumMs: number;
+  maxMs: number;
+  sketch: RelHist;
+};
 
 function createHourlyAccs(): HourlyAcc[] {
   return Array.from({ length: 24 }, (_, i) => ({
@@ -818,7 +847,12 @@ function createHourlyAccs(): HourlyAcc[] {
   }));
 }
 
-function updateHourlyAcc(buckets: HourlyAcc[], hour: number | undefined, dur: number, status: number): void {
+function updateHourlyAcc(
+  buckets: HourlyAcc[],
+  hour: number | undefined,
+  dur: number,
+  status: number,
+): void {
   if (hour === undefined || hour < 0 || hour >= 24) return;
   const b = buckets[hour]!;
   b.count++;
@@ -831,7 +865,8 @@ function updateHourlyAcc(buckets: HourlyAcc[], hour: number | undefined, dur: nu
 export function buildHourlyStats(store: ColumnarStore | undefined): HourlyBucket[] {
   const buckets = createHourlyAccs();
   if (store?.hours?.length) {
-    for (let i = 0; i < store.count; i++) updateHourlyAcc(buckets, store.hours[i], store.durations[i] ?? 0, store.statuses[i] ?? 200);
+    for (let i = 0; i < store.count; i++)
+      updateHourlyAcc(buckets, store.hours[i], store.durations[i] ?? 0, store.statuses[i] ?? 200);
   }
   return buckets.map((b) => ({
     hour: b.hour,

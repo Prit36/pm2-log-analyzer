@@ -170,7 +170,9 @@ function waitReady(worker: Worker): Promise<void> {
   });
 }
 
-async function ensureShardPool(n: number): Promise<{ wasmCompileMs: number; shardPoolInitMs: number }> {
+async function ensureShardPool(
+  n: number,
+): Promise<{ wasmCompileMs: number; shardPoolInitMs: number }> {
   let wasmCompileMs = 0;
   let shardPoolInitMs = 0;
 
