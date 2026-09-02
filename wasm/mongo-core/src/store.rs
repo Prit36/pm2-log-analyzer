@@ -3,7 +3,7 @@
 use hashbrown::HashMap;
 use memchr::memchr;
 
-use crate::fingerprint::{detect_op, generate_fingerprint};
+use crate::fingerprint::{detect_op, generate_fingerprint, MongoOp};
 use crate::parse::{parse_line, ParsedLine};
 
 const INGEST_CAP: usize = 32 * 1024 * 1024; // 32MB streaming ingest window
@@ -52,7 +52,6 @@ pub struct Engine {
     pub num_yields: Vec<u32>,
     pub reslens: Vec<u32>,
     pub is_collscan: Vec<bool>,
-    pub command_spans: Vec<(u32, u32)>, // offset and length into command_arena
 
     // Arenas and Tables
     pub ns_strings: Vec<String>,
@@ -65,7 +64,7 @@ pub struct Engine {
     pub fingerprint_table: HashMap<String, u16>,
     pub index_suggestions: Vec<String>,
 
-    pub command_arena: Vec<u8>,
+    pub query_hash_cache: HashMap<String, (MongoOp, u16)>,
 
     // Diagnostics Stats
     pub conn_accepted: u32,
@@ -107,7 +106,6 @@ impl Engine {
             num_yields: Vec::with_capacity(16384),
             reslens: Vec::with_capacity(16384),
             is_collscan: Vec::with_capacity(16384),
-            command_spans: Vec::with_capacity(16384),
 
             ns_strings: Vec::new(),
             ns_table: HashMap::new(),
@@ -119,7 +117,7 @@ impl Engine {
             fingerprint_table: HashMap::new(),
             index_suggestions: Vec::new(),
 
-            command_arena: Vec::with_capacity(1024 * 1024),
+            query_hash_cache: HashMap::new(),
 
             conn_accepted: 0,
             conn_ended: 0,
@@ -150,7 +148,6 @@ impl Engine {
         self.num_yields.clear();
         self.reslens.clear();
         self.is_collscan.clear();
-        self.command_spans.clear();
 
         self.ns_strings.clear();
         self.ns_table.clear();
@@ -159,7 +156,7 @@ impl Engine {
         self.fingerprint_strings.clear();
         self.fingerprint_table.clear();
         self.index_suggestions.clear();
-        self.command_arena.clear();
+        self.query_hash_cache.clear();
 
         self.conn_accepted = 0;
         self.conn_ended = 0;
@@ -296,14 +293,22 @@ impl Engine {
                 let ns_id = self.intern_ns(q.ns);
                 let plan_id = self.intern_plan(q.plan_summary);
 
-                let op = detect_op(q.command_bytes);
-                let fp_res = generate_fingerprint(op, q.collection, q.command_bytes, q.is_collscan);
-                let fp_id = self.intern_fingerprint(&fp_res.fingerprint, &fp_res.index_suggestion);
-
-                // Store command in arena
-                let cmd_off = self.command_arena.len() as u32;
-                let cmd_len = q.command_bytes.len().min(4096) as u32;
-                self.command_arena.extend_from_slice(&q.command_bytes[..cmd_len as usize]);
+                let (op, fp_id) = if !q.query_hash.is_empty() {
+                    if let Some(&(cached_op, cached_fp_id)) = self.query_hash_cache.get(q.query_hash) {
+                        (cached_op, cached_fp_id)
+                    } else {
+                        let op = detect_op(q.command_bytes);
+                        let fp_res = generate_fingerprint(op, q.collection, q.command_bytes, q.is_collscan);
+                        let fp_id = self.intern_fingerprint(&fp_res.fingerprint, &fp_res.index_suggestion);
+                        self.query_hash_cache.insert(q.query_hash.to_string(), (op, fp_id));
+                        (op, fp_id)
+                    }
+                } else {
+                    let op = detect_op(q.command_bytes);
+                    let fp_res = generate_fingerprint(op, q.collection, q.command_bytes, q.is_collscan);
+                    let fp_id = self.intern_fingerprint(&fp_res.fingerprint, &fp_res.index_suggestion);
+                    (op, fp_id)
+                };
 
                 self.timestamps_ms.push(q.epoch_ms);
                 self.durations_ms.push(q.duration_ms);
@@ -317,7 +322,6 @@ impl Engine {
                 self.num_yields.push(q.num_yields);
                 self.reslens.push(q.reslen);
                 self.is_collscan.push(q.is_collscan);
-                self.command_spans.push((cmd_off, cmd_len));
 
                 if q.timestamp.len() >= 10 {
                     let d = &q.timestamp[..10];

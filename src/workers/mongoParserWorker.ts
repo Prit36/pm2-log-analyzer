@@ -75,32 +75,59 @@ function runReaggregate(eng: MongoEngine, filters: MongoFilters): MongoAggregati
 
 async function streamParseFile(file: File, bytesOffset: number, totalAllBytes: number) {
   const eng = await ensureEngine();
-  const CHUNK_SIZE = 8 * 1024 * 1024; // 8MB streaming chunks
+  const CHUNK_SIZE = 16 * 1024 * 1024; // 16MB streaming chunks
+  const QUEUE_DEPTH = 2;
+  const pendingReads: Promise<Uint8Array>[] = [];
+
+  const enqueue = (chunkOff: number) => {
+    if (chunkOff >= file.size) return;
+    const take = Math.min(CHUNK_SIZE, file.size - chunkOff);
+    const slice = file.slice(chunkOff, chunkOff + take);
+    pendingReads.push(slice.arrayBuffer().then((buf) => new Uint8Array(buf)));
+  };
+
+  let readNextOff = 0;
+  for (let q = 0; q < QUEUE_DEPTH && readNextOff < file.size; q++) {
+    enqueue(readNextOff);
+    readNextOff += Math.min(CHUNK_SIZE, file.size - readNextOff);
+  }
+
   let offset = 0;
+  let lastProgressTime = 0;
 
   while (offset < file.size) {
     if (isCancelled) return;
-    const end = Math.min(offset + CHUNK_SIZE, file.size);
-    const slice = file.slice(offset, end);
-    const arrayBuffer = await slice.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
+
+    const readPromise = pendingReads.shift();
+    if (!readPromise) break;
+    const bytes = await readPromise;
+
+    // Enqueue next chunk ahead of time so disk I/O overlaps with CPU parse
+    if (readNextOff < file.size) {
+      enqueue(readNextOff);
+      readNextOff += Math.min(CHUNK_SIZE, file.size - readNextOff);
+    }
 
     writeIngest(eng, bytes);
     eng.feed(bytes.length, offset);
 
-    offset = end;
+    offset += bytes.length;
     const currentTotalBytes = bytesOffset + offset;
-    const percent = Math.min(95, Math.round((currentTotalBytes / totalAllBytes) * 95));
 
-    self.postMessage({
-      type: "PROGRESS",
-      payload: {
-        stage: "parsing",
-        processed: currentTotalBytes,
-        total: totalAllBytes,
-        percent,
-      },
-    } satisfies MongoWorkerResponse);
+    const now = performance.now();
+    if (now - lastProgressTime > 100 || offset >= file.size) {
+      lastProgressTime = now;
+      const percent = Math.min(95, Math.round((currentTotalBytes / totalAllBytes) * 95));
+      self.postMessage({
+        type: "PROGRESS",
+        payload: {
+          stage: "parsing",
+          processed: currentTotalBytes,
+          total: totalAllBytes,
+          percent,
+        },
+      } satisfies MongoWorkerResponse);
+    }
   }
 
   eng.end_shard();

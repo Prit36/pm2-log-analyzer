@@ -59,16 +59,11 @@ pub enum ParsedLine<'a> {
     Ignored,
 }
 
-/// Extract string field value `"key":"value"`
-#[inline]
-pub fn extract_str_value<'a>(haystack: &'a [u8], key: &[u8]) -> Option<&'a str> {
-    let mut search = Vec::with_capacity(key.len() + 3);
-    search.push(b'"');
-    search.extend_from_slice(key);
-    search.extend_from_slice(b"\":\"");
-
-    let pos = memmem::find(haystack, &search)?;
-    let start = pos + search.len();
+/// Extract string field value with exact prefix e.g. b"\"ns\":\""
+#[inline(always)]
+pub fn extract_str_value<'a>(haystack: &'a [u8], prefix: &[u8]) -> Option<&'a str> {
+    let pos = memmem::find(haystack, prefix)?;
+    let start = pos + prefix.len();
     let mut i = start;
     while i < haystack.len() && haystack[i] != b'"' {
         if haystack[i] == b'\\' {
@@ -84,47 +79,49 @@ pub fn extract_str_value<'a>(haystack: &'a [u8], key: &[u8]) -> Option<&'a str> 
     }
 }
 
-/// Extract integer field value `"key":12345`
-#[inline]
-pub fn extract_u32_value(haystack: &[u8], key: &[u8]) -> Option<u32> {
-    let mut search = Vec::with_capacity(key.len() + 2);
-    search.push(b'"');
-    search.extend_from_slice(key);
-    search.push(b'"');
-
-    let pos = memmem::find(haystack, &search)?;
-    let mut i = pos + search.len();
+/// Extract integer field value with exact prefix e.g. b"\"durationMillis\":"
+#[inline(always)]
+pub fn extract_u32_value(haystack: &[u8], prefix: &[u8]) -> Option<u32> {
+    let pos = memmem::find(haystack, prefix)?;
+    let mut i = pos + prefix.len();
     while i < haystack.len() && (haystack[i] == b':' || haystack[i].is_ascii_whitespace()) {
         i += 1;
     }
     let start = i;
+    let mut acc = 0u32;
     while i < haystack.len() && haystack[i].is_ascii_digit() {
+        acc = acc.wrapping_mul(10).wrapping_add((haystack[i] - b'0') as u32);
         i += 1;
     }
     if i > start {
-        std::str::from_utf8(&haystack[start..i]).ok()?.parse::<u32>().ok()
+        Some(acc)
     } else {
         None
     }
 }
 
 /// Extract timestamp ISO and epoch ms
+#[inline(always)]
 pub fn extract_timestamp<'a>(line: &'a [u8]) -> (&'a str, i64) {
-    if let Some(pos) = memmem::find(line, b"\"$date\":\"") {
-        let start = pos + 9;
-        let mut i = start;
-        while i < line.len() && line[i] != b'"' {
-            i += 1;
-        }
-        if let Ok(iso) = std::str::from_utf8(&line[start..i]) {
-            let epoch = parse_iso_epoch(iso);
-            return (iso, epoch);
-        }
-    } else if let Some(iso) = extract_str_value(line, b"t") {
-        let epoch = parse_iso_epoch(iso);
-        return (iso, epoch);
+    let prefix = b"\"$date\":\"";
+    let start = if line.len() >= 40 && line.starts_with(b"{\"t\":{\"$date\":\"") {
+        16
+    } else if let Some(pos) = memmem::find(line, prefix) {
+        pos + prefix.len()
+    } else {
+        return ("", 0);
+    };
+
+    let mut i = start;
+    while i < line.len() && line[i] != b'"' {
+        i += 1;
     }
-    ("2026-09-01T00:00:00.000Z", 0)
+    if let Ok(iso) = std::str::from_utf8(&line[start..i]) {
+        let epoch = parse_iso_epoch(iso);
+        (iso, epoch)
+    } else {
+        ("", 0)
+    }
 }
 
 /// Approximate ISO date string to epoch ms without external chrono crate.
@@ -161,7 +158,7 @@ pub fn parse_iso_epoch(iso: &str) -> i64 {
     total_sec * 1000 + millis
 }
 
-#[inline]
+#[inline(always)]
 fn parse_digits(slice: &[u8]) -> u32 {
     let mut acc = 0u32;
     for &b in slice {
@@ -174,8 +171,8 @@ fn parse_digits(slice: &[u8]) -> u32 {
 
 /// Extract command JSON object slice
 pub fn extract_command_slice<'a>(line: &'a [u8]) -> Option<&'a [u8]> {
-    // Look for "command":{"
-    if let Some(pos) = memmem::find(line, b"\"command\":{") {
+    let prefix = b"\"command\":{";
+    if let Some(pos) = memmem::find(line, prefix) {
         let start = pos + 10;
         let mut depth = 1;
         let mut in_str = false;
@@ -210,31 +207,31 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
     }
 
     // Fast check for Slow Query durationMillis
-    if let Some(dur) = extract_u32_value(line, b"durationMillis") {
+    if let Some(dur) = extract_u32_value(line, b"\"durationMillis\":") {
         let (timestamp, epoch_ms) = extract_timestamp(line);
-        let severity = if let Some(s) = extract_str_value(line, b"s") {
+        let severity = if let Some(s) = extract_str_value(line, b"\"s\":\"") {
             s.as_bytes().first().copied().unwrap_or(b'I')
         } else {
             b'I'
         };
 
-        let ns = extract_str_value(line, b"ns").unwrap_or("");
+        let ns = extract_str_value(line, b"\"ns\":\"").unwrap_or("");
         let (db, collection) = if let Some(idx) = ns.find('.') {
             (&ns[..idx], &ns[idx + 1..])
         } else {
             ("unknown", ns)
         };
 
-        let plan_summary = extract_str_value(line, b"planSummary").unwrap_or("");
+        let plan_summary = extract_str_value(line, b"\"planSummary\":\"").unwrap_or("");
         let is_collscan = plan_summary.contains("COLLSCAN");
-        let keys_examined = extract_u32_value(line, b"keysExamined").unwrap_or(0);
-        let docs_examined = extract_u32_value(line, b"docsExamined").unwrap_or(0);
-        let nreturned = extract_u32_value(line, b"nreturned").unwrap_or(0);
-        let num_yields = extract_u32_value(line, b"numYields").unwrap_or(0);
-        let reslen = extract_u32_value(line, b"reslen").unwrap_or(0);
-        let remote = extract_str_value(line, b"remote").unwrap_or("");
-        let query_hash = extract_str_value(line, b"queryHash").unwrap_or("");
-        let plan_cache_key = extract_str_value(line, b"planCacheKey").unwrap_or("");
+        let keys_examined = extract_u32_value(line, b"\"keysExamined\":").unwrap_or(0);
+        let docs_examined = extract_u32_value(line, b"\"docsExamined\":").unwrap_or(0);
+        let nreturned = extract_u32_value(line, b"\"nreturned\":").unwrap_or(0);
+        let num_yields = extract_u32_value(line, b"\"numYields\":").unwrap_or(0);
+        let reslen = extract_u32_value(line, b"\"reslen\":").unwrap_or(0);
+        let remote = extract_str_value(line, b"\"remote\":\"").unwrap_or("");
+        let query_hash = extract_str_value(line, b"\"queryHash\":\"").unwrap_or("");
+        let plan_cache_key = extract_str_value(line, b"\"planCacheKey\":\"").unwrap_or("");
         let command_bytes = extract_command_slice(line).unwrap_or(b"{}");
 
         return ParsedLine::SlowQuery(ParsedSlowQuery {
@@ -260,11 +257,11 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
     }
 
     // Check message field
-    if let Some(msg) = extract_str_value(line, b"msg") {
+    if let Some(msg) = extract_str_value(line, b"\"msg\":\"") {
         let (timestamp, _) = extract_timestamp(line);
         if msg == "Connection accepted" {
-            let connection_count = extract_u32_value(line, b"connectionCount").unwrap_or(0);
-            let remote = extract_str_value(line, b"remote").unwrap_or("");
+            let connection_count = extract_u32_value(line, b"\"connectionCount\":").unwrap_or(0);
+            let remote = extract_str_value(line, b"\"remote\":\"").unwrap_or("");
             return ParsedLine::ConnectionAccepted {
                 timestamp,
                 connection_count,
@@ -282,31 +279,31 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
         }
         if msg == "client metadata" {
             return ParsedLine::ClientMetadata {
-                driver_name: extract_str_value(line, b"name").unwrap_or("unknown"),
-                driver_version: extract_str_value(line, b"version").unwrap_or("unknown"),
-                platform: extract_str_value(line, b"platform").unwrap_or("unknown"),
-                os_name: extract_str_value(line, b"osName").unwrap_or("unknown"),
-                os_version: extract_str_value(line, b"osVersion").unwrap_or("unknown"),
+                driver_name: extract_str_value(line, b"\"name\":\"").unwrap_or("unknown"),
+                driver_version: extract_str_value(line, b"\"version\":\"").unwrap_or("unknown"),
+                platform: extract_str_value(line, b"\"platform\":\"").unwrap_or("unknown"),
+                os_name: extract_str_value(line, b"\"osName\":\"").unwrap_or("unknown"),
+                os_version: extract_str_value(line, b"\"osVersion\":\"").unwrap_or("unknown"),
             };
         }
     }
 
     // Checkpoints
-    if let Some(c) = extract_str_value(line, b"c") {
+    if let Some(c) = extract_str_value(line, b"\"c\":\"") {
         if c == "WTCHKPT" {
             let (timestamp, _) = extract_timestamp(line);
-            let msg = extract_str_value(line, b"msg").unwrap_or("WiredTiger checkpoint");
+            let msg = extract_str_value(line, b"\"msg\":\"").unwrap_or("WiredTiger checkpoint");
             return ParsedLine::Checkpoint { timestamp, msg };
         }
     }
 
     // Severity warnings / errors
-    if let Some(s) = extract_str_value(line, b"s") {
+    if let Some(s) = extract_str_value(line, b"\"s\":\"") {
         let s_byte = s.as_bytes().first().copied().unwrap_or(b'I');
         if s_byte == b'W' || s_byte == b'E' || s_byte == b'F' {
             let (timestamp, _) = extract_timestamp(line);
-            let id = extract_u32_value(line, b"id").unwrap_or(0);
-            let msg = extract_str_value(line, b"msg").unwrap_or("MongoDB log event");
+            let id = extract_u32_value(line, b"\"id\":").unwrap_or(0);
+            let msg = extract_str_value(line, b"\"msg\":\"").unwrap_or("MongoDB log event");
             return ParsedLine::Error {
                 timestamp,
                 severity: s_byte,
