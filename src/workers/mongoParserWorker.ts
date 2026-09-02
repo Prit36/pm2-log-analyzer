@@ -1,13 +1,9 @@
-import { aggregateMongoData } from "../mongo/aggregateMongo";
-import { parseMongoLine } from "../mongo/parseMongoLine";
-import type {
-  MongoAggregationResult,
-  MongoCheckpointInfo,
-  MongoConnectionStats,
-  MongoDriverInfo,
-  MongoErrorInfo,
-  MongoFilters,
-  MongoSlowQuery,
+import { compileMongoCoreModule } from "../wasm/loadMongoCore";
+import init, { MongoEngine } from "../wasm/pkg_mongo/mongo_core.js";
+import {
+  DEFAULT_MONGO_FILTERS,
+  type MongoAggregationResult,
+  type MongoFilters,
 } from "../mongo/types";
 
 export type MongoWorkerMessage =
@@ -33,122 +29,64 @@ export type MongoWorkerResponse =
   | { type: "ERROR"; payload: { message: string } };
 
 let isCancelled = false;
-let allQueries: MongoSlowQuery[] = [];
-let connections: MongoConnectionStats = {
-  accepted: 0,
-  ended: 0,
-  peakConcurrent: 0,
-  authSuccess: 0,
-  authFailed: 0,
-  drivers: [],
-  clientIps: [],
-};
-let errors: MongoErrorInfo[] = [];
-let checkpoints: MongoCheckpointInfo[] = [];
-const datesSet = new Set<string>();
-const operationsSet = new Set<string>();
-const clientIpMap = new Map<string, number>();
-const driverMap = new Map<string, MongoDriverInfo>();
-const errorMap = new Map<string, MongoErrorInfo>();
-let totalLinesScanned = 0;
+let engine: MongoEngine | null = null;
+let wasmMemory: WebAssembly.Memory | null = null;
+let isReady = false;
+let currentFilters: MongoFilters = { ...DEFAULT_MONGO_FILTERS };
 
-function resetWorkerState() {
-  allQueries = [];
-  connections = {
-    accepted: 0,
-    ended: 0,
-    peakConcurrent: 0,
-    authSuccess: 0,
-    authFailed: 0,
-    drivers: [],
-    clientIps: [],
-  };
-  errors = [];
-  checkpoints = [];
-  datesSet.clear();
-  operationsSet.clear();
-  clientIpMap.clear();
-  driverMap.clear();
-  errorMap.clear();
-  totalLinesScanned = 0;
+async function ensureEngine(): Promise<MongoEngine> {
+  if (isReady && engine) return engine;
+  const module = await compileMongoCoreModule();
+  const exports = await init({ module_or_path: module });
+  wasmMemory = exports.memory;
+  engine = new MongoEngine();
+  isReady = true;
+  return engine;
 }
 
-function processSingleLine(line: string) {
-  totalLinesScanned++;
-  const parsed = parseMongoLine(line);
-  if (!parsed) return;
-
-  datesSet.add(parsed.dateStr);
-
-  if (parsed.type === "slow_query") {
-    allQueries.push(parsed.query);
-    operationsSet.add(parsed.query.op);
-    if (parsed.query.remote) {
-      const ip = parsed.query.remote.split(":")[0] || parsed.query.remote;
-      clientIpMap.set(ip, (clientIpMap.get(ip) || 0) + 1);
-    }
-  } else if (parsed.type === "connection") {
-    if (parsed.event === "accepted") {
-      connections.accepted++;
-      if (parsed.connectionCount && parsed.connectionCount > connections.peakConcurrent) {
-        connections.peakConcurrent = parsed.connectionCount;
-      }
-      if (parsed.remote) {
-        const ip = parsed.remote.split(":")[0] || parsed.remote;
-        clientIpMap.set(ip, (clientIpMap.get(ip) || 0) + 1);
-      }
-    } else if (parsed.event === "ended") {
-      connections.ended++;
-    } else if (parsed.event === "auth_success") {
-      connections.authSuccess++;
-    } else if (parsed.event === "auth_fail") {
-      connections.authFailed++;
-    }
-  } else if (parsed.type === "driver_meta") {
-    const key = `${parsed.driver.driverName}@${parsed.driver.driverVersion}|${parsed.driver.platform}`;
-    const cur = driverMap.get(key);
-    if (cur) cur.count++;
-    else driverMap.set(key, { ...parsed.driver });
-  } else if (parsed.type === "error") {
-    const key = `${parsed.error.severity}:${parsed.error.id ?? ""}:${parsed.error.msg}`;
-    const cur = errorMap.get(key);
-    if (cur) cur.count++;
-    else errorMap.set(key, { ...parsed.error });
-  } else if (parsed.type === "checkpoint") {
-    if (checkpoints.length < 500) {
-      checkpoints.push(parsed.checkpoint);
-    }
-  }
+function writeIngest(eng: MongoEngine, src: Uint8Array): number {
+  const len = src.length;
+  const ptr = eng.ingest_ptr(len);
+  // Re-read memory buffer after possible linear memory growth
+  new Uint8Array(wasmMemory!.buffer).set(src, ptr);
+  return len;
 }
 
-function finalizeConnectionsAndErrors() {
-  connections.drivers = Array.from(driverMap.values()).sort((a, b) => b.count - a.count);
-  connections.clientIps = Array.from(clientIpMap.entries())
-    .map(([ip, count]) => ({ ip, count }))
-    .sort((a, b) => b.count - a.count);
-  errors = Array.from(errorMap.values()).sort((a, b) => b.count - a.count);
+function runReaggregate(eng: MongoEngine, filters: MongoFilters): MongoAggregationResult {
+  const planCode =
+    filters.planFilter === "collscan_only"
+      ? 1
+      : filters.planFilter === "ixscan_only"
+        ? 2
+        : 0;
+
+  const jsonStr = eng.reaggregate(
+    filters.operation,
+    planCode,
+    filters.minDurationMs,
+    filters.collection,
+    filters.searchQuery,
+    filters.highScanRatioOnly,
+  );
+
+  // SAFETY: Rust reaggregate returns a JSON serialized MongoAggregationResult structure
+  return JSON.parse(jsonStr) as MongoAggregationResult;
 }
 
 async function streamParseFile(file: File, bytesOffset: number, totalAllBytes: number) {
-  const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB chunks
+  const eng = await ensureEngine();
+  const CHUNK_SIZE = 8 * 1024 * 1024; // 8MB streaming chunks
   let offset = 0;
-  let carry = "";
-  const decoder = new TextDecoder();
 
   while (offset < file.size) {
     if (isCancelled) return;
     const end = Math.min(offset + CHUNK_SIZE, file.size);
     const slice = file.slice(offset, end);
     const arrayBuffer = await slice.arrayBuffer();
-    const chunkStr = carry + decoder.decode(arrayBuffer, { stream: end < file.size });
+    const bytes = new Uint8Array(arrayBuffer);
 
-    const lines = chunkStr.split("\n");
-    carry = lines.pop() ?? "";
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (line) processSingleLine(line);
-    }
+    writeIngest(eng, bytes);
+    eng.feed(bytes.length, offset);
 
     offset = end;
     const currentTotalBytes = bytesOffset + offset;
@@ -165,9 +103,7 @@ async function streamParseFile(file: File, bytesOffset: number, totalAllBytes: n
     } satisfies MongoWorkerResponse);
   }
 
-  if (carry && !isCancelled) {
-    processSingleLine(carry);
-  }
+  eng.end_shard();
 }
 
 self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
@@ -179,22 +115,16 @@ self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
   }
 
   if (msg.type === "CLEAR") {
-    resetWorkerState();
+    if (engine) engine.clear();
     return;
   }
 
   if (msg.type === "REAGGREGATE") {
     const t0 = performance.now();
-    const result = aggregateMongoData({
-      allQueries,
-      filters: msg.payload.filters,
-      connections,
-      errors,
-      checkpoints,
-      dates: Array.from(datesSet).sort(),
-      operations: Array.from(operationsSet).sort(),
-      totalLines: totalLinesScanned,
-    });
+    currentFilters = msg.payload.filters;
+    const eng = await ensureEngine();
+    const result = runReaggregate(eng, currentFilters);
+
     self.postMessage({ type: "RESULT", payload: result } satisfies MongoWorkerResponse);
     self.postMessage({
       type: "PERF",
@@ -205,9 +135,11 @@ self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
 
   if (msg.type === "PARSE_FILE" || msg.type === "PARSE_FILES") {
     isCancelled = false;
-    resetWorkerState();
-    const t0 = performance.now();
+    currentFilters = msg.payload.filters;
+    const eng = await ensureEngine();
+    eng.clear();
 
+    const t0 = performance.now();
     const files = msg.type === "PARSE_FILE" ? [msg.payload.file] : msg.payload.files;
     const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
 
@@ -220,8 +152,6 @@ self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
 
     if (isCancelled) return;
 
-    finalizeConnectionsAndErrors();
-
     self.postMessage({
       type: "PROGRESS",
       payload: {
@@ -232,16 +162,7 @@ self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
       },
     } satisfies MongoWorkerResponse);
 
-    const result = aggregateMongoData({
-      allQueries,
-      filters: msg.payload.filters,
-      connections,
-      errors,
-      checkpoints,
-      dates: Array.from(datesSet).sort(),
-      operations: Array.from(operationsSet).sort(),
-      totalLines: totalLinesScanned,
-    });
+    const result = runReaggregate(eng, currentFilters);
 
     self.postMessage({ type: "RESULT", payload: result } satisfies MongoWorkerResponse);
     self.postMessage({
@@ -253,44 +174,21 @@ self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
 
   if (msg.type === "PARSE_TEXT") {
     isCancelled = false;
-    resetWorkerState();
+    currentFilters = msg.payload.filters;
+    const eng = await ensureEngine();
+    eng.clear();
+
     const t0 = performance.now();
+    const encoder = new TextEncoder();
+    const bytes = encoder.encode(msg.payload.text);
 
-    const lines = msg.payload.text.split("\n");
-    const totalLines = lines.length;
-
-    for (let i = 0; i < totalLines; i++) {
-      if (isCancelled) break;
-      const line = lines[i];
-      if (line) processSingleLine(line);
-
-      if (i % 5000 === 0) {
-        self.postMessage({
-          type: "PROGRESS",
-          payload: {
-            stage: "parsing",
-            processed: i,
-            total: totalLines,
-            percent: Math.min(95, Math.round((i / totalLines) * 95)),
-          },
-        } satisfies MongoWorkerResponse);
-      }
-    }
+    writeIngest(eng, bytes);
+    eng.feed(bytes.length, 0);
+    eng.end_shard();
 
     if (isCancelled) return;
 
-    finalizeConnectionsAndErrors();
-
-    const result = aggregateMongoData({
-      allQueries,
-      filters: msg.payload.filters,
-      connections,
-      errors,
-      checkpoints,
-      dates: Array.from(datesSet).sort(),
-      operations: Array.from(operationsSet).sort(),
-      totalLines: totalLinesScanned,
-    });
+    const result = runReaggregate(eng, currentFilters);
 
     self.postMessage({ type: "RESULT", payload: result } satisfies MongoWorkerResponse);
     self.postMessage({

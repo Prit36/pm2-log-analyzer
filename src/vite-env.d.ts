@@ -48,3 +48,30 @@ declare module "../wasm/pkg/pm2_core.js" {
     memory: WebAssembly.Memory;
   };
 }
+
+declare module "../wasm/pkg_mongo/mongo_core.js" {
+  export class MongoEngine {
+    constructor();
+    free(): void;
+    clear(): void;
+    ingest_ptr(len: number): number;
+    feed(len: number, abs_off: number): number;
+    end_shard(): void;
+    slow_query_count(): number;
+    total_lines(): number;
+    reaggregate(
+      op: string,
+      plan_filter: number,
+      min_duration_ms: number,
+      collection: string,
+      search_query: string,
+      high_scan_ratio_only: boolean,
+    ): string;
+  }
+  export default function init(module_or_path?: {
+    module_or_path: WebAssembly.Module | BufferSource;
+  }): Promise<{ memory: WebAssembly.Memory }>;
+  export function initSync(module: { module: BufferSource | WebAssembly.Module }): {
+    memory: WebAssembly.Memory;
+  };
+}

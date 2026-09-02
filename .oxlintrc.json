@@ -41,7 +41,9 @@
     ".vscode/**",
     ".windsurf/**",
     "src/wasm/pkg/**",
+    "src/wasm/pkg_mongo/**",
     "wasm/pm2-core/target/**",
+    "wasm/mongo-core/target/**",
     "tools/oxlint/anti-slop/**"
   ]
 }

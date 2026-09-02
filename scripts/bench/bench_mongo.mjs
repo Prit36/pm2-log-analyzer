@@ -108,7 +108,10 @@ function runCapture(cmd, args) {
       env: process.env,
     });
     child.stdout.on("data", (d) => chunks.push(d));
-    child.stderr.on("data", (d) => errChunks.push(d));
+    child.stderr.on("data", (d) => {
+      errChunks.push(d);
+      process.stderr.write(d);
+    });
     child.on("error", reject);
     child.on("close", (code) => {
       const stdout = Buffer.concat(chunks).toString("utf8").trim();
