@@ -19,7 +19,7 @@
   "dependencies": {
     "clsx": "2.1.1",
     "exceljs": "^4.4.0",
-    "lucide-react": "^1.31.0",
+    "lucide-react": "^1.39.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-window": "^2.3.0",
@@ -28,18 +28,18 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@oxlint/plugins": "1.78.0",
+    "@oxlint/plugins": "1.81.0",
     "@tailwindcss/vite": "4.3.3",
-    "@types/node": "^26.2.0",
-    "@types/react": "19.2.17",
-    "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "6.0.4",
-    "oxfmt": "^0.60.0",
-    "oxlint": "^1.78.0",
+    "@types/node": "^26.4.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "@vitejs/plugin-react": "6.1.1",
+    "oxfmt": "^0.66.0",
+    "oxlint": "^1.81.0",
     "playwright": "^1.62.1",
     "tailwindcss": "4.3.3",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.13",
     "typescript": "7.0.2",
-    "vite": "8.1.5"
+    "vite": "8.2.2"
   }
 }
