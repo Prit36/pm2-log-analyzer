@@ -1,5 +1,6 @@
 import type { AggregatedEndpoint, DaySummary, HourlyBucket } from "../parser";
 import { formatDate, formatMs, formatNum } from "./format";
+import { PALETTE } from "./palette";
 
 export type ChartImageResults = {
   timeVsLatency?: string | undefined;
@@ -159,13 +160,13 @@ function latencyClassify(ms: number): number {
 
 function createLatencyBuckets() {
   return [
-    { label: "<50ms", count: 0, fill: "#22c55e" },
-    { label: "50-100ms", count: 0, fill: "#84cc16" },
-    { label: "100-300ms", count: 0, fill: "#eab308" },
-    { label: "300-500ms", count: 0, fill: "#f97316" },
-    { label: "500ms-1s", count: 0, fill: "#ef4444" },
-    { label: "1s-3s", count: 0, fill: "#b91c1c" },
-    { label: ">3s", count: 0, fill: "#7f1d1d" },
+    { label: "<50ms", count: 0, fill: PALETTE.distribution[0] },
+    { label: "50-100ms", count: 0, fill: PALETTE.distribution[1] },
+    { label: "100-300ms", count: 0, fill: PALETTE.distribution[2] },
+    { label: "300-500ms", count: 0, fill: PALETTE.distribution[3] },
+    { label: "500ms-1s", count: 0, fill: PALETTE.distribution[4] },
+    { label: "1s-3s", count: 0, fill: PALETTE.distribution[5] },
+    { label: ">3s", count: 0, fill: PALETTE.distribution[6] },
   ];
 }
 

@@ -280,7 +280,7 @@ export function methodsFromMask(mask: number): LogMethod[] {
   for (let i = 0; i < METHODS.length; i++) {
     if (mask & (1 << i)) out.push(METHODS[i]!);
   }
-  return out.sort();
+  return out.sort((a, b) => a.localeCompare(b));
 }
 
 export function normalizeModeCode(mode: string): number {

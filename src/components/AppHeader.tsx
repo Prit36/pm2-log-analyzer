@@ -8,36 +8,33 @@ import { cn } from "../utils/cn";
 
 const { toggleTheme } = useAnalysisStore.getState();
 
-export function AppHeader() {
-  const { isDark, canExport, canClear, fileNamesTitle, dateRangeBadge, sourceLabel } =
-    useAnalysisStore(
-      useShallow((s) => {
-        const dates = s.result?.dates;
-        const dateRangeBadge =
-          !dates || dates.length === 0
-            ? null
-            : dates.length > 1
-              ? `${formatDate(dates[0])} → ${formatDate(dates[dates.length - 1])} (${dates.length} days)`
-              : formatDate(dates[0]);
-        const sourceLabel =
-          s.sourceKind === "file" && s.fileName
-            ? `${s.fileName}${s.fileSize != null ? ` · ${formatBytes(s.fileSize)}` : ""}`
-            : s.sourceKind === "paste"
-              ? "Pasted text"
-              : null;
-        const fileNamesTitle =
-          s.fileNames && s.fileNames.length > 1 ? s.fileNames.join("\n") : undefined;
+function buildDateRangeBadge(dates: string[] | undefined): string | null {
+  if (!dates || dates.length === 0) return null;
+  if (dates.length > 1) return `${formatDate(dates[0])} → ${formatDate(dates[dates.length - 1])} (${dates.length} days)`;
+  return formatDate(dates[0]);
+}
 
-        return {
-          isDark: s.theme === "dark",
-          canExport: s.hasData && !s.isParsing,
-          canClear: s.hasData || s.sourceKind !== "none",
-          fileNamesTitle,
-          dateRangeBadge,
-          sourceLabel,
-        };
-      }),
-    );
+function buildSourceLabel(kind: string, fileName: string | null, fileSize: number | null): string | null {
+  if (kind === "file" && fileName) return `${fileName}${fileSize != null ? ` · ${formatBytes(fileSize)}` : ""}`;
+  if (kind === "paste") return "Pasted text";
+  return null;
+}
+
+function buildFileNamesTitle(fileNames: string[]): string | undefined {
+  return fileNames.length > 1 ? fileNames.join("\n") : undefined;
+}
+
+export function AppHeader() {
+  const { isDark, canExport, canClear, fileNamesTitle, dateRangeBadge, sourceLabel } = useAnalysisStore(
+    useShallow((s) => ({
+      isDark: s.theme === "dark",
+      canExport: s.hasData && !s.isParsing,
+      canClear: s.hasData || s.sourceKind !== "none",
+      fileNamesTitle: buildFileNamesTitle(s.fileNames),
+      dateRangeBadge: buildDateRangeBadge(s.result?.dates),
+      sourceLabel: buildSourceLabel(s.sourceKind, s.fileName, s.fileSize),
+    })),
+  );
 
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
