@@ -135,7 +135,7 @@ let parseWallOrigin = 0;
 
 function poolSize(): number {
   const hc = globalThis.navigator?.hardwareConcurrency ?? 4;
-  return Math.max(2, Math.min(5, hc));
+  return Math.max(2, Math.min(4, hc));
 }
 
 function shardCountFor(fileSize: number): number {
@@ -170,8 +170,7 @@ function waitReady(worker: Worker): Promise<void> {
   });
 }
 
-async function ensureShardPool(): Promise<{ wasmCompileMs: number; shardPoolInitMs: number }> {
-  const n = poolSize();
+async function ensureShardPool(n: number): Promise<{ wasmCompileMs: number; shardPoolInitMs: number }> {
   let wasmCompileMs = 0;
   let shardPoolInitMs = 0;
 
@@ -459,7 +458,7 @@ async function parseFilesSharded(input: File | File[], normalizeMode: NormalizeM
   resetMeta();
   parseWallOrigin = performance.now();
   const n = shardCountFor(compositeFile.size);
-  const { wasmCompileMs, shardPoolInitMs } = await ensureShardPool();
+  const { wasmCompileMs, shardPoolInitMs } = await ensureShardPool(n);
   clearShards(ep);
 
   const total = compositeFile.size || 1;
@@ -543,7 +542,7 @@ async function parseFilesSharded(input: File | File[], normalizeMode: NormalizeM
     absorbMeta(results);
     activeShardCount = results.length;
     const wasmHeapMB = results.reduce((s, r) => s + (r.wasmHeapBytes ?? 0), 0) / (1024 * 1024);
-    const perShardEntryMB = results.reduce((s, r) => s + (r.hitCount * 16) / (1024 * 1024), 0);
+    const perShardEntryMB = results.reduce((s, r) => s + (r.hitCount * 12) / (1024 * 1024), 0);
     self.postMessage({
       type: "PROGRESS",
       payload: { stage: "parsing", processed: total, total, percent: 100 },
@@ -576,7 +575,7 @@ async function parseText(text: string, normalizeMode: NormalizeMode) {
   const ep = epoch;
   resetMeta();
   parseWallOrigin = performance.now();
-  const { wasmCompileMs, shardPoolInitMs } = await ensureShardPool();
+  const { wasmCompileMs, shardPoolInitMs } = await ensureShardPool(1);
   clearShards(ep);
   const buf = new TextEncoder().encode(text).buffer;
   const shard = await runShardParsed(shardPool[0]!, {

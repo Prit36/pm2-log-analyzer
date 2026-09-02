@@ -328,8 +328,15 @@ fn noise_body<'a>(buf: &'a [u8], start: usize, end: usize) -> &'a [u8] {
 
 /// Socket.IO / socket connection noise: preflight `OPTIONS` is handled by dropping
 /// the method; these are the chat/tracking lines that are pure noise for HTTP analysis.
-fn is_socket_noise(buf: &[u8], start: usize, end: usize) -> bool {
-    let body = noise_body(buf, start, end);
+fn is_socket_noise(
+    buf: &[u8],
+    start: usize,
+    end: usize,
+    timestamp_body_start: Option<usize>,
+) -> bool {
+    let body = timestamp_body_start
+        .map(|i| &buf[i..end])
+        .unwrap_or_else(|| noise_body(buf, start, end));
     if body.is_empty() {
         return false;
     }
@@ -408,14 +415,21 @@ fn strip_ansi_bytes(buf: &[u8]) -> Vec<u8> {
     out
 }
 
-fn try_http_a(buf: &[u8], start: usize, end: usize) -> Option<LineKind> {
+fn try_http_a(
+    buf: &[u8],
+    start: usize,
+    end: usize,
+    timestamp_body_start: &mut Option<usize>,
+) -> Option<LineKind> {
     let mut i = skip_space_ansi(buf, start, end);
     let (hour, date) = if let Some((ni, _, _, hour, date_bytes)) = skip_timestamp(buf, i, end) {
+        *timestamp_body_start = Some(ni);
         if ni != i {
             i = ni;
         }
         ((hour < 24).then_some(hour), Some(date_bytes))
     } else {
+        *timestamp_body_start = None;
         (None, None)
     };
     let (method, ni) = parse_method(buf, i, end)?;
@@ -615,9 +629,10 @@ pub fn parse_line_bytes(buf: &[u8], start: usize, mut end: usize) -> LineKind {
     // httpB (duration-first) allows a leading '.' (e.g. `.5ms GET /x`).
     let float_start = g.is_ascii_digit() || g == b'.';
     let cron_start = g == b'[';
+    let mut timestamp_body_start = None;
 
     if method_start || float_start {
-        if let Some(k) = try_http_a(buf, start, end) {
+        if let Some(k) = try_http_a(buf, start, end, &mut timestamp_body_start) {
             return k;
         }
     }
@@ -638,11 +653,20 @@ pub fn parse_line_bytes(buf: &[u8], start: usize, mut end: usize) -> LineKind {
             return k;
         }
     }
-    if is_socket_noise(buf, start, end) {
+    // Only these leading bytes can start a socket-noise shape. Avoid reparsing the
+    // timestamp/body for ordinary unmatched payload lines.
+    let socket_candidate = g.is_ascii_digit()
+        || matches!(
+            g,
+            b'N' | b'd' | b'j' | b'l' | b'T' | b'm' | b'a' | b'i' | b'{' | b'}' | b'[' | b']'
+        );
+    if socket_candidate && is_socket_noise(buf, start, end, timestamp_body_start) {
         // Socket.IO / socket tracking lines are pure noise — skip like empty lines.
         return LineKind::Empty;
     }
-    if !has_non_space(buf, start, end) {
+    if buf[gate] > 32 {
+        LineKind::Unmatched
+    } else if !has_non_space(buf, start, end) {
         LineKind::Empty
     } else {
         LineKind::Unmatched

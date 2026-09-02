@@ -7,6 +7,7 @@ use hashbrown::{HashMap, HashTable};
 use memchr::memchr;
 
 const LINE_EXTEND: usize = 256 * 1024;
+const INVALID_RELHIST_KEY: i16 = i16::MIN;
 /// Reusable ingest window. Keeps Wasm peak memory bounded.
 pub const INGEST_CAP: usize = 32 * 1024 * 1024;
 
@@ -68,7 +69,6 @@ struct CronEv {
 
 struct EndpointAcc {
     method: u8,
-    path_bytes: Vec<u8>,
     sketch: RelHist,
     count: u32,
     sum: f64,
@@ -109,6 +109,8 @@ pub struct Engine {
     path_table: HashTable<u32>,
 
     entries: Vec<PackedEntry>,
+    /// Cached RelHist bucket keys; avoids recomputing duration.ln() on each filter pass.
+    hist_keys: Vec<i16>,
 
     dates: Vec<[u8; 10]>,
     last_date: [u8; 10],
@@ -157,6 +159,7 @@ impl Engine {
             path_len: Vec::new(),
             path_table: HashTable::new(),
             entries: Vec::new(),
+            hist_keys: Vec::new(),
             dates: Vec::new(),
             last_date: [0u8; 10],
             last_date_id: 0,
@@ -217,17 +220,22 @@ impl Engine {
         self.ingest.as_mut_ptr() as u32
     }
 
-    pub fn begin_shard(&mut self, start: u32, end: u32, file_size: u32) {
+    pub fn begin_shard(&mut self, start: u64, end: u64, file_size: u64) {
         self.reset_columns();
-        self.shard_start = start as u64;
-        self.shard_end = end as u64;
-        self.file_size = file_size as u64;
+        self.shard_start = start;
+        self.shard_end = end;
+        self.file_size = file_size;
         self.skip_partial = start > 0;
         self.parsing = true;
         self.carry.clear();
         self.carry_abs = 0;
-        let span = end.saturating_sub(start) as usize;
-        let estimate = (span / 140).saturating_add(65536);
+        let span = end.saturating_sub(start);
+        // The stress corpus stores about one hit per 276 input bytes. Keep a
+        // small safety margin without reserving roughly twice the live entries.
+        let estimate = span
+            .saturating_div(256)
+            .saturating_add(65536)
+            .min(usize::MAX as u64) as usize;
         self.entries.reserve(estimate);
         self.path_off.reserve(8192);
         self.path_len.reserve(8192);
@@ -249,6 +257,7 @@ impl Engine {
         self.path_table.clear();
         self.path_cache = [(0, u32::MAX); 1024];
         self.entries.clear();
+        self.hist_keys.clear();
         self.dates.clear();
         self.last_date = [0u8; 10];
         self.last_date_id = 0;
@@ -276,7 +285,7 @@ impl Engine {
     }
 
     /// Feed `len` bytes already written at ingest[0..len] starting at absolute `abs_off`.
-    pub fn feed(&mut self, len: u32, abs_off: u32) -> u32 {
+    pub fn feed(&mut self, len: u32, abs_off: u64) -> u32 {
         let len = (len as usize).min(self.ingest.len());
         if self.carry.is_empty() {
             self.feed_ingest_only(len, abs_off)
@@ -286,8 +295,7 @@ impl Engine {
     }
 
     /// Common path: no carry — SIMD memchr newline scan over ingest window.
-    fn feed_ingest_only(&mut self, len: usize, abs_off: u32) -> u32 {
-        let abs_off = abs_off as u64;
+    fn feed_ingest_only(&mut self, len: usize, abs_off: u64) -> u32 {
         let before = self.entries.len();
         let mut ingest = std::mem::take(&mut self.ingest);
         if ingest.len() < len {
@@ -344,8 +352,7 @@ impl Engine {
     }
 
     /// Rare path: leftover partial line from previous chunk.
-    fn feed_with_carry(&mut self, len: usize, abs_off: u32) -> u32 {
-        let abs_off = abs_off as u64;
+    fn feed_with_carry(&mut self, len: usize, abs_off: u64) -> u32 {
         let before = self.entries.len();
 
         let mut ingest = std::mem::take(&mut self.ingest);
@@ -539,13 +546,19 @@ impl Engine {
 
         use crate::relhist::relhist_key;
 
+        self.hist_keys.reserve(self.entries.len());
+        let hist_keys = &mut self.hist_keys;
         for entry in &self.entries {
             let d = entry.duration;
             let st = entry.status();
             let h = entry.hour() as usize;
             let is_err = st >= 400;
             let is_slow = d >= 3000.0;
-            let k = relhist_key(d);
+            let compact_key = relhist_key(d)
+                .map(|key| key.clamp((i16::MIN + 1) as i32, i16::MAX as i32) as i16)
+                .unwrap_or(INVALID_RELHIST_KEY);
+            hist_keys.push(compact_key);
+            let k = (compact_key != INVALID_RELHIST_KEY).then_some(compact_key as i32);
 
             sum_sum += d as f64;
             if d > sum_max {
@@ -737,7 +750,7 @@ impl Engine {
         shard_end: usize,
         file_size: usize,
     ) -> usize {
-        self.begin_shard(shard_start as u32, shard_end as u32, file_size as u32);
+        self.begin_shard(shard_start as u64, shard_end as u64, file_size as u64);
         let read_end = (shard_end + LINE_EXTEND).min(file_size);
         let mut off = shard_start;
         while off < read_end {
@@ -750,7 +763,7 @@ impl Engine {
             let src_off = off - shard_start;
             let _ = self.ingest_ptr(take as u32);
             self.ingest[..take].copy_from_slice(&buf[src_off..src_off + take]);
-            self.feed(take as u32, off as u32);
+            self.feed(take as u32, off as u64);
             off += take;
         }
         self.end_shard();
@@ -861,7 +874,13 @@ impl Engine {
 
     pub fn norm_path_bytes(&self, mode: u8, norm_id: usize) -> Option<Vec<u8>> {
         let m = mode as usize;
-        if m > 2 || norm_id >= self.norm_off[m].len() {
+        if m > 2 {
+            return None;
+        }
+        if m == NormalizeMode::Exact as usize {
+            return self.path_bytes_of(norm_id);
+        }
+        if norm_id >= self.norm_off[m].len() {
             return None;
         }
         let off = self.norm_off[m][norm_id] as usize;
@@ -870,7 +889,12 @@ impl Engine {
     }
 
     pub fn ensure_mode(&mut self, mode: u8) {
-        let m = NormalizeMode::from_u8(mode) as usize;
+        let mode_enum = NormalizeMode::from_u8(mode);
+        let m = mode_enum as usize;
+        if mode_enum == NormalizeMode::Exact {
+            self.mode_ready[m] = true;
+            return;
+        }
         if self.mode_ready[m] && self.path_to_norm[m].len() == self.path_off.len() {
             return;
         }
@@ -879,7 +903,6 @@ impl Engine {
         self.norm_len[m].clear();
         self.norm_table[m].clear();
         self.path_to_norm[m].resize(self.path_off.len(), 0);
-        let mode_enum = NormalizeMode::from_u8(mode);
         let norm_bytes = &mut self.norm_bytes[m];
         let norm_off = &mut self.norm_off[m];
         let norm_len = &mut self.norm_len[m];
@@ -940,10 +963,9 @@ impl Engine {
         };
 
         // Dense slots for low-cardinality modes: (norm_id << 3) | method.
-        // Sparse Vec<Option<Box<...>>>: None slots cost 1 byte (null pointer), so
-        // the array stays ~n_norm×8 bytes even with millions of paths, while only
-        // active endpoints pay for a heap Box. A flat Vec<EndpointAcc> here would
-        // commit ~80 bytes × n_norm×8 per shard — multi-GB across the worker pool.
+        // Sparse Vec<Option<Box<...>>> keeps the slot table ~n_norm×8 bytes while
+        // only active endpoints pay for a heap allocation. A flat Vec<EndpointAcc>
+        // here would commit roughly 2 KiB × n_norm×8 per shard.
         // 6 methods (OPTIONS dropped at parse) → max 3 bits used, slots 6..7 unused.
         let use_dense = mode != 0;
         let n_norm = self.norm_off[mode].len();
@@ -981,6 +1003,7 @@ impl Engine {
 
         let n = self.entries.len();
         let path_to_norm = &self.path_to_norm[mode];
+        let hist_keys = &self.hist_keys;
         let mut matched_count = 0u32;
 
         for i in 0..n {
@@ -1004,7 +1027,10 @@ impl Engine {
                 if duration_ms >= 3000.0 {
                     sum_slow += 1;
                 }
-                custom_summary.accept(duration_ms);
+                let hist_key = hist_keys[i];
+                if hist_key != INVALID_RELHIST_KEY {
+                    custom_summary.accept_key(hist_key as i32);
+                }
             }
 
             if duration_ms < min_ms {
@@ -1016,7 +1042,11 @@ impl Engine {
 
             let method_code = e.method();
             let path_id = e.path_id as usize;
-            let norm_id = path_to_norm[path_id];
+            let norm_id = if mode == NormalizeMode::Exact as usize {
+                e.path_id
+            } else {
+                path_to_norm[path_id]
+            };
             let key = ((norm_id as u64) << 3) | (method_code as u64);
 
             if use_dense {
@@ -1028,7 +1058,6 @@ impl Engine {
                 let entry = slot.get_or_insert_with(|| {
                     Box::new(EndpointAcc {
                         method: method_code,
-                        path_bytes: Vec::new(),
                         sketch: RelHist::new(),
                         count: 0,
                         sum: 0.0,
@@ -1037,7 +1066,10 @@ impl Engine {
                         error_count: 0,
                     })
                 });
-                entry.sketch.accept(duration_ms);
+                let hist_key = hist_keys[i];
+                if hist_key != INVALID_RELHIST_KEY {
+                    entry.sketch.accept_key(hist_key as i32);
+                }
                 entry.count += 1;
                 entry.sum += duration_ms as f64;
                 if duration_ms < entry.min {
@@ -1052,7 +1084,6 @@ impl Engine {
             } else {
                 let entry = by_key.entry(key).or_insert_with(|| EndpointAcc {
                     method: method_code,
-                    path_bytes: Vec::new(),
                     sketch: RelHist::new(),
                     count: 0,
                     sum: 0.0,
@@ -1060,7 +1091,10 @@ impl Engine {
                     max: f32::NEG_INFINITY,
                     error_count: 0,
                 });
-                entry.sketch.accept(duration_ms);
+                let hist_key = hist_keys[i];
+                if hist_key != INVALID_RELHIST_KEY {
+                    entry.sketch.accept_key(hist_key as i32);
+                }
                 entry.count += 1;
                 entry.sum += duration_ms as f64;
                 if duration_ms < entry.min {
@@ -1075,27 +1109,27 @@ impl Engine {
             }
         }
 
-        // Attach path bytes and collect for encode
+        // Collect active dense accumulators; paths are encoded from the normalized arena below.
         let mut endpoints: Vec<(u32, EndpointAcc)> = Vec::new();
         if use_dense {
             for (idx, slot) in dense.into_iter().enumerate() {
-                if let Some(mut e) = slot {
+                if let Some(e) = slot {
                     let norm_id = (idx >> 3) as u32;
-                    let off = self.norm_off[mode][norm_id as usize] as usize;
-                    let len = self.norm_len[mode][norm_id as usize] as usize;
-                    e.path_bytes = self.norm_bytes[mode][off..off + len].to_vec();
                     endpoints.push((norm_id, *e));
                 }
             }
         } else {
-            for (key, mut e) in by_key {
+            for (key, e) in by_key {
                 let norm_id = (key >> 3) as u32;
-                let off = self.norm_off[mode][norm_id as usize] as usize;
-                let len = self.norm_len[mode][norm_id as usize] as usize;
-                e.path_bytes = self.norm_bytes[mode][off..off + len].to_vec();
                 endpoints.push((norm_id, e));
             }
         }
+
+        let (norm_bytes, norm_off, norm_len) = if mode == NormalizeMode::Exact as usize {
+            (&self.path_bytes, &self.path_off, &self.path_len)
+        } else {
+            (&self.norm_bytes[mode], &self.norm_off[mode], &self.norm_len[mode])
+        };
 
         let summary_ref: Option<&RelHist> = if !need_summary {
             None
@@ -1108,6 +1142,9 @@ impl Engine {
         encode_partial_vec(
             mode as u8,
             &endpoints,
+            norm_bytes,
+            norm_off,
+            norm_len,
             summary_ref,
             sum_sum,
             sum_max,
@@ -1211,6 +1248,9 @@ fn write_bytes(out: &mut Vec<u8>, b: &[u8]) {
 fn encode_partial_vec(
     mode: u8,
     endpoints: &[(u32, EndpointAcc)],
+    norm_bytes: &[u8],
+    norm_off: &[u32],
+    norm_len: &[u16],
     summary: Option<&RelHist>,
     sum_sum: f64,
     sum_max: f32,
@@ -1239,7 +1279,7 @@ fn encode_partial_vec(
         out.extend_from_slice(&wire);
     }
 
-    for (_nid, e) in endpoints {
+    for (nid, e) in endpoints {
         out.push(e.method);
         out.extend_from_slice(&[0, 0, 0]);
         out.extend_from_slice(&e.count.to_le_bytes());
@@ -1249,7 +1289,9 @@ fn encode_partial_vec(
         out.extend_from_slice(&min.to_le_bytes());
         out.extend_from_slice(&max.to_le_bytes());
         out.extend_from_slice(&e.error_count.to_le_bytes());
-        write_bytes(&mut out, &e.path_bytes);
+        let off = norm_off[*nid as usize] as usize;
+        let len = norm_len[*nid as usize] as usize;
+        write_bytes(&mut out, &norm_bytes[off..off + len]);
         let wire = e.sketch.to_wire();
         out.extend_from_slice(&(wire.len() as u32).to_le_bytes());
         out.extend_from_slice(&wire);
@@ -1281,13 +1323,13 @@ socket connected\n\
         a.parse_shard(sample, 0, sample.len(), sample.len());
 
         let mut b = Engine::new();
-        b.begin_shard(0, sample.len() as u32, sample.len() as u32);
+        b.begin_shard(0, sample.len() as u64, sample.len() as u64);
         let mut off = 0usize;
         while off < sample.len() {
             let take = (sample.len() - off).min(17);
             let _ = b.ingest_ptr(take as u32);
             b.ingest[..take].copy_from_slice(&sample[off..off + take]);
-            b.feed(take as u32, off as u32);
+            b.feed(take as u32, off as u64);
             off += take;
         }
         b.end_shard();
@@ -1367,17 +1409,47 @@ socket connected\n\
         let sample = b"2026-07-24T00:00:10: GET /api/health 200 12.5 ms - 42\n";
         let split = 20; // inside timestamp
         let mut e = Engine::new();
-        e.begin_shard(0, sample.len() as u32, sample.len() as u32);
+        e.begin_shard(0, sample.len() as u64, sample.len() as u64);
         let _ = e.ingest_ptr(split as u32);
         e.ingest[..split].copy_from_slice(&sample[..split]);
         e.feed(split as u32, 0);
         let rest = sample.len() - split;
         let _ = e.ingest_ptr(rest as u32);
         e.ingest[..rest].copy_from_slice(&sample[split..]);
-        e.feed(rest as u32, split as u32);
+        e.feed(rest as u32, split as u64);
         e.end_shard();
         assert_eq!(e.hit_count(), 1);
         assert!(e.summary_ready);
         assert!(e.summary_sum > 0.0);
+    }
+
+    #[test]
+    fn boundary_after_newline_keeps_first_line() {
+        let sample = b"first line\n2026-07-24T00:00:10: GET /api/health 200 12.5 ms - 42\n";
+        let start = 11u64;
+        let mut e = Engine::new();
+        e.begin_shard(start, sample.len() as u64, sample.len() as u64);
+        let suffix = &sample[start as usize - 1..];
+        let _ = e.ingest_ptr(suffix.len() as u32);
+        e.ingest[..suffix.len()].copy_from_slice(suffix);
+        e.feed(suffix.len() as u32, start - 1);
+        e.end_shard();
+        assert_eq!(e.hit_count(), 1);
+        assert_eq!(e.unmatched_count(), 0);
+    }
+
+    #[test]
+    fn offsets_above_u32_remain_exact() {
+        let sample = b"partial shard prefix\n2026-07-24T00:00:10: GET /api/health 200 12.5 ms - 42\n";
+        let start = 4_500_000_000u64;
+        let end = start + sample.len() as u64;
+        let mut e = Engine::new();
+        e.begin_shard(start, end, end + 1);
+        let _ = e.ingest_ptr(sample.len() as u32);
+        e.ingest[..sample.len()].copy_from_slice(sample);
+        e.feed(sample.len() as u32, start);
+        e.end_shard();
+        assert_eq!(e.hit_count(), 1);
+        assert_eq!(e.unmatched_count(), 0);
     }
 }

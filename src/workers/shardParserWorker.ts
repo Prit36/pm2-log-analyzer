@@ -91,7 +91,7 @@ export type ShardReady = { type: "SHARD_READY" };
 
 export type ShardModeReady = { type: "SHARD_MODE_READY"; epoch: number };
 
-const CHUNK = 32 * 1024 * 1024;
+const CHUNK = 16 * 1024 * 1024;
 const LINE_EXTEND = 256 * 1024;
 
 let engine: Pm2Engine | null = null;
@@ -105,6 +105,15 @@ function writeIngest(src: Uint8Array): number {
   // Re-read heap after possible grow from ingest_ptr.
   new Uint8Array(wasmMemory!.buffer).set(src, ptr);
   return len;
+}
+
+function transferableBuffer(bytes: Uint8Array): ArrayBuffer {
+  if (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
+    // SAFETY: wasm-bindgen returns an owned Uint8Array for Vec<u8> results.
+    return bytes.buffer as ArrayBuffer;
+  }
+  // SAFETY: Copy a view when its backing buffer is shared with unrelated bytes.
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 async function ensureInit(module: WebAssembly.Module) {
@@ -122,10 +131,12 @@ async function parseFileRange(file: File, start: number, end: number): Promise<S
 
   engine!.begin_shard(start, end, file.size);
   const readEnd = Math.min(file.size, end + LINE_EXTEND);
-  let off = start;
+  // Include the byte before nonzero shard starts so a boundary exactly after a newline
+  // does not discard the first complete line. The shard still owns [start, end).
+  let off = start > 0 ? start - 1 : start;
 
-  // Pipelined multi-buffered prefetch queue (depth 3) into Wasm ingest window
-  const QUEUE_DEPTH = 3;
+  // Pipelined multi-buffered prefetch queue (depth 2) into Wasm ingest window
+  const QUEUE_DEPTH = 2;
   const pendingReads: Promise<{ chunk: Uint8Array; readTime: number }>[] = [];
 
   const enqueue = (chunkOff: number) => {
@@ -209,31 +220,11 @@ function metaBuffers(): ShardMetaBuffers {
   const hourly = engine!.hourly_wire();
   const dates = engine!.dates_wire();
   const daily = engine!.daily_wire();
-  // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
-  const cronWire = cron.buffer.slice(
-    cron.byteOffset,
-    cron.byteOffset + cron.byteLength,
-  ) as ArrayBuffer;
-  // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
-  const unmatchedWire = unmatched.buffer.slice(
-    unmatched.byteOffset,
-    unmatched.byteOffset + unmatched.byteLength,
-  ) as ArrayBuffer;
-  // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
-  const hourlyWire = hourly.buffer.slice(
-    hourly.byteOffset,
-    hourly.byteOffset + hourly.byteLength,
-  ) as ArrayBuffer;
-  // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
-  const datesWire = dates.buffer.slice(
-    dates.byteOffset,
-    dates.byteOffset + dates.byteLength,
-  ) as ArrayBuffer;
-  // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
-  const dailyWire = daily.buffer.slice(
-    daily.byteOffset,
-    daily.byteOffset + daily.byteLength,
-  ) as ArrayBuffer;
+  const cronWire = transferableBuffer(cron);
+  const unmatchedWire = transferableBuffer(unmatched);
+  const hourlyWire = transferableBuffer(hourly);
+  const datesWire = transferableBuffer(dates);
+  const dailyWire = transferableBuffer(daily);
   return { cronWire, unmatchedWire, hourlyWire, datesWire, dailyWire };
 }
 
@@ -267,11 +258,7 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
       const modeCode = normalizeModeCode(normalizeMode ?? "collapseIds");
       engine.ensure_mode(modeCode);
       const partialWireU8 = engine.reaggregate(modeCode, 0, 0, new Uint8Array(), true);
-      // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
-      const partialWire = partialWireU8.buffer.slice(
-        partialWireU8.byteOffset,
-        partialWireU8.byteOffset + partialWireU8.byteLength,
-      ) as ArrayBuffer;
+      const partialWire = transferableBuffer(partialWireU8);
       const tMeta = performance.now();
       const { cronWire, unmatchedWire, hourlyWire, datesWire, dailyWire } = metaBuffers();
       timing.metaWireMs = performance.now() - tMeta;
@@ -369,11 +356,7 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         msg.needSummary,
       );
       const reaggMs = performance.now() - t0;
-      // SAFETY: Memory slice produces an isolated ArrayBuffer for postMessage transfer.
-      const ab = partial.buffer.slice(
-        partial.byteOffset,
-        partial.byteOffset + partial.byteLength,
-      ) as ArrayBuffer;
+      const ab = transferableBuffer(partial);
       self.postMessage(
         {
           type: "SHARD_PARTIAL",

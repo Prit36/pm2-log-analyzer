@@ -34,13 +34,13 @@ impl Pm2Engine {
     }
 
     /// Start shard ownership [start, end) within file_size.
-    pub fn begin_shard(&mut self, start: u32, end: u32, file_size: u32) {
-        self.inner.begin_shard(start, end, file_size);
+    pub fn begin_shard(&mut self, start: f64, end: f64, file_size: f64) {
+        self.inner.begin_shard(start as u64, end as u64, file_size as u64);
     }
 
     /// Parse `len` bytes previously written at ingest_ptr; `abs_off` is file offset of those bytes.
-    pub fn feed(&mut self, len: u32, abs_off: u32) -> u32 {
-        self.inner.feed(len, abs_off)
+    pub fn feed(&mut self, len: u32, abs_off: f64) -> u32 {
+        self.inner.feed(len, abs_off as u64)
     }
 
     /// Finish shard (flush carry). Call after all feeds.
@@ -52,9 +52,9 @@ impl Pm2Engine {
     pub fn parse_shard(
         &mut self,
         buf: &[u8],
-        shard_start: u32,
-        shard_end: u32,
-        file_size: u32,
+        shard_start: f64,
+        shard_end: f64,
+        file_size: f64,
     ) -> u32 {
         self.inner
             .parse_shard(buf, shard_start as usize, shard_end as usize, file_size as usize)

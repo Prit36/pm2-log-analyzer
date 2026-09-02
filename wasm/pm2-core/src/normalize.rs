@@ -94,7 +94,7 @@ fn is_code_id(seg: &[u8]) -> bool {
 }
 
 fn collapse_segment(seg: &[u8]) -> &[u8] {
-    if seg.is_empty() {
+    if seg.len() < 6 {
         return seg;
     }
     if is_object_id(seg) || is_long_numeric(seg) || is_uuid(seg) || is_pr_id(seg) || is_code_id(seg) {

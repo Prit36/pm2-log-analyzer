@@ -50,13 +50,6 @@ impl RelHist {
         }
     }
 
-    #[inline(always)]
-    pub fn accept(&mut self, value: f32) {
-        if let Some(key) = relhist_key(value) {
-            self.accept_key(key);
-        }
-    }
-
     /// Encode as [count:u32][n:u32][key:i32, cnt:u32]×n little-endian (keys sorted).
     pub fn to_wire(&self) -> Vec<u8> {
         let mut neg_keys: Vec<i32> = self.sparse.keys().copied().filter(|&k| k < 0).collect();
@@ -150,7 +143,7 @@ mod tests {
     fn quantile_approx() {
         let mut h = RelHist::new();
         for i in 1..=1000 {
-            h.accept((i * 10) as f32);
+            h.accept_key(relhist_key((i * 10) as f32).unwrap());
         }
         let p95 = quantile(&h, 0.95);
         assert!((p95 - 9500.0).abs() / 9500.0 < 0.02, "p95={p95}");
