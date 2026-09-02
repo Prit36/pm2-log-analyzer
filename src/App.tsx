@@ -1,50 +1,17 @@
-import { useAnalysisStore } from "./store/analysisStore";
+import { useAppModeStore } from "./store/appModeStore";
 import { AppHeader } from "./components/AppHeader";
-import { IngestPanel } from "./components/IngestPanel";
-import { KpiRow } from "./components/KpiRow";
-import { FilterBar } from "./components/FilterBar";
-import { ApiTable, useFilteredApiRows } from "./components/ApiTable";
-import { LatencyChart } from "./components/LatencyChart";
-import { CronTable, useFilteredCronRows } from "./components/CronTable";
-import { SkippedDisclosure } from "./components/SkippedDisclosure";
+import { Pm2AppView } from "./components/Pm2AppView";
+import { MongoAppView } from "./components/mongo/MongoAppView";
 import { Toast } from "./components/Toast";
 
 export function App() {
-  const hasCron = useAnalysisStore((s) => {
-    const c = s.result?.cronSummary;
-    return !!c && c.starts + c.dones + c.fails > 0;
-  });
-  const chartLayout = useAnalysisStore((s) => s.chartLayout);
-  const apiRows = useFilteredApiRows();
-  const cronRows = useFilteredCronRows();
+  const mode = useAppModeStore((s) => s.mode);
 
   return (
     <div className="min-h-full">
       <AppHeader />
       <main className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4">
-        <IngestPanel />
-        <KpiRow />
-        <FilterBar />
-        {chartLayout === "wide" ? (
-          <div className="flex flex-col gap-4">
-            <LatencyChart rows={apiRows} />
-            <ApiTable rows={apiRows} />
-          </div>
-        ) : (
-          <div className="grid gap-4 lg:grid-cols-5">
-            <div className="lg:col-span-3">
-              <ApiTable rows={apiRows} />
-            </div>
-            <div className="lg:col-span-2">
-              <LatencyChart rows={apiRows} />
-            </div>
-          </div>
-        )}
-        {hasCron && <CronTable rows={cronRows} />}
-        <SkippedDisclosure />
-        <footer className="pb-6 pt-2 text-center text-[11px] text-slate-400">
-          Parses in your browser - logs never leave this machine
-        </footer>
+        {mode === "mongo" ? <MongoAppView /> : <Pm2AppView />}
       </main>
       <Toast />
     </div>
