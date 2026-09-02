@@ -125,8 +125,9 @@ pub fn extract_u32_value_rev(haystack: &[u8], prefix: &[u8]) -> Option<u32> {
 #[inline(always)]
 pub fn extract_timestamp<'a>(line: &'a [u8]) -> (&'a str, i64) {
     let prefix = b"\"$date\":\"";
-    let start = if line.len() >= 40 && line.starts_with(b"{\"t\":{\"$date\":\"") {
-        16
+    let fast_prefix = b"{\"t\":{\"$date\":\"";
+    let start = if line.len() >= 40 && line.starts_with(fast_prefix) {
+        fast_prefix.len()
     } else if let Some(pos) = memmem::find(line, prefix) {
         pos + prefix.len()
     } else {
