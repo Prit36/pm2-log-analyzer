@@ -6,7 +6,6 @@ import { cancel, parseFiles, parseText } from "../hooks/useParserWorker";
 import { formatBytes } from "../utils/format";
 import { cn } from "../utils/cn";
 
-/** Soft guard for paste path — large dumps should use file upload. */
 export const PASTE_WARN_BYTES = 8 * 1024 * 1024;
 
 const { appendLoadedFiles, setLoadedFiles, setPasteOpen, setSourcePaste, showToast } =
@@ -14,33 +13,36 @@ const { appendLoadedFiles, setLoadedFiles, setPasteOpen, setSourcePaste, showToa
 
 function filterValidFiles(fileList: FileList | File[] | null | undefined): File[] {
   if (!fileList || fileList.length === 0) return [];
-  return Array.from(fileList).filter((file) => {
-    return (
-      /\.log\d*$/i.test(file.name) ||
-      file.name.endsWith(".txt") ||
-      file.type === "text/plain" ||
-      file.type === ""
-    );
-  });
+  return Array.from(fileList).filter(
+    (f) =>
+      /\.log\d*$/i.test(f.name) ||
+      f.name.endsWith(".txt") ||
+      f.type === "text/plain" ||
+      f.type === "",
+  );
 }
 
-export function IngestPanel() {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const [uploadMode, setUploadMode] = useState<"replace" | "append">("replace");
-  const [pendingDrop, setPendingDrop] = useState<File[] | null>(null);
-  const [pasteText, setPasteText] = useState("");
-
-  const { isParsing, busy, progress, hasData, loadedFiles, pasteOpen } = useAnalysisStore(
-    useShallow((s) => ({
-      isParsing: s.isParsing,
-      busy: s.isParsing || !s.isWorkerReady,
-      progress: s.progress,
-      hasData: s.hasData,
-      loadedFiles: s.loadedFiles,
-      pasteOpen: s.pasteOpen,
-    })),
-  );
+function useIngestHandlers(params: {
+  busy: boolean;
+  hasData: boolean;
+  loadedFiles: File[];
+  uploadMode: "replace" | "append";
+  pendingDrop: File[] | null;
+  setPendingDrop: (v: File[] | null) => void;
+  setDragOver: (v: boolean) => void;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  setUploadMode: (v: "replace" | "append") => void;
+}) {
+  const {
+    busy,
+    hasData,
+    loadedFiles,
+    uploadMode,
+    setPendingDrop,
+    setDragOver,
+    inputRef,
+    setUploadMode,
+  } = params;
 
   const executeAppend = (files: File[]) => {
     setPendingDrop(null);
@@ -66,23 +68,18 @@ export function IngestPanel() {
       showToast("Please upload log or text files (.log, .log1, .txt, etc.)");
       return;
     }
-    if (hasData && loadedFiles.length > 0) {
-      setPendingDrop(validFiles);
-    } else {
-      executeReplace(validFiles);
-    }
+    if (hasData && loadedFiles.length > 0) setPendingDrop(validFiles);
+    else executeReplace(validFiles);
   };
 
   const handleAppendClick = () => {
     setUploadMode("append");
     inputRef.current?.click();
   };
-
   const handleReplaceClick = () => {
     setUploadMode("replace");
     inputRef.current?.click();
   };
-
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const validFiles = filterValidFiles(e.target.files);
     if (validFiles.length === 0) {
@@ -90,16 +87,320 @@ export function IngestPanel() {
       e.target.value = "";
       return;
     }
-    if (uploadMode === "append" && hasData && loadedFiles.length > 0) {
-      executeAppend(validFiles);
-    } else {
-      executeReplace(validFiles);
-    }
+    if (uploadMode === "append" && hasData && loadedFiles.length > 0) executeAppend(validFiles);
+    else executeReplace(validFiles);
     e.target.value = "";
   };
 
+  return {
+    executeAppend,
+    executeReplace,
+    onDrop,
+    handleAppendClick,
+    handleReplaceClick,
+    onInputChange,
+  };
+}
+
+function LoadedFilesDisplay({ files }: { files: File[] }) {
+  if (files.length === 0)
+    return (
+      <span className="truncate text-xs font-medium text-slate-700 dark:text-slate-300">
+        Logs loaded
+      </span>
+    );
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+        {files.length} file{files.length > 1 ? "s" : ""}:
+      </span>
+      {files.slice(0, 5).map((f) => (
+        <span
+          key={`${f.name}-${f.size}`}
+          className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 font-mono-data text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+          title={`${f.name} (${formatBytes(f.size)})`}
+        >
+          <span className="max-w-[150px] truncate">{f.name}</span>
+          <span className="text-[10px] text-slate-400 dark:text-slate-500">
+            {formatBytes(f.size)}
+          </span>
+        </span>
+      ))}
+      {files.length > 5 && (
+        <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+          +{files.length - 5} more
+        </span>
+      )}
+    </div>
+  );
+}
+
+function HasDataActions({
+  isParsing,
+  busy,
+  progress,
+  pasteOpen,
+  onAppend,
+  onReplace,
+}: {
+  isParsing: boolean;
+  busy: boolean;
+  progress: { stage: string; percent: number } | null;
+  pasteOpen: boolean;
+  onAppend: () => void;
+  onReplace: () => void;
+}) {
+  if (isParsing) {
+    return (
+      <div className="flex items-center gap-3">
+        {progress && (
+          <div className="flex items-center gap-2 font-mono-data text-xs text-slate-600 dark:text-slate-300">
+            <span className="capitalize">{progress.stage}</span>
+            <span className="font-semibold text-blue-600 dark:text-blue-400">
+              {progress.percent}%
+            </span>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={cancel}
+          className="rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+  return (
+    <>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onAppend}
+        className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+      >
+        <FilePlus className="size-3.5" aria-hidden />
+        Add / Append
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onReplace}
+        className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+      >
+        <RefreshCw className="size-3.5" aria-hidden />
+        Replace
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => setPasteOpen(!pasteOpen)}
+        className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+      >
+        <ClipboardPaste className="size-3.5" aria-hidden />
+        Paste
+      </button>
+    </>
+  );
+}
+
+function HasDataPanel(props: {
+  dragOver: boolean;
+  busy: boolean;
+  isParsing: boolean;
+  progress: { stage: string; percent: number } | null;
+  loadedFiles: File[];
+  pasteOpen: boolean;
+  onDrop: (e: DragEvent) => void;
+  setDragOver: (v: boolean) => void;
+  onAppend: () => void;
+  onReplace: () => void;
+}) {
+  return (
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (!props.busy) props.setDragOver(true);
+      }}
+      onDragLeave={() => props.setDragOver(false)}
+      onDrop={props.onDrop}
+      className={cn(
+        "relative flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 transition-colors",
+        props.dragOver ? "bg-blue-50/80 dark:bg-blue-950/40" : "bg-white dark:bg-slate-900",
+        props.busy && "opacity-60",
+      )}
+    >
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <Upload className="size-4 shrink-0 text-slate-400 dark:text-slate-500" aria-hidden />
+        <LoadedFilesDisplay files={props.loadedFiles} />
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <HasDataActions
+          isParsing={props.isParsing}
+          busy={props.busy}
+          progress={props.progress}
+          pasteOpen={props.pasteOpen}
+          onAppend={props.onAppend}
+          onReplace={props.onReplace}
+        />
+      </div>
+      {props.isParsing && props.progress && (
+        <div className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-slate-100 dark:bg-slate-800">
+          <div
+            className="h-full bg-blue-600 transition-[width] duration-150"
+            style={{ width: `${props.progress.percent}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EmptyPanel(props: {
+  dragOver: boolean;
+  busy: boolean;
+  isParsing: boolean;
+  progress: { stage: string; percent: number } | null;
+  pasteOpen: boolean;
+  onDrop: (e: DragEvent) => void;
+  setDragOver: (v: boolean) => void;
+  onReplace: () => void;
+}) {
+  return (
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (!props.busy) props.setDragOver(true);
+      }}
+      onDragLeave={() => props.setDragOver(false)}
+      onDrop={props.onDrop}
+      className={cn(
+        "flex flex-col items-center justify-center gap-3 px-6 py-10 text-center transition-colors",
+        props.dragOver ? "bg-blue-50 dark:bg-blue-950/40" : "bg-white dark:bg-slate-900",
+        props.busy && "opacity-60",
+      )}
+    >
+      <Upload className="size-8 text-slate-400 dark:text-slate-500" aria-hidden />
+      <div>
+        <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+          {props.isParsing ? "Parsing PM2 log file(s)…" : "Drop PM2 log file(s)"}
+        </p>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          .log / .log1 / .txt — multi-file &amp; multi-day log analysis supported
+        </p>
+      </div>
+      {props.isParsing ? (
+        <div className="w-full max-w-md space-y-3">
+          {props.progress && (
+            <div>
+              <div className="mb-1.5 flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                <span className="capitalize">{props.progress.stage}</span>
+                <span className="font-mono-data font-semibold text-blue-600 dark:text-blue-400">
+                  {props.progress.percent}%
+                </span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                <div
+                  className="h-full bg-blue-600 transition-[width] duration-150"
+                  style={{ width: `${props.progress.percent}%` }}
+                />
+              </div>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={cancel}
+            className="rounded border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              disabled={props.busy}
+              onClick={props.onReplace}
+              className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+            >
+              Browse files
+            </button>
+            <button
+              type="button"
+              disabled={props.busy}
+              onClick={() => setPasteOpen(!props.pasteOpen)}
+              className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              <ClipboardPaste className="size-3.5" aria-hidden />
+              Paste logs
+            </button>
+          </div>
+          <p className="max-w-lg font-mono-data text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
+            Example: 2026-07-24T00:00:10: GET /api/health 200 12.5 ms - 42
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PendingDropBanner(props: {
+  pendingDrop: File[];
+  loadedCount: number;
+  onAppend: (files: File[]) => void;
+  onReplace: (files: File[]) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="border-t border-blue-200 bg-blue-50/90 p-3.5 text-left dark:border-blue-900 dark:bg-slate-800">
+      <div className="mx-auto max-w-md">
+        <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+          You dropped {props.pendingDrop.length} file{props.pendingDrop.length > 1 ? "s" : ""}
+        </p>
+        <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
+          {props.loadedCount} file
+          {props.loadedCount > 1 ? "s currently loaded" : " currently loaded"}. How would you like
+          to proceed?
+        </p>
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => props.onAppend(props.pendingDrop)}
+            className="inline-flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700"
+          >
+            <Plus className="size-3.5" />
+            Append to current
+          </button>
+          <button
+            type="button"
+            onClick={() => props.onReplace(props.pendingDrop)}
+            className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
+          >
+            <RefreshCw className="size-3.5" />
+            Replace current
+          </button>
+          <button
+            type="button"
+            onClick={props.onCancel}
+            className="rounded p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            title="Cancel"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PastePanel(props: {
+  busy: boolean;
+  pasteText: string;
+  setPasteText: (v: string) => void;
+}) {
   const handlePasteAnalyze = () => {
-    const text = pasteText.trim();
+    const text = props.pasteText.trim();
     if (!text) {
       showToast("Paste some log lines first");
       return;
@@ -116,233 +417,109 @@ export function IngestPanel() {
   };
 
   return (
+    <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">
+      <label
+        className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300"
+        htmlFor="paste-logs"
+      >
+        Paste log lines (not persisted; max ~{formatBytes(PASTE_WARN_BYTES)})
+      </label>
+      <textarea
+        id="paste-logs"
+        value={props.pasteText}
+        onChange={(e) => props.setPasteText(e.target.value)}
+        disabled={props.busy}
+        rows={6}
+        placeholder="Paste PM2 stdout/stderr here…"
+        className="w-full resize-y rounded border border-slate-200 bg-slate-50 px-3 py-2 font-mono-data text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-900"
+      />
+      <div className="mt-2 flex justify-end">
+        <button
+          type="button"
+          disabled={props.busy}
+          onClick={handlePasteAnalyze}
+          className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+        >
+          Analyze paste
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function IngestPanel() {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [uploadMode, setUploadMode] = useState<"replace" | "append">("replace");
+  const [pendingDrop, setPendingDrop] = useState<File[] | null>(null);
+  const [pasteText, setPasteText] = useState("");
+
+  const { isParsing, busy, progress, hasData, loadedFiles, pasteOpen } = useAnalysisStore(
+    useShallow((s) => ({
+      isParsing: s.isParsing,
+      busy: s.isParsing || !s.isWorkerReady,
+      progress: s.progress,
+      hasData: s.hasData,
+      loadedFiles: s.loadedFiles,
+      pasteOpen: s.pasteOpen,
+    })),
+  );
+
+  const {
+    executeAppend,
+    executeReplace,
+    onDrop,
+    handleAppendClick,
+    handleReplaceClick,
+    onInputChange,
+  } = useIngestHandlers({
+    busy,
+    hasData,
+    loadedFiles,
+    uploadMode,
+    pendingDrop,
+    setPendingDrop,
+    setDragOver,
+    inputRef,
+    setUploadMode,
+  });
+
+  return (
     <section className="rounded border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       {hasData ? (
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            if (!busy) setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
+        <HasDataPanel
+          dragOver={dragOver}
+          busy={busy}
+          isParsing={isParsing}
+          progress={progress}
+          loadedFiles={loadedFiles}
+          pasteOpen={pasteOpen}
           onDrop={onDrop}
-          className={cn(
-            "relative flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 transition-colors",
-            dragOver ? "bg-blue-50/80 dark:bg-blue-950/40" : "bg-white dark:bg-slate-900",
-            busy && "opacity-60",
-          )}
-        >
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            <Upload className="size-4 shrink-0 text-slate-400 dark:text-slate-500" aria-hidden />
-            {loadedFiles.length > 0 ? (
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  {loadedFiles.length} file{loadedFiles.length > 1 ? "s" : ""}:
-                </span>
-                {loadedFiles.slice(0, 5).map((f) => (
-                  <span
-                    key={`${f.name}-${f.size}`}
-                    className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 font-mono-data text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                    title={`${f.name} (${formatBytes(f.size)})`}
-                  >
-                    <span className="max-w-[150px] truncate">{f.name}</span>
-                    <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                      {formatBytes(f.size)}
-                    </span>
-                  </span>
-                ))}
-                {loadedFiles.length > 5 && (
-                  <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                    +{loadedFiles.length - 5} more
-                  </span>
-                )}
-              </div>
-            ) : (
-              <span className="truncate text-xs font-medium text-slate-700 dark:text-slate-300">
-                Logs loaded
-              </span>
-            )}
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2">
-            {isParsing ? (
-              <div className="flex items-center gap-3">
-                {progress && (
-                  <div className="flex items-center gap-2 font-mono-data text-xs text-slate-600 dark:text-slate-300">
-                    <span className="capitalize">{progress.stage}</span>
-                    <span className="font-semibold text-blue-600 dark:text-blue-400">
-                      {progress.percent}%
-                    </span>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={cancel}
-                  className="rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={handleAppendClick}
-                  className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-                >
-                  <FilePlus className="size-3.5" aria-hidden />
-                  Add / Append
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={handleReplaceClick}
-                  className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                >
-                  <RefreshCw className="size-3.5" aria-hidden />
-                  Replace
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setPasteOpen(!pasteOpen)}
-                  className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                >
-                  <ClipboardPaste className="size-3.5" aria-hidden />
-                  Paste
-                </button>
-              </>
-            )}
-          </div>
-          {isParsing && progress && (
-            <div className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-slate-100 dark:bg-slate-800">
-              <div
-                className="h-full bg-blue-600 transition-[width] duration-150"
-                style={{ width: `${progress.percent}%` }}
-              />
-            </div>
-          )}
-        </div>
+          setDragOver={setDragOver}
+          onAppend={handleAppendClick}
+          onReplace={handleReplaceClick}
+        />
       ) : (
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            if (!busy) setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
+        <EmptyPanel
+          dragOver={dragOver}
+          busy={busy}
+          isParsing={isParsing}
+          progress={progress}
+          pasteOpen={pasteOpen}
           onDrop={onDrop}
-          className={cn(
-            "flex flex-col items-center justify-center gap-3 px-6 py-10 text-center transition-colors",
-            dragOver ? "bg-blue-50 dark:bg-blue-950/40" : "bg-white dark:bg-slate-900",
-            busy && "opacity-60",
-          )}
-        >
-          <Upload className="size-8 text-slate-400 dark:text-slate-500" aria-hidden />
-          <div>
-            <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
-              {isParsing ? "Parsing PM2 log file(s)…" : "Drop PM2 log file(s)"}
-            </p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              .log / .log1 / .txt — multi-file &amp; multi-day log analysis supported
-            </p>
-          </div>
-
-          {isParsing ? (
-            <div className="w-full max-w-md space-y-3">
-              {progress && (
-                <div>
-                  <div className="mb-1.5 flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                    <span className="capitalize">{progress.stage}</span>
-                    <span className="font-mono-data font-semibold text-blue-600 dark:text-blue-400">
-                      {progress.percent}%
-                    </span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                    <div
-                      className="h-full bg-blue-600 transition-[width] duration-150"
-                      style={{ width: `${progress.percent}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={cancel}
-                className="rounded border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={handleReplaceClick}
-                  className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-                >
-                  Browse files
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setPasteOpen(!pasteOpen)}
-                  className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                >
-                  <ClipboardPaste className="size-3.5" aria-hidden />
-                  Paste logs
-                </button>
-              </div>
-              <p className="max-w-lg font-mono-data text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
-                Example: 2026-07-24T00:00:10: GET /api/health 200 12.5 ms - 42
-              </p>
-            </>
-          )}
-        </div>
+          setDragOver={setDragOver}
+          onReplace={handleReplaceClick}
+        />
       )}
-
       {pendingDrop && (
-        <div className="border-t border-blue-200 bg-blue-50/90 p-3.5 text-left dark:border-blue-900 dark:bg-slate-800">
-          <div className="mx-auto max-w-md">
-            <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-              You dropped {pendingDrop.length} file{pendingDrop.length > 1 ? "s" : ""}
-            </p>
-            <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
-              {loadedFiles.length} file
-              {loadedFiles.length > 1 ? "s currently loaded" : " currently loaded"}. How would you
-              like to proceed?
-            </p>
-            <div className="mt-2.5 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => executeAppend(pendingDrop)}
-                className="inline-flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700"
-              >
-                <Plus className="size-3.5" />
-                Append to current
-              </button>
-              <button
-                type="button"
-                onClick={() => executeReplace(pendingDrop)}
-                className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
-              >
-                <RefreshCw className="size-3.5" />
-                Replace current
-              </button>
-              <button
-                type="button"
-                onClick={() => setPendingDrop(null)}
-                className="rounded p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                title="Cancel"
-              >
-                <X className="size-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
+        <PendingDropBanner
+          pendingDrop={pendingDrop}
+          loadedCount={loadedFiles.length}
+          onAppend={executeAppend}
+          onReplace={executeReplace}
+          onCancel={() => setPendingDrop(null)}
+        />
       )}
-
       <input
         ref={inputRef}
         type="file"
@@ -352,36 +529,7 @@ export function IngestPanel() {
         data-testid="log-file-input"
         onChange={onInputChange}
       />
-
-      {pasteOpen && (
-        <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">
-          <label
-            className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300"
-            htmlFor="paste-logs"
-          >
-            Paste log lines (not persisted; max ~{formatBytes(PASTE_WARN_BYTES)})
-          </label>
-          <textarea
-            id="paste-logs"
-            value={pasteText}
-            onChange={(e) => setPasteText(e.target.value)}
-            disabled={busy}
-            rows={6}
-            placeholder="Paste PM2 stdout/stderr here…"
-            className="w-full resize-y rounded border border-slate-200 bg-slate-50 px-3 py-2 font-mono-data text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-900"
-          />
-          <div className="mt-2 flex justify-end">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={handlePasteAnalyze}
-              className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-            >
-              Analyze paste
-            </button>
-          </div>
-        </div>
-      )}
+      {pasteOpen && <PastePanel busy={busy} pasteText={pasteText} setPasteText={setPasteText} />}
     </section>
   );
 }

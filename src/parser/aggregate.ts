@@ -358,10 +358,9 @@ function buildApiRows(byNorm: Map<string, Merged>): AggregatedEndpoint[] {
 
 export function finishApiFromPartials(
   partials: AggPartial[],
-  options: ParseOptions,
+  _options: ParseOptions,
   storeMeta: { count: number; unmatchedCount: number },
 ): ApiReaggregateResult {
-  void options;
   const byNorm = new Map<string, Merged>();
   const sumCtx = createSummaryMergeCtx();
 
@@ -889,10 +888,10 @@ export function buildResult(store: ColumnarStore, options: ParseOptions): Aggreg
     summary: summary!,
     cronSummary: buildCronSummary(store.cronEvents, cron),
     hourlyStats: buildHourlyStats(store),
-    methods: Array.from(store.methodSeen).sort(),
+    methods: Array.from(store.methodSeen).sort((a, b) => a.localeCompare(b)),
     unmatchedSample: store.unmatchedSample,
     unmatchedCount: store.unmatchedCount,
-    dates: store.dates ? [...store.dates].sort() : [],
+    dates: store.dates ? [...store.dates].sort((a, b) => a.localeCompare(b)) : [],
     dailyStats: buildDailyStats(store),
   };
 }
@@ -911,10 +910,10 @@ export function buildResultCached(
     summary: cached?.summary ?? built!,
     cronSummary: buildCronSummary(store.cronEvents, cron),
     hourlyStats: buildHourlyStats(store),
-    methods: cached?.methods ?? Array.from(store.methodSeen).sort(),
+    methods: cached?.methods ?? Array.from(store.methodSeen).sort((a, b) => a.localeCompare(b)),
     unmatchedSample: store.unmatchedSample,
     unmatchedCount: store.unmatchedCount,
-    dates: store.dates ? [...store.dates].sort() : [],
+    dates: store.dates ? [...store.dates].sort((a, b) => a.localeCompare(b)) : [],
     dailyStats: buildDailyStats(store),
   };
 }
@@ -938,10 +937,10 @@ export function buildResultFromPartials(
     summary: cached?.summary ?? built!,
     cronSummary: buildCronSummary(store.cronEvents, cron),
     hourlyStats: buildHourlyStats(store),
-    methods: cached?.methods ?? Array.from(store.methodSeen).sort(),
+    methods: cached?.methods ?? Array.from(store.methodSeen).sort((a, b) => a.localeCompare(b)),
     unmatchedSample: store.unmatchedSample,
     unmatchedCount: store.unmatchedCount,
-    dates: store.dates ? [...store.dates].sort() : [],
+    dates: store.dates ? [...store.dates].sort((a, b) => a.localeCompare(b)) : [],
     dailyStats: buildDailyStats(store),
   };
 }

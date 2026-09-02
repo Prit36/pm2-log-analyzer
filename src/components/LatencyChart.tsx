@@ -16,6 +16,7 @@ import {
 import { useShallow } from "zustand/react/shallow";
 import type { AggregatedEndpoint } from "../parser";
 import { formatDate, formatMs, formatNum } from "../utils/format";
+import { PALETTE } from "../utils/palette";
 import { Activity, BarChart3, CalendarDays, Clock, Columns2, Flame, Rows } from "lucide-react";
 import { EMPTY_DAILY, EMPTY_HOURLY, useAnalysisStore } from "../store/analysisStore";
 
@@ -35,19 +36,19 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
 
   const { toggleChartLayout } = useAnalysisStore.getState();
 
-  const gridStroke = isDark ? "#1e293b" : "#f1f5f9";
-  const tickColor = isDark ? "#94a3b8" : "#64748b";
-  const categoryTickColor = isDark ? "#cbd5e1" : "#334155";
+  const gridStroke = isDark ? PALETTE.grid.dark : PALETTE.grid.light;
+  const tickColor = isDark ? PALETTE.tick.dark : PALETTE.tick.light;
+  const categoryTickColor = isDark ? PALETTE.categoryTick.dark : PALETTE.categoryTick.light;
   const tooltipStyle = isDark
     ? {
         fontSize: 12,
         borderRadius: 8,
-        backgroundColor: "#0f172a",
-        border: "1px solid #334155",
-        color: "#f8fafc",
+        backgroundColor: PALETTE.tooltip.dark.bg,
+        border: `1px solid ${PALETTE.tooltip.dark.border}`,
+        color: PALETTE.tooltip.dark.text,
         boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.5)",
       }
-    : { fontSize: 12, borderRadius: 6, border: "1px solid #cbd5e1" };
+    : { fontSize: 12, borderRadius: 6, border: `1px solid ${PALETTE.tooltip.light.border}` };
 
   const top20Data = useMemo(
     () =>
@@ -63,13 +64,13 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
 
   const distributionData = useMemo(() => {
     const buckets = [
-      { label: "<50ms", count: 0, fill: "#22c55e" },
-      { label: "50-100ms", count: 0, fill: "#84cc16" },
-      { label: "100-300ms", count: 0, fill: "#eab308" },
-      { label: "300-500ms", count: 0, fill: "#f97316" },
-      { label: "500ms-1s", count: 0, fill: "#ef4444" },
-      { label: "1s-3s", count: 0, fill: "#b91c1c" },
-      { label: ">3s", count: 0, fill: "#7f1d1d" },
+      { label: "<50ms", count: 0, fill: PALETTE.distribution[0] },
+      { label: "50-100ms", count: 0, fill: PALETTE.distribution[1] },
+      { label: "100-300ms", count: 0, fill: PALETTE.distribution[2] },
+      { label: "300-500ms", count: 0, fill: PALETTE.distribution[3] },
+      { label: "500ms-1s", count: 0, fill: PALETTE.distribution[4] },
+      { label: "1s-3s", count: 0, fill: PALETTE.distribution[5] },
+      { label: ">3s", count: 0, fill: PALETTE.distribution[6] },
     ];
 
     const classify = (ms: number) => {
@@ -233,7 +234,7 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
                 <YAxis
                   yAxisId="right"
                   orientation="right"
-                  tick={{ fontSize: 10, fill: "#7c3aed" }}
+                  tick={{ fontSize: 10, fill: PALETTE.latency.p99 }}
                   tickFormatter={(v) => formatMs(Number(v))}
                 />
                 <Tooltip
@@ -254,7 +255,7 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
                   yAxisId="left"
                   dataKey="count"
                   name="Requests"
-                  fill="#3b82f6"
+                  fill={PALETTE.throughput.bar.light}
                   radius={[3, 3, 0, 0]}
                   maxBarSize={32}
                 />
@@ -263,44 +264,44 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
                   type="monotone"
                   dataKey="errorCount"
                   name="Errors"
-                  stroke="#ef4444"
+                  stroke={PALETTE.throughput.error}
                   strokeWidth={2}
-                  dot={{ r: 3, fill: "#ef4444" }}
+                  dot={{ r: 3, fill: PALETTE.throughput.error }}
                 />
                 <Line
                   yAxisId="right"
                   type="monotone"
                   dataKey="p95Ms"
                   name="P95 Latency"
-                  stroke="#7c3aed"
+                  stroke={PALETTE.latency.p99}
                   strokeWidth={2}
-                  dot={{ r: 3, fill: "#7c3aed" }}
+                  dot={{ r: 3, fill: PALETTE.latency.p99 }}
                 />
                 <Line
                   yAxisId="right"
                   type="monotone"
                   dataKey="avgMs"
                   name="Avg Latency"
-                  stroke="#0d9488"
+                  stroke={PALETTE.latency.avg}
                   strokeWidth={1.5}
                   strokeDasharray="4 4"
-                  dot={{ r: 2, fill: "#0d9488" }}
+                  dot={{ r: 2, fill: PALETTE.latency.avg }}
                 />
               </ComposedChart>
             ) : mode === "timeOfDay" ? (
               <AreaChart data={hourlyStats} margin={{ top: 10, right: 16, left: 0, bottom: 4 }}>
                 <defs>
                   <linearGradient id="p99Grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
+                    <stop offset="5%" stopColor={PALETTE.latency.p99} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={PALETTE.latency.p99} stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="p95Grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+                    <stop offset="5%" stopColor={PALETTE.latency.p95} stopOpacity={0.35} />
+                    <stop offset="95%" stopColor={PALETTE.latency.p95} stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="avgGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
+                    <stop offset="5%" stopColor={PALETTE.latency.avg} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={PALETTE.latency.avg} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
@@ -322,7 +323,7 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
                   type="monotone"
                   dataKey="p99Ms"
                   name="P99 Latency"
-                  stroke="#7c3aed"
+                  stroke={PALETTE.latency.p99}
                   fillOpacity={1}
                   fill="url(#p99Grad)"
                   strokeWidth={2}
@@ -331,7 +332,7 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
                   type="monotone"
                   dataKey="p95Ms"
                   name="P95 Latency"
-                  stroke="#2563eb"
+                  stroke={PALETTE.latency.p95}
                   fillOpacity={1}
                   fill="url(#p95Grad)"
                   strokeWidth={2}
@@ -340,7 +341,7 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
                   type="monotone"
                   dataKey="avgMs"
                   name="Avg Latency"
-                  stroke="#0d9488"
+                  stroke={PALETTE.latency.avg}
                   fillOpacity={1}
                   fill="url(#avgGrad)"
                   strokeWidth={1.5}
@@ -358,7 +359,7 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
                 <YAxis
                   yAxisId="right"
                   orientation="right"
-                  tick={{ fontSize: 10, fill: "#ef4444" }}
+                  tick={{ fontSize: 10, fill: PALETTE.throughput.error }}
                   tickFormatter={(v) => formatNum(Number(v))}
                 />
                 <Tooltip
@@ -374,7 +375,7 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
                   yAxisId="left"
                   dataKey="count"
                   name="Total Requests"
-                  fill="#3b82f6"
+                  fill={PALETTE.throughput.bar.light}
                   radius={[3, 3, 0, 0]}
                   maxBarSize={22}
                 />
@@ -383,9 +384,9 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
                   type="monotone"
                   dataKey="errorCount"
                   name="Errors (4xx/5xx)"
-                  stroke="#ef4444"
+                  stroke={PALETTE.throughput.error}
                   strokeWidth={2}
-                  dot={{ r: 3, fill: "#ef4444" }}
+                  dot={{ r: 3, fill: PALETTE.throughput.error }}
                 />
               </ComposedChart>
             ) : mode === "distribution" ? (
@@ -401,7 +402,12 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
                   labelFormatter={(lbl) => `Latency Range: ${String(lbl)}`}
                   contentStyle={tooltipStyle}
                 />
-                <Bar dataKey="count" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={36} />
+                <Bar
+                  dataKey="count"
+                  fill={PALETTE.latency.p95}
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={36}
+                />
               </BarChart>
             ) : (
               <BarChart
@@ -434,7 +440,12 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
                   }}
                   contentStyle={tooltipStyle}
                 />
-                <Bar dataKey="p95" fill="#2563eb" radius={[0, 3, 3, 0]} maxBarSize={18} />
+                <Bar
+                  dataKey="p95"
+                  fill={PALETTE.latency.p95}
+                  radius={[0, 3, 3, 0]}
+                  maxBarSize={18}
+                />
               </BarChart>
             )}
           </ResponsiveContainer>

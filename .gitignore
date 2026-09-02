@@ -50,4 +50,4 @@ wasm/pm2-core/target/
 # pnpm-lock.yaml
 
 # Test data
-test_data/
+test_data/.desloppify/
