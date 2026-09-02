@@ -75,7 +75,7 @@ function runReaggregate(eng: MongoEngine, filters: MongoFilters): MongoAggregati
 
 async function streamParseFile(file: File, bytesOffset: number, totalAllBytes: number) {
   const eng = await ensureEngine();
-  const CHUNK_SIZE = 16 * 1024 * 1024; // 16MB streaming chunks
+  const CHUNK_SIZE = 32 * 1024 * 1024; // 32MB streaming chunks matches Wasm INGEST_CAP
   const QUEUE_DEPTH = 2;
   const pendingReads: Promise<Uint8Array>[] = [];
 

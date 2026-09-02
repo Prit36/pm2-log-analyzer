@@ -4,7 +4,7 @@ use hashbrown::HashMap;
 use memchr::memchr;
 
 use crate::fingerprint::{detect_op, generate_fingerprint, MongoOp};
-use crate::parse::{parse_line, ParsedLine};
+use crate::parse::{extract_command_slice, parse_line, ParsedLine};
 
 const INGEST_CAP: usize = 32 * 1024 * 1024; // 32MB streaming ingest window
 
@@ -89,23 +89,23 @@ impl Default for Engine {
 impl Engine {
     pub fn new() -> Self {
         Engine {
-            ingest: Vec::with_capacity(4 * 1024 * 1024),
+            ingest: Vec::with_capacity(32 * 1024 * 1024),
             carry: Vec::new(),
             carry_abs: 0,
             file_size: 0,
 
-            timestamps_ms: Vec::with_capacity(16384),
-            durations_ms: Vec::with_capacity(16384),
-            ns_ids: Vec::with_capacity(16384),
-            op_ids: Vec::with_capacity(16384),
-            plan_ids: Vec::with_capacity(16384),
-            fingerprint_ids: Vec::with_capacity(16384),
-            docs_examined: Vec::with_capacity(16384),
-            keys_examined: Vec::with_capacity(16384),
-            nreturned: Vec::with_capacity(16384),
-            num_yields: Vec::with_capacity(16384),
-            reslens: Vec::with_capacity(16384),
-            is_collscan: Vec::with_capacity(16384),
+            timestamps_ms: Vec::with_capacity(65536),
+            durations_ms: Vec::with_capacity(65536),
+            ns_ids: Vec::with_capacity(65536),
+            op_ids: Vec::with_capacity(65536),
+            plan_ids: Vec::with_capacity(65536),
+            fingerprint_ids: Vec::with_capacity(65536),
+            docs_examined: Vec::with_capacity(65536),
+            keys_examined: Vec::with_capacity(65536),
+            nreturned: Vec::with_capacity(65536),
+            num_yields: Vec::with_capacity(65536),
+            reslens: Vec::with_capacity(65536),
+            is_collscan: Vec::with_capacity(65536),
 
             ns_strings: Vec::new(),
             ns_table: HashMap::new(),
@@ -297,15 +297,17 @@ impl Engine {
                     if let Some(&(cached_op, cached_fp_id)) = self.query_hash_cache.get(q.query_hash) {
                         (cached_op, cached_fp_id)
                     } else {
-                        let op = detect_op(q.command_bytes);
-                        let fp_res = generate_fingerprint(op, q.collection, q.command_bytes, q.is_collscan);
+                        let cmd = extract_command_slice(q.line).unwrap_or(b"{}");
+                        let op = detect_op(cmd);
+                        let fp_res = generate_fingerprint(op, q.collection, cmd, q.is_collscan);
                         let fp_id = self.intern_fingerprint(&fp_res.fingerprint, &fp_res.index_suggestion);
                         self.query_hash_cache.insert(q.query_hash.to_string(), (op, fp_id));
                         (op, fp_id)
                     }
                 } else {
-                    let op = detect_op(q.command_bytes);
-                    let fp_res = generate_fingerprint(op, q.collection, q.command_bytes, q.is_collscan);
+                    let cmd = extract_command_slice(q.line).unwrap_or(b"{}");
+                    let op = detect_op(cmd);
+                    let fp_res = generate_fingerprint(op, q.collection, cmd, q.is_collscan);
                     let fp_id = self.intern_fingerprint(&fp_res.fingerprint, &fp_res.index_suggestion);
                     (op, fp_id)
                 };

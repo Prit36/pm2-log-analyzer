@@ -20,7 +20,7 @@ pub struct ParsedSlowQuery<'a> {
     pub remote: &'a str,
     pub query_hash: &'a str,
     pub plan_cache_key: &'a str,
-    pub command_bytes: &'a [u8],
+    pub line: &'a [u8],
 }
 
 pub enum ParsedLine<'a> {
@@ -83,6 +83,27 @@ pub fn extract_str_value<'a>(haystack: &'a [u8], prefix: &[u8]) -> Option<&'a st
 #[inline(always)]
 pub fn extract_u32_value(haystack: &[u8], prefix: &[u8]) -> Option<u32> {
     let pos = memmem::find(haystack, prefix)?;
+    let mut i = pos + prefix.len();
+    while i < haystack.len() && (haystack[i] == b':' || haystack[i].is_ascii_whitespace()) {
+        i += 1;
+    }
+    let start = i;
+    let mut acc = 0u32;
+    while i < haystack.len() && haystack[i].is_ascii_digit() {
+        acc = acc.wrapping_mul(10).wrapping_add((haystack[i] - b'0') as u32);
+        i += 1;
+    }
+    if i > start {
+        Some(acc)
+    } else {
+        None
+    }
+}
+
+/// Extract integer field value scanning from end of slice e.g. b"\"durationMillis\":"
+#[inline(always)]
+pub fn extract_u32_value_rev(haystack: &[u8], prefix: &[u8]) -> Option<u32> {
+    let pos = memmem::rfind(haystack, prefix)?;
     let mut i = pos + prefix.len();
     while i < haystack.len() && (haystack[i] == b':' || haystack[i].is_ascii_whitespace()) {
         i += 1;
@@ -206,8 +227,8 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
         return ParsedLine::Ignored;
     }
 
-    // Fast check for Slow Query durationMillis
-    if let Some(dur) = extract_u32_value(line, b"\"durationMillis\":") {
+    // Fast check for Slow Query durationMillis from the end of the line
+    if let Some(dur) = extract_u32_value_rev(line, b"\"durationMillis\":") {
         let (timestamp, epoch_ms) = extract_timestamp(line);
         let severity = if let Some(s) = extract_str_value(line, b"\"s\":\"") {
             s.as_bytes().first().copied().unwrap_or(b'I')
@@ -232,7 +253,6 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
         let remote = extract_str_value(line, b"\"remote\":\"").unwrap_or("");
         let query_hash = extract_str_value(line, b"\"queryHash\":\"").unwrap_or("");
         let plan_cache_key = extract_str_value(line, b"\"planCacheKey\":\"").unwrap_or("");
-        let command_bytes = extract_command_slice(line).unwrap_or(b"{}");
 
         return ParsedLine::SlowQuery(ParsedSlowQuery {
             timestamp,
@@ -252,7 +272,7 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
             remote,
             query_hash,
             plan_cache_key,
-            command_bytes,
+            line,
         });
     }
 
