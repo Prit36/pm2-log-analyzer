@@ -155,4 +155,68 @@ mod tests {
         assert!(json_user.contains("cash_settlements"));
         assert!(!json_user.contains("crm.other"));
     }
+
+    #[test]
+    #[ignore]
+    fn test_benchmark_feed() {
+        use std::time::Instant;
+        let p = "../../mongodb_logs_sample/methaq-mongod.log";
+        if !std::path::Path::new(p).exists() {
+            return;
+        }
+        let data = std::fs::read(p).unwrap();
+
+        // 1. Line splitting only
+        let t_split0 = Instant::now();
+        let mut lines = 0;
+        let mut cursor = 0;
+        while let Some(pos) = memchr::memchr(b'\n', &data[cursor..]) {
+            lines += 1;
+            cursor += pos + 1;
+        }
+        let split_ms = t_split0.elapsed().as_millis();
+        println!("Line split only: {} lines in {}ms", lines, split_ms);
+
+        // 2. parse_line only without store pushes
+        let t_parse0 = Instant::now();
+        let mut sq = 0;
+        cursor = 0;
+        while let Some(pos) = memchr::memchr(b'\n', &data[cursor..]) {
+            let line = &data[cursor..cursor + pos];
+            cursor += pos + 1;
+            let trimmed = crate::store::trim_line(line);
+            if !trimmed.is_empty() {
+                if let crate::parse::ParsedLine::SlowQuery(_) = crate::parse::parse_line(trimmed) {
+                    sq += 1;
+                }
+            }
+        }
+        let parse_only_ms = t_parse0.elapsed().as_millis();
+        println!("parse_line only: {} slow queries in {}ms", sq, parse_only_ms);
+
+        // 3. Full engine feed
+        let mut engine = MongoEngine::new();
+        let chunk_size = 16 * 1024 * 1024;
+        let t0 = Instant::now();
+        let mut off = 0;
+        while off < data.len() {
+            let take = (data.len() - off).min(chunk_size);
+            engine.write_ingest_for_test(&data[off..off + take]);
+            engine.feed(take as u32, off as f64);
+            off += take;
+        }
+        engine.end_shard();
+        let feed_ms = t0.elapsed().as_millis();
+        let t1 = Instant::now();
+        let json = engine.reaggregate("all", 0, 0, "all", "", false, "all");
+        let reagg_ms = t1.elapsed().as_millis();
+        println!(
+            "Rust native bench: feed={}ms ({:.1} MB/s) reagg={}ms jsonLen={} slowQueries={}",
+            feed_ms,
+            (data.len() as f64 / 1024.0 / 1024.0) / (feed_ms as f64 / 1000.0),
+            reagg_ms,
+            json.len(),
+            engine.slow_query_count()
+        );
+    }
 }

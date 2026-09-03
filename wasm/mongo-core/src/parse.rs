@@ -139,6 +139,61 @@ pub fn extract_u32_with_finder(haystack: &[u8], finder: &memmem::Finder) -> Opti
     }
 }
 
+/// Extract integer with forward cursor advancement and fallback
+#[inline(always)]
+pub fn extract_forward_u32<'a>(
+    sub: &'a [u8],
+    fallback: &'a [u8],
+    finder: &memmem::Finder,
+) -> (u32, &'a [u8]) {
+    if let Some(pos) = finder.find(sub) {
+        let needle_len = finder.needle().len();
+        let mut i = pos + needle_len;
+        while i < sub.len() && (sub[i] == b':' || sub[i].is_ascii_whitespace()) {
+            i += 1;
+        }
+        let start = i;
+        let mut acc = 0u32;
+        while i < sub.len() && sub[i].is_ascii_digit() {
+            acc = acc.wrapping_mul(10).wrapping_add((sub[i] - b'0') as u32);
+            i += 1;
+        }
+        if i > start {
+            (acc, &sub[i..])
+        } else {
+            (0, &sub[pos + needle_len..])
+        }
+    } else if let Some(val) = extract_u32_with_finder(fallback, finder) {
+        (val, sub)
+    } else {
+        (0, sub)
+    }
+}
+
+/// Extract string with forward cursor advancement and fallback
+#[inline(always)]
+pub fn extract_forward_str<'a>(
+    sub: &'a [u8],
+    fallback: &'a [u8],
+    finder: &memmem::Finder,
+) -> (&'a str, &'a [u8]) {
+    if let Some(pos) = finder.find(sub) {
+        let start = pos + finder.needle().len();
+        if let Some(quote) = memchr::memchr(b'"', &sub[start..]) {
+            let end = start + quote;
+            // SAFETY: strings from valid JSON log are ASCII
+            let s = unsafe { std::str::from_utf8_unchecked(&sub[start..end]) };
+            (s, &sub[end + 1..])
+        } else {
+            ("", sub)
+        }
+    } else if let Some(s) = extract_str_with_finder(fallback, finder) {
+        (s, sub)
+    } else {
+        ("", sub)
+    }
+}
+
 /// Extract integer field value with exact prefix e.g. b"\"durationMillis\":"
 #[inline(always)]
 pub fn extract_u32_value(haystack: &[u8], prefix: &[u8]) -> Option<u32> {
@@ -232,6 +287,12 @@ fn parse_3digits(slice: &[u8]) -> i64 {
         + ((slice[2] - b'0') as i64)
 }
 
+use std::cell::Cell;
+
+thread_local! {
+    static LAST_DATE_CACHE: Cell<([u8; 10], i64)> = const { Cell::new(([0; 10], 0)) };
+}
+
 /// Approximate ISO date string to epoch ms without external chrono crate.
 #[inline(always)]
 pub fn parse_iso_epoch(iso: &str) -> i64 {
@@ -239,10 +300,32 @@ pub fn parse_iso_epoch(iso: &str) -> i64 {
     if bytes.len() < 19 {
         return 0;
     }
-    // Expected: YYYY-MM-DDTHH:MM:SS
-    let year = parse_4digits(&bytes[0..4]);
-    let month = parse_2digits(&bytes[5..7]);
-    let day = parse_2digits(&bytes[8..10]);
+    let date_slice: [u8; 10] = match bytes[..10].try_into() {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+    let (cached_date, base_days_sec) = LAST_DATE_CACHE.get();
+    let days_sec = if cached_date == date_slice {
+        base_days_sec
+    } else {
+        let year = parse_4digits(&bytes[0..4]);
+        let month = parse_2digits(&bytes[5..7]);
+        let day = parse_2digits(&bytes[8..10]);
+
+        let mut days = (year - 1970) * 365 + ((year - 1969) / 4);
+        let month_days = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+        if (1..=12).contains(&month) {
+            days += month_days[(month - 1) as usize];
+            if month > 2 && (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) {
+                days += 1;
+            }
+        }
+        days += day - 1;
+        let s = days * 86400;
+        LAST_DATE_CACHE.set((date_slice, s));
+        s
+    };
+
     let hour = parse_2digits(&bytes[11..13]);
     let min = parse_2digits(&bytes[14..16]);
     let sec = parse_2digits(&bytes[17..19]);
@@ -252,19 +335,7 @@ pub fn parse_iso_epoch(iso: &str) -> i64 {
         0
     };
 
-    // Days since unix epoch 1970-01-01
-    let mut days = (year - 1970) * 365 + ((year - 1969) / 4);
-    let month_days = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
-    if month >= 1 && month <= 12 {
-        days += month_days[(month - 1) as usize];
-        if month > 2 && (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) {
-            days += 1;
-        }
-    }
-    days += day - 1;
-
-    let total_sec = days * 86400 + hour * 3600 + min * 60 + sec;
-    total_sec * 1000 + millis
+    (days_sec + hour * 3600 + min * 60 + sec) * 1000 + millis
 }
 
 /// Extract command JSON object slice
@@ -316,8 +387,22 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
                     b'I'
                 };
 
-                let ctx = extract_str_with_finder(header, &CTX_FINDER).unwrap_or("");
-                let ns = extract_str_with_finder(header, &NS_FINDER).unwrap_or("");
+                let (ctx, after_ctx) = if let Some(pos) = CTX_FINDER.find(header) {
+                    let start = pos + CTX_FINDER.needle().len();
+                    if let Some(quote) = memchr::memchr(b'"', &header[start..]) {
+                        // SAFETY: ctx from valid JSON log is ASCII
+                        let c = unsafe { std::str::from_utf8_unchecked(&header[start..start + quote]) };
+                        (c, &header[start + quote + 1..])
+                    } else {
+                        ("", header)
+                    }
+                } else {
+                    ("", header)
+                };
+
+                let ns = extract_str_with_finder(after_ctx, &NS_FINDER)
+                    .or_else(|| extract_str_with_finder(header, &NS_FINDER))
+                    .unwrap_or("");
                 let (db, collection) = if let Some(idx) = ns.find('.') {
                     (&ns[..idx], &ns[idx + 1..])
                 } else {
@@ -330,19 +415,40 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
                     line
                 };
 
-                let plan_summary = extract_str_with_finder(tail, &PLAN_FINDER).unwrap_or("");
-                let is_collscan = plan_summary.contains("COLLSCAN");
-                let keys_examined = extract_u32_with_finder(tail, &KEYS_FINDER).unwrap_or(0);
-                let docs_examined = extract_u32_with_finder(tail, &DOCS_FINDER).unwrap_or(0);
-                let nreturned = extract_u32_with_finder(tail, &RET_FINDER).unwrap_or(0);
-                let num_yields = extract_u32_with_finder(tail, &YIELDS_FINDER).unwrap_or(0);
-                let reslen = extract_u32_with_finder(tail, &RESLEN_FINDER).unwrap_or(0);
-                let remote = extract_str_with_finder(tail, &REMOTE_FINDER).unwrap_or("");
-                let query_hash = extract_str_with_finder(tail, &HASH_FINDER).unwrap_or("");
-                let plan_cache_key = extract_str_with_finder(tail, &PLAN_KEY_FINDER).unwrap_or("");
-                let user = extract_str_with_finder(tail, &USER_FINDER)
-                    .or_else(|| extract_str_with_finder(tail, &PRINCIPAL_FINDER))
-                    .or_else(|| extract_str_with_finder(header, &USER_FINDER))
+                let (plan_summary, mut sub, metrics_slice) = if let Some(pos) = PLAN_FINDER.find(tail) {
+                    let start = pos + PLAN_FINDER.needle().len();
+                    if let Some(quote) = memchr::memchr(b'"', &tail[start..]) {
+                        // SAFETY: planSummary from valid JSON log is ASCII
+                        let plan = unsafe { std::str::from_utf8_unchecked(&tail[start..start + quote]) };
+                        let after_quote = start + quote + 1;
+                        (plan, &tail[after_quote..], &tail[pos..])
+                    } else {
+                        ("", tail, tail)
+                    }
+                } else {
+                    ("", tail, tail)
+                };
+
+                let is_collscan = plan_summary.starts_with("COLLSCAN") || plan_summary.contains("COLLSCAN");
+                let (keys_examined, s) = extract_forward_u32(sub, metrics_slice, &KEYS_FINDER);
+                sub = s;
+                let (docs_examined, s) = extract_forward_u32(sub, metrics_slice, &DOCS_FINDER);
+                sub = s;
+                let (num_yields, s) = extract_forward_u32(sub, metrics_slice, &YIELDS_FINDER);
+                sub = s;
+                let (nreturned, s) = extract_forward_u32(sub, metrics_slice, &RET_FINDER);
+                sub = s;
+                let (query_hash, s) = extract_forward_str(sub, metrics_slice, &HASH_FINDER);
+                sub = s;
+                let (plan_cache_key, s) = extract_forward_str(sub, metrics_slice, &PLAN_KEY_FINDER);
+                sub = s;
+                let (reslen, s) = extract_forward_u32(sub, metrics_slice, &RESLEN_FINDER);
+                sub = s;
+                let (remote, _) = extract_forward_str(sub, metrics_slice, &REMOTE_FINDER);
+                let user = extract_str_with_finder(header, &USER_FINDER)
+                    .or_else(|| extract_str_with_finder(header, &PRINCIPAL_FINDER))
+                    .or_else(|| extract_str_with_finder(metrics_slice, &USER_FINDER))
+                    .or_else(|| extract_str_with_finder(metrics_slice, &PRINCIPAL_FINDER))
                     .unwrap_or("");
 
                 return ParsedLine::SlowQuery(ParsedSlowQuery {

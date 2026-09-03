@@ -83,10 +83,11 @@ pub struct Engine {
 
     pub user_strings: Vec<String>,
     pub user_table: HashMap<String, u16>,
-    pub user_meta: HashMap<u16, UserMeta>,
-    pub conn_to_user: HashMap<String, u16>,
+    pub user_meta: Vec<UserMeta>,
+    pub ctx_to_user: Vec<u16>,
     pub ctx_strings: Vec<String>,
     pub ctx_table: HashMap<String, u16>,
+    pub ops_mask: u16,
 
     pub query_hash_cache: HashMap<(u16, u64), (MongoOp, u16)>,
 
@@ -94,6 +95,7 @@ pub struct Engine {
     pub(crate) last_plan_id: u16,
     pub(crate) last_remote_id: u16,
     pub(crate) last_ctx_id: u16,
+    pub(crate) last_user_id: u16,
     pub(crate) last_qhash: (u16, u64, (MongoOp, u16)),
     pub(crate) last_date: [u8; 10],
 
@@ -160,10 +162,11 @@ impl Engine {
                 m.insert("system".to_string(), 0);
                 m
             },
-            user_meta: HashMap::new(),
-            conn_to_user: HashMap::new(),
+            user_meta: vec![UserMeta::default()],
+            ctx_to_user: Vec::new(),
             ctx_strings: Vec::new(),
             ctx_table: HashMap::new(),
+            ops_mask: 0,
 
             query_hash_cache: HashMap::new(),
 
@@ -171,6 +174,7 @@ impl Engine {
             last_plan_id: u16::MAX,
             last_remote_id: u16::MAX,
             last_ctx_id: u16::MAX,
+            last_user_id: u16::MAX,
             last_qhash: (u16::MAX, 0, (MongoOp::Find, 0)),
             last_date: [0u8; 10],
 
@@ -222,9 +226,11 @@ impl Engine {
         self.user_strings.push("system".to_string());
         self.user_table.insert("system".to_string(), 0);
         self.user_meta.clear();
-        self.conn_to_user.clear();
+        self.user_meta.push(UserMeta::default());
+        self.ctx_to_user.clear();
         self.ctx_strings.clear();
         self.ctx_table.clear();
+        self.ops_mask = 0;
 
         self.query_hash_cache.clear();
 
@@ -232,6 +238,7 @@ impl Engine {
         self.last_plan_id = u16::MAX;
         self.last_remote_id = u16::MAX;
         self.last_ctx_id = u16::MAX;
+        self.last_user_id = u16::MAX;
         self.last_qhash = (u16::MAX, 0, (MongoOp::Find, 0));
         self.last_date = [0u8; 10];
 
@@ -245,12 +252,6 @@ impl Engine {
         self.checkpoints.clear();
         self.dates.clear();
         self.total_lines = 0;
-        self.last_ns_id = u16::MAX;
-        self.last_plan_id = u16::MAX;
-        self.last_remote_id = u16::MAX;
-        self.last_ctx_id = u16::MAX;
-        self.last_qhash = (u16::MAX, 0, (MongoOp::Find, 0));
-        self.last_date = [0u8; 10];
     }
 
     pub fn ingest_ptr(&mut self, len: u32) -> u32 {
@@ -394,14 +395,20 @@ impl Engine {
     #[inline]
     pub fn intern_user(&mut self, user: &str) -> u16 {
         let name = if user.is_empty() { "system" } else { user };
-        if let Some(&id) = self.user_table.get(name) {
+        if self.last_user_id != u16::MAX && self.user_strings[self.last_user_id as usize] == name {
+            return self.last_user_id;
+        }
+        let id = if let Some(&id) = self.user_table.get(name) {
             id
         } else {
             let id = self.user_strings.len() as u16;
             self.user_strings.push(name.to_string());
             self.user_table.insert(name.to_string(), id);
+            self.user_meta.push(UserMeta::default());
             id
-        }
+        };
+        self.last_user_id = id;
+        id
     }
 
     #[inline]
@@ -418,6 +425,7 @@ impl Engine {
             let id = self.ctx_strings.len() as u16;
             self.ctx_strings.push(ctx.to_string());
             self.ctx_table.insert(ctx.to_string(), id);
+            self.ctx_to_user.push(0);
             id
         };
         self.last_ctx_id = id;
@@ -436,18 +444,18 @@ impl Engine {
                 let ns_id = self.intern_ns(q.ns);
                 let plan_id = self.intern_plan(q.plan_summary);
                 let remote_id = self.intern_remote(q.remote);
+                let ctx_id = self.intern_ctx(q.ctx);
 
                 let u_id = if !q.user.is_empty() {
                     self.intern_user(q.user)
-                } else if !q.ctx.is_empty() {
-                    self.conn_to_user.get(q.ctx).copied().unwrap_or(0)
+                } else if ctx_id != u16::MAX && (ctx_id as usize) < self.ctx_to_user.len() {
+                    self.ctx_to_user[ctx_id as usize]
                 } else {
                     0
                 };
-                let ctx_id = self.intern_ctx(q.ctx);
 
-                if u_id > 0 {
-                    let meta = self.user_meta.entry(u_id).or_default();
+                if u_id > 0 && (u_id as usize) < self.user_meta.len() {
+                    let meta = &mut self.user_meta[u_id as usize];
                     if meta.first_seen_ms == 0 || q.epoch_ms < meta.first_seen_ms {
                         meta.first_seen_ms = q.epoch_ms;
                     }
@@ -493,10 +501,12 @@ impl Engine {
                     (op, fp_id)
                 };
 
+                let op_u8 = op as u8;
                 self.timestamps_ms.push(q.epoch_ms);
                 self.durations_ms.push(q.duration_ms);
                 self.ns_ids.push(ns_id);
-                self.op_ids.push(op as u8);
+                self.op_ids.push(op_u8);
+                self.ops_mask |= 1 << op_u8;
                 self.plan_ids.push(plan_id);
                 self.fingerprint_ids.push(fp_id);
                 self.docs_examined.push(q.docs_examined);
@@ -540,32 +550,37 @@ impl Engine {
                 self.auth_success += 1;
                 let u_id = self.intern_user(user);
                 if !ctx.is_empty() {
-                    self.conn_to_user.insert(ctx.to_string(), u_id);
-                }
-                let meta = self.user_meta.entry(u_id).or_default();
-                meta.auth_success_count += 1;
-                if !db.is_empty() && meta.auth_db.is_empty() {
-                    meta.auth_db = db.to_string();
-                }
-                if !app_name.is_empty() && meta.app_name.is_empty() {
-                    meta.app_name = app_name.to_string();
-                }
-                if !client.is_empty() {
-                    let ip = if let Some(colon) = client.find(':') {
-                        &client[..colon]
-                    } else {
-                        client
-                    };
-                    if !meta.client_ips.iter().any(|c| c == ip) {
-                        meta.client_ips.push(ip.to_string());
+                    let ctx_id = self.intern_ctx(ctx);
+                    if (ctx_id as usize) < self.ctx_to_user.len() {
+                        self.ctx_to_user[ctx_id as usize] = u_id;
                     }
                 }
-                let epoch = crate::parse::parse_iso_epoch(timestamp);
-                if meta.first_seen_ms == 0 || (epoch > 0 && epoch < meta.first_seen_ms) {
-                    meta.first_seen_ms = epoch;
-                }
-                if epoch > meta.last_seen_ms {
-                    meta.last_seen_ms = epoch;
+                if (u_id as usize) < self.user_meta.len() {
+                    let meta = &mut self.user_meta[u_id as usize];
+                    meta.auth_success_count += 1;
+                    if !db.is_empty() && meta.auth_db.is_empty() {
+                        meta.auth_db = db.to_string();
+                    }
+                    if !app_name.is_empty() && meta.app_name.is_empty() {
+                        meta.app_name = app_name.to_string();
+                    }
+                    if !client.is_empty() {
+                        let ip = if let Some(colon) = client.find(':') {
+                            &client[..colon]
+                        } else {
+                            client
+                        };
+                        if !meta.client_ips.iter().any(|c| c == ip) {
+                            meta.client_ips.push(ip.to_string());
+                        }
+                    }
+                    let epoch = crate::parse::parse_iso_epoch(timestamp);
+                    if meta.first_seen_ms == 0 || (epoch > 0 && epoch < meta.first_seen_ms) {
+                        meta.first_seen_ms = epoch;
+                    }
+                    if epoch > meta.last_seen_ms {
+                        meta.last_seen_ms = epoch;
+                    }
                 }
             }
             ParsedLine::AuthFail { ctx, user, .. } => {
@@ -573,13 +588,17 @@ impl Engine {
                 let u_id = if !user.is_empty() {
                     self.intern_user(user)
                 } else if !ctx.is_empty() {
-                    self.conn_to_user.get(ctx).copied().unwrap_or(0)
+                    let ctx_id = self.intern_ctx(ctx);
+                    if (ctx_id as usize) < self.ctx_to_user.len() {
+                        self.ctx_to_user[ctx_id as usize]
+                    } else {
+                        0
+                    }
                 } else {
                     0
                 };
-                if u_id > 0 {
-                    let meta = self.user_meta.entry(u_id).or_default();
-                    meta.auth_fail_count += 1;
+                if u_id > 0 && (u_id as usize) < self.user_meta.len() {
+                    self.user_meta[u_id as usize].auth_fail_count += 1;
                 }
             }
             ParsedLine::ClientMetadata {
@@ -592,8 +611,14 @@ impl Engine {
                 os_version,
             } => {
                 if !ctx.is_empty() && !app_name.is_empty() {
-                    if let Some(&u_id) = self.conn_to_user.get(ctx) {
-                        let meta = self.user_meta.entry(u_id).or_default();
+                    let ctx_id = self.intern_ctx(ctx);
+                    let u_id = if (ctx_id as usize) < self.ctx_to_user.len() {
+                        self.ctx_to_user[ctx_id as usize]
+                    } else {
+                        0
+                    };
+                    if u_id > 0 && (u_id as usize) < self.user_meta.len() {
+                        let meta = &mut self.user_meta[u_id as usize];
                         if meta.app_name.is_empty() {
                             meta.app_name = app_name.to_string();
                         }
@@ -642,14 +667,17 @@ impl Engine {
     }
 }
 
-#[inline]
+#[inline(always)]
 pub(crate) fn trim_line(bytes: &[u8]) -> &[u8] {
+    let mut end = bytes.len();
+    if end > 0 && bytes[end - 1] == b'\r' {
+        end -= 1;
+    }
     let mut start = 0;
-    while start < bytes.len() && (bytes[start] == b' ' || bytes[start] == b'\t' || bytes[start] == b'\r') {
+    while start < end && (bytes[start] == b' ' || bytes[start] == b'\t') {
         start += 1;
     }
-    let mut end = bytes.len();
-    while end > start && (bytes[end - 1] == b' ' || bytes[end - 1] == b'\t' || bytes[end - 1] == b'\r') {
+    while end > start && (bytes[end - 1] == b' ' || bytes[end - 1] == b'\t') {
         end -= 1;
     }
     &bytes[start..end]

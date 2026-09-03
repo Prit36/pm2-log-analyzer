@@ -47,7 +47,6 @@ struct CollectionAcc {
 
 struct TimeBucketAcc {
     hour: u8,
-    date_str: String,
     count: u32,
     collscan_count: u32,
     total_duration_ms: u64,
@@ -74,11 +73,11 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
 
     let mut pattern_map: HashMap<u64, PatternAcc> = HashMap::new();
     let mut collection_map: HashMap<u16, CollectionAcc> = HashMap::new();
-    let mut time_map: HashMap<String, TimeBucketAcc> = HashMap::new();
+    let mut time_buckets: [Option<TimeBucketAcc>; 24] = Default::default();
     let mut user_map: HashMap<u16, UserQueryAcc> = HashMap::new();
 
-    let mut matched_indices = Vec::with_capacity(n.min(32768));
-    let mut all_durations = Vec::with_capacity(n.min(32768));
+    let mut matched_indices = Vec::with_capacity(n);
+    let mut all_durations = Vec::with_capacity(n);
 
     let mut total_docs = 0u64;
     let mut total_keys = 0u64;
@@ -257,10 +256,9 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         // Group by hour
         let ts_ms = engine.timestamps_ms[i];
         let sec = (ts_ms / 1000) as i64;
-        let hour = (((sec % 86400) + 86400) % 86400 / 3600) as u8;
-        let hour_key = format!("{:02}:00", hour);
+        let hour = (((sec % 86400) + 86400) % 86400 / 3600) as usize;
 
-        if let Some(t_acc) = time_map.get_mut(&hour_key) {
+        if let Some(t_acc) = &mut time_buckets[hour] {
             t_acc.count += 1;
             t_acc.total_duration_ms += dur as u64;
             if dur > t_acc.max_duration_ms {
@@ -271,18 +269,14 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
             }
             t_acc.sample_durations.push(dur);
         } else {
-            time_map.insert(
-                hour_key.clone(),
-                TimeBucketAcc {
-                    hour,
-                    date_str: hour_key,
-                    count: 1,
-                    collscan_count: if is_coll { 1 } else { 0 },
-                    total_duration_ms: dur as u64,
-                    max_duration_ms: dur,
-                    sample_durations: vec![dur],
-                },
-            );
+            time_buckets[hour] = Some(TimeBucketAcc {
+                hour: hour as u8,
+                count: 1,
+                collscan_count: if is_coll { 1 } else { 0 },
+                total_duration_ms: dur as u64,
+                max_duration_ms: dur,
+                sample_durations: vec![dur],
+            });
         }
 
         // Group by user
@@ -538,35 +532,36 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
 
     // Time Buckets
     out.push_str("\"timeBuckets\":[");
-    let mut time_buckets: Vec<TimeBucketAcc> = time_map.into_values().collect();
-    time_buckets.sort_by(|a, b| a.hour.cmp(&b.hour));
+    let mut t_idx = 0;
+    for hour in 0..24 {
+        if let Some(tb) = &mut time_buckets[hour] {
+            if t_idx > 0 {
+                out.push(',');
+            }
+            t_idx += 1;
+            tb.sample_durations.sort_unstable();
+            let tb_p95 = calc_percentile(&tb.sample_durations, 95.0);
+            let tb_avg = (tb.total_duration_ms as f64) / (tb.count as f64);
 
-    for (t_idx, tb) in time_buckets.iter_mut().enumerate() {
-        if t_idx > 0 {
-            out.push(',');
+            let _ = write!(
+                out,
+                "{{\"timeKey\":\"{:02}:00\",\"hourLabel\":\"{:02}:00\",\"queryCount\":{},\"collscanCount\":{},\"avgDurationMs\":{:.1},\"p95DurationMs\":{},\"maxDurationMs\":{},\"ops\":{{}}}}",
+                hour,
+                hour,
+                tb.count,
+                tb.collscan_count,
+                tb_avg,
+                tb_p95,
+                tb.max_duration_ms
+            );
         }
-        tb.sample_durations.sort_unstable();
-        let tb_p95 = calc_percentile(&tb.sample_durations, 95.0);
-        let tb_avg = (tb.total_duration_ms as f64) / (tb.count as f64);
-
-        let _ = write!(
-            out,
-            "{{\"timeKey\":\"{}\",\"hourLabel\":\"{}\",\"queryCount\":{},\"collscanCount\":{},\"avgDurationMs\":{:.1},\"p95DurationMs\":{},\"maxDurationMs\":{},\"ops\":{{}}}}",
-            tb.date_str,
-            tb.date_str,
-            tb.count,
-            tb.collscan_count,
-            tb_avg,
-            tb_p95,
-            tb.max_duration_ms
-        );
     }
     out.push_str("],");
 
     // Top Slow Queries (up to 300 queries for the virtualized slow queries table)
     out.push_str("\"slowQueries\":[");
     let k = matched_indices.len().min(300);
-    let mut top_slow: Vec<usize> = matched_indices.clone();
+    let mut top_slow = matched_indices;
     if top_slow.len() > k {
         top_slow.select_nth_unstable_by(k - 1, |&a, &b| {
             engine.durations_ms[b].cmp(&engine.durations_ms[a]).then_with(|| a.cmp(&b))
@@ -737,11 +732,10 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
 
     // Operations
     out.push_str("\"operations\":[");
-    let mut ops_seen: Vec<&str> = Vec::new();
-    for &op in &engine.op_ids {
-        let name = MongoOp::from_u8(op).as_str();
-        if !ops_seen.contains(&name) {
-            ops_seen.push(name);
+    let mut ops_seen: Vec<&str> = Vec::with_capacity(8);
+    for op in 1..=8 {
+        if (engine.ops_mask & (1 << op)) != 0 {
+            ops_seen.push(MongoOp::from_u8(op).as_str());
         }
     }
     ops_seen.sort_unstable();
@@ -757,17 +751,7 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
 
     // Users aggregation
     out.push_str("\"users\":[");
-    let mut candidate_uids: Vec<u16> = Vec::new();
-    for &uid in user_map.keys() {
-        if !candidate_uids.contains(&uid) {
-            candidate_uids.push(uid);
-        }
-    }
-    for &uid in engine.user_meta.keys() {
-        if !candidate_uids.contains(&uid) {
-            candidate_uids.push(uid);
-        }
-    }
+    let mut candidate_uids: Vec<u16> = (0..engine.user_strings.len() as u16).collect();
     candidate_uids.sort_by(|&a, &b| {
         let a_is_sys = a == 0;
         let b_is_sys = b == 0;
@@ -785,7 +769,7 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         }
         let u_name = engine.user_strings.get(uid as usize).map(|s| s.as_str()).unwrap_or("system");
         let default_meta = crate::store::UserMeta::default();
-        let meta = engine.user_meta.get(&uid).unwrap_or(&default_meta);
+        let meta = engine.user_meta.get(uid as usize).unwrap_or(&default_meta);
 
         let (count, collscan_count, total_dur, min_dur, max_dur, p95_dur, avg_dur, total_docs, total_keys, total_ret, scan_ratio, ops_map, top_colls) = 
             if let Some(u_acc) = user_map.get_mut(&uid) {
