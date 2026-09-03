@@ -73,6 +73,8 @@ export async function exportMongoSpreadsheet(
   });
   wsQueries.columns = [
     { header: "Timestamp", key: "timestamp", width: 26 },
+    { header: "User", key: "user", width: 18 },
+    { header: "Connection", key: "ctx", width: 14 },
     { header: "Duration (ms)", key: "durationMs", width: 15 },
     { header: "Operation", key: "op", width: 14 },
     { header: "Namespace", key: "ns", width: 32 },
@@ -96,6 +98,8 @@ export async function exportMongoSpreadsheet(
   for (const q of topQueries) {
     wsQueries.addRow({
       timestamp: q.timestamp,
+      user: q.user || "system",
+      ctx: q.ctx || "",
       durationMs: q.durationMs,
       op: q.op,
       ns: q.ns,
@@ -170,6 +174,56 @@ export async function exportMongoSpreadsheet(
         id: e.id || "N/A",
         count: e.count,
         msg: e.msg,
+      });
+    }
+  }
+
+  // Sheet 5: User Activity
+  if (result.users && result.users.length > 0) {
+    const wsUsers = wb.addWorksheet("User Activity", {
+      views: [{ state: "frozen", ySplit: 1 }],
+    });
+    wsUsers.columns = [
+      { header: "Username", key: "userName", width: 22 },
+      { header: "Auth DB", key: "authDb", width: 14 },
+      { header: "Client App", key: "appName", width: 24 },
+      { header: "Client IPs", key: "clientIps", width: 26 },
+      { header: "Slow Queries", key: "slowQueryCount", width: 14 },
+      { header: "COLLSCANs", key: "collscanCount", width: 14 },
+      { header: "Total Time (s)", key: "totalTimeSec", width: 16 },
+      { header: "Avg (ms)", key: "avgMs", width: 14 },
+      { header: "P95 (ms)", key: "p95Ms", width: 14 },
+      { header: "Max (ms)", key: "maxMs", width: 14 },
+      { header: "Docs Examined", key: "docsExamined", width: 16 },
+      { header: "Scan Ratio", key: "scanRatio", width: 14 },
+      { header: "Auth Success", key: "authSuccess", width: 14 },
+      { header: "Auth Fails", key: "authFails", width: 14 },
+      { header: "First Active", key: "firstActive", width: 24 },
+      { header: "Last Active", key: "lastActive", width: 24 },
+    ];
+    const uHeaderRow = wsUsers.getRow(1);
+    uHeaderRow.eachCell((cell) => {
+      cell.fill = headerFill;
+      cell.font = headerFont;
+    });
+    for (const u of result.users) {
+      wsUsers.addRow({
+        userName: u.userName,
+        authDb: u.authDb || "N/A",
+        appName: u.appName || "N/A",
+        clientIps: u.clientIps.join(", ") || "N/A",
+        slowQueryCount: u.slowQueryCount,
+        collscanCount: u.collscanCount,
+        totalTimeSec: Math.round((u.totalDurationMs / 1000) * 100) / 100,
+        avgMs: u.avgDurationMs,
+        p95Ms: u.p95DurationMs,
+        maxMs: u.maxDurationMs,
+        docsExamined: u.totalDocsExamined,
+        scanRatio: u.scanRatio,
+        authSuccess: u.authSuccessCount,
+        authFails: u.authFailCount,
+        firstActive: u.firstActive || "N/A",
+        lastActive: u.lastActive || "N/A",
       });
     }
   }

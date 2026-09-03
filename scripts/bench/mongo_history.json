@@ -1332,5 +1332,111 @@
         "jsHeapUsedAfterMB": 8.737812042236328
       }
     ]
+  },
+  {
+    "id": "2026-09-03T16:18:11.729Z",
+    "method": "browser-app",
+    "app": "mongodb",
+    "note": null,
+    "git": {
+      "commit": "b459d82",
+      "branch": "feat/mongodb-log-analyzer",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\mongodb_logs_sample\\methaq-mongod.log",
+    "fileMB": 335.9213228225708,
+    "runs": 3,
+    "result": {
+      "slowQueryCount": 56872,
+      "collscanCount": 9656,
+      "patternsCount": 383,
+      "collectionsCount": 51,
+      "p95DurationMs": 3242
+    },
+    "summary": {
+      "parseWallSec": {
+        "avg": 0.6293333333333333,
+        "stddev": 0.0068475461947247185,
+        "min": 0.624,
+        "max": 0.639
+      },
+      "uploadToReadySec": {
+        "avg": 0.6454646,
+        "stddev": 0.008872494520708374,
+        "min": 0.6387557,
+        "max": 0.6580019
+      },
+      "throughputMBps": {
+        "avg": 533.8360135094197,
+        "stddev": 5.76484614452799,
+        "min": 525.6984707708464,
+        "max": 538.3354532412993
+      },
+      "browserRssPeakMB": {
+        "avg": 686.4153645833334,
+        "stddev": 1.801613807149814,
+        "min": 684.1015625,
+        "max": 688.49609375
+      },
+      "jsHeapPeakMB": {
+        "avg": 8.984703063964844,
+        "stddev": 0.013925901256287633,
+        "min": 8.965389251708984,
+        "max": 8.997695922851562
+      },
+      "reaggAvgMs": {
+        "avg": 23.555555555555554,
+        "stddev": 1.968893905185483,
+        "min": 22,
+        "max": 26.333333333333332
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "parseWallSec": 0.639,
+        "uploadToReadySec": 0.6580019,
+        "throughputMBps": 525.6984707708464,
+        "reaggAvgMs": 22,
+        "reaggWallMs": [
+          21,
+          24,
+          21
+        ],
+        "browserRssPeakMB": 688.49609375,
+        "jsHeapPeakMB": 8.991024017333984,
+        "jsHeapUsedAfterMB": 9.003662109375
+      },
+      {
+        "run": 2,
+        "parseWallSec": 0.624,
+        "uploadToReadySec": 0.6387557,
+        "throughputMBps": 538.3354532412993,
+        "reaggAvgMs": 22.333333333333332,
+        "reaggWallMs": [
+          21,
+          26,
+          20
+        ],
+        "browserRssPeakMB": 684.1015625,
+        "jsHeapPeakMB": 8.997695922851562,
+        "jsHeapUsedAfterMB": 9.010334014892578
+      },
+      {
+        "run": 3,
+        "parseWallSec": 0.625,
+        "uploadToReadySec": 0.6396362,
+        "throughputMBps": 537.4741165161133,
+        "reaggAvgMs": 26.333333333333332,
+        "reaggWallMs": [
+          29,
+          27,
+          23
+        ],
+        "browserRssPeakMB": 686.6484375,
+        "jsHeapPeakMB": 8.965389251708984,
+        "jsHeapUsedAfterMB": 8.97802734375
+      }
+    ]
   }
 ]

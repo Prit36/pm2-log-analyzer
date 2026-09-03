@@ -1,10 +1,12 @@
-import { Check, Copy, Flame, Lightbulb, X } from "lucide-react";
+import { Check, Copy, Flame, Lightbulb, User, X } from "lucide-react";
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useMongoStore } from "../../store/mongoStore";
+import { reaggregateMongo } from "../../hooks/useMongoParserWorker";
+import { cn } from "../../utils/cn";
 import { formatBytes, formatMs, formatNum } from "../../utils/format";
 
-const { setActiveSlowQuery, showToast } = useMongoStore.getState();
+const { setActiveSlowQuery, setUserFilter, showToast } = useMongoStore.getState();
 
 export function MongoQueryDetailModal() {
   const [copiedCmd, setCopiedCmd] = useState(false);
@@ -156,6 +158,42 @@ export function MongoQueryDetailModal() {
                 </p>
               </div>
             )}
+
+            <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-800/50">
+              <span className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
+                <User className="size-3" /> Executing User
+              </span>
+              <div className="mt-1 flex items-center justify-between gap-1">
+                <span
+                  className={cn(
+                    "truncate font-semibold",
+                    activeQuery.user && activeQuery.user !== "system"
+                      ? "text-emerald-700 dark:text-emerald-400 font-bold"
+                      : "text-slate-900 dark:text-slate-100",
+                  )}
+                >
+                  {activeQuery.user || "system"}
+                </span>
+                {activeQuery.user && activeQuery.user !== "system" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserFilter(activeQuery.user!);
+                      handleClose();
+                      void reaggregateMongo();
+                    }}
+                    className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300"
+                  >
+                    Filter
+                  </button>
+                )}
+              </div>
+              {activeQuery.ctx && (
+                <span className="block truncate font-mono text-[10px] text-slate-400">
+                  {activeQuery.ctx}
+                </span>
+              )}
+            </div>
 
             <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-800/50">
               <span className="text-slate-500 dark:text-slate-400">Timestamp</span>

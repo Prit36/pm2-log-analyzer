@@ -60,6 +60,39 @@ export type MongoSlowQuery = {
   storage?: MongoDoc | undefined;
   fingerprint: string;
   indexSuggestion?: string | undefined;
+  user?: string | undefined;
+};
+
+export type MongoUserTopCollection = {
+  ns: string;
+  count: number;
+  totalDurationMs: number;
+  collscanCount: number;
+};
+
+export type MongoUserActivity = {
+  userName: string;
+  authDb: string;
+  appName: string;
+  clientIps: string[];
+  totalOperations: number;
+  slowQueryCount: number;
+  collscanCount: number;
+  totalDurationMs: number;
+  avgDurationMs: number;
+  minDurationMs: number;
+  maxDurationMs: number;
+  p95DurationMs: number;
+  totalDocsExamined: number;
+  totalKeysExamined: number;
+  totalReturned: number;
+  scanRatio: number;
+  firstActive: string;
+  lastActive: string;
+  authSuccessCount: number;
+  authFailCount: number;
+  operations: Record<string, number>;
+  topCollections: MongoUserTopCollection[];
 };
 
 export type MongoQueryPattern = {
@@ -181,6 +214,8 @@ export type MongoAggregationResult = {
   checkpoints: MongoCheckpointInfo[];
   dates: string[];
   operations: string[];
+  users: MongoUserActivity[];
+  userNames: string[];
 };
 
 export type MongoSortField =
@@ -217,6 +252,7 @@ export type MongoFilters = {
   slowSortField: MongoSlowQuerySortField;
   slowSortDirection: "asc" | "desc";
   dateFilter: string;
+  userFilter: string;
 };
 
 export const DEFAULT_MONGO_FILTERS: MongoFilters = {
@@ -231,6 +267,7 @@ export const DEFAULT_MONGO_FILTERS: MongoFilters = {
   slowSortField: "durationMs",
   slowSortDirection: "desc",
   dateFilter: "all",
+  userFilter: "all",
 };
 
 export const EMPTY_MONGO_RESULT: MongoAggregationResult = {
@@ -268,4 +305,6 @@ export const EMPTY_MONGO_RESULT: MongoAggregationResult = {
   checkpoints: [],
   dates: [],
   operations: [],
+  users: [],
+  userNames: [],
 };

@@ -7,11 +7,12 @@ import type {
   MongoSlowQuery,
   MongoSlowQuerySortField,
   MongoSortField,
+  MongoUserActivity,
 } from "../mongo/types";
 import { DEFAULT_MONGO_FILTERS, EMPTY_MONGO_RESULT } from "../mongo/types";
 import type { ParseProgress, SourceKind } from "./analysisStore";
 
-export type MongoActiveView = "patterns" | "slow_queries" | "charts" | "diagnostics";
+export type MongoActiveView = "patterns" | "slow_queries" | "charts" | "diagnostics" | "users";
 
 type MongoStoreState = {
   sourceKind: SourceKind;
@@ -29,6 +30,7 @@ type MongoStoreState = {
   toast: string | null;
   pasteOpen: boolean;
   activeSlowQuery: MongoSlowQuery | null;
+  activeUserDetail: MongoUserActivity | null;
   activeView: MongoActiveView;
 
   setWorkerReady: (ready: boolean) => void;
@@ -45,12 +47,14 @@ type MongoStoreState = {
   setOperationFilter: (op: string) => void;
   setPlanFilter: (plan: MongoPlanFilter) => void;
   setCollectionFilter: (coll: string) => void;
+  setUserFilter: (user: string) => void;
   setMinDurationMs: (ms: number) => void;
   setSearchQuery: (query: string) => void;
   toggleHighScanRatio: () => void;
   setSort: (field: MongoSortField, dir?: "asc" | "desc") => void;
   setSlowSort: (field: MongoSlowQuerySortField, dir?: "asc" | "desc") => void;
   setActiveSlowQuery: (query: MongoSlowQuery | null) => void;
+  setActiveUserDetail: (user: MongoUserActivity | null) => void;
   setActiveView: (view: MongoActiveView) => void;
   showToast: (message: string) => void;
   clearToast: () => void;
@@ -78,6 +82,7 @@ export const useMongoStore = create<MongoStoreState>()(
       toast: null,
       pasteOpen: false,
       activeSlowQuery: null,
+      activeUserDetail: null,
       activeView: "patterns",
 
       setWorkerReady: (ready) => set({ isWorkerReady: ready }),
@@ -192,6 +197,7 @@ export const useMongoStore = create<MongoStoreState>()(
       setOperationFilter: (op) => set({ filters: { ...get().filters, operation: op } }),
       setPlanFilter: (plan) => set({ filters: { ...get().filters, planFilter: plan } }),
       setCollectionFilter: (collection) => set({ filters: { ...get().filters, collection } }),
+      setUserFilter: (userFilter) => set({ filters: { ...get().filters, userFilter } }),
       setMinDurationMs: (minDurationMs) => set({ filters: { ...get().filters, minDurationMs } }),
       setSearchQuery: (searchQuery) => set({ filters: { ...get().filters, searchQuery } }),
       toggleHighScanRatio: () =>
@@ -215,6 +221,7 @@ export const useMongoStore = create<MongoStoreState>()(
       },
 
       setActiveSlowQuery: (query) => set({ activeSlowQuery: query }),
+      setActiveUserDetail: (user) => set({ activeUserDetail: user }),
       setActiveView: (view) => set({ activeView: view }),
 
       showToast: (message) => {
@@ -246,6 +253,7 @@ export const useMongoStore = create<MongoStoreState>()(
           isParsing: false,
           pasteOpen: false,
           activeSlowQuery: null,
+          activeUserDetail: null,
         }),
     }),
     {

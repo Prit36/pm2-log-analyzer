@@ -53,11 +53,12 @@ export class MongoEngine {
      * @param {string} collection
      * @param {string} search_query
      * @param {boolean} high_scan_ratio_only
+     * @param {string} user
      * @returns {string}
      */
-    reaggregate(op, plan_filter, min_duration_ms, collection, search_query, high_scan_ratio_only) {
-        let deferred4_0;
-        let deferred4_1;
+    reaggregate(op, plan_filter, min_duration_ms, collection, search_query, high_scan_ratio_only, user) {
+        let deferred5_0;
+        let deferred5_1;
         try {
             const ptr0 = passStringToWasm0(op, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len0 = WASM_VECTOR_LEN;
@@ -65,12 +66,14 @@ export class MongoEngine {
             const len1 = WASM_VECTOR_LEN;
             const ptr2 = passStringToWasm0(search_query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len2 = WASM_VECTOR_LEN;
-            const ret = wasm.mongoengine_reaggregate(this.__wbg_ptr, ptr0, len0, plan_filter, min_duration_ms, ptr1, len1, ptr2, len2, high_scan_ratio_only);
-            deferred4_0 = ret[0];
-            deferred4_1 = ret[1];
+            const ptr3 = passStringToWasm0(user, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len3 = WASM_VECTOR_LEN;
+            const ret = wasm.mongoengine_reaggregate(this.__wbg_ptr, ptr0, len0, plan_filter, min_duration_ms, ptr1, len1, ptr2, len2, high_scan_ratio_only, ptr3, len3);
+            deferred5_0 = ret[0];
+            deferred5_1 = ret[1];
             return getStringFromWasm0(ret[0], ret[1]);
         } finally {
-            wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+            wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
         }
     }
     /**

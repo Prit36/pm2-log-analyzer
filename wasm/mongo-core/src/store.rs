@@ -33,6 +33,17 @@ pub struct CheckpointRecord {
     pub msg: String,
 }
 
+#[derive(Clone, Default)]
+pub struct UserMeta {
+    pub auth_db: String,
+    pub app_name: String,
+    pub client_ips: Vec<String>,
+    pub first_seen_ms: i64,
+    pub last_seen_ms: i64,
+    pub auth_success_count: u32,
+    pub auth_fail_count: u32,
+}
+
 pub struct Engine {
     pub ingest: Vec<u8>,
     pub carry: Vec<u8>,
@@ -53,6 +64,8 @@ pub struct Engine {
     pub reslens: Vec<u32>,
     pub is_collscan: Vec<bool>,
     pub remote_ids: Vec<u16>,
+    pub user_ids: Vec<u16>,
+    pub ctx_ids: Vec<u16>,
 
     // Arenas and Tables
     pub ns_strings: Vec<String>,
@@ -67,6 +80,13 @@ pub struct Engine {
 
     pub remote_strings: Vec<String>,
     pub remote_table: HashMap<String, u16>,
+
+    pub user_strings: Vec<String>,
+    pub user_table: HashMap<String, u16>,
+    pub user_meta: HashMap<u16, UserMeta>,
+    pub conn_to_user: HashMap<String, u16>,
+    pub ctx_strings: Vec<String>,
+    pub ctx_table: HashMap<String, u16>,
 
     pub query_hash_cache: HashMap<(u16, String), (MongoOp, u16)>,
 
@@ -111,6 +131,8 @@ impl Engine {
             reslens: Vec::with_capacity(65536),
             is_collscan: Vec::with_capacity(65536),
             remote_ids: Vec::with_capacity(65536),
+            user_ids: Vec::with_capacity(65536),
+            ctx_ids: Vec::with_capacity(65536),
 
             ns_strings: Vec::new(),
             ns_table: HashMap::new(),
@@ -124,6 +146,17 @@ impl Engine {
 
             remote_strings: Vec::new(),
             remote_table: HashMap::new(),
+
+            user_strings: vec!["system".to_string()],
+            user_table: {
+                let mut m = HashMap::new();
+                m.insert("system".to_string(), 0);
+                m
+            },
+            user_meta: HashMap::new(),
+            conn_to_user: HashMap::new(),
+            ctx_strings: Vec::new(),
+            ctx_table: HashMap::new(),
 
             query_hash_cache: HashMap::new(),
 
@@ -157,6 +190,8 @@ impl Engine {
         self.reslens.clear();
         self.is_collscan.clear();
         self.remote_ids.clear();
+        self.user_ids.clear();
+        self.ctx_ids.clear();
 
         self.ns_strings.clear();
         self.ns_table.clear();
@@ -167,6 +202,16 @@ impl Engine {
         self.index_suggestions.clear();
         self.remote_strings.clear();
         self.remote_table.clear();
+
+        self.user_strings.clear();
+        self.user_table.clear();
+        self.user_strings.push("system".to_string());
+        self.user_table.insert("system".to_string(), 0);
+        self.user_meta.clear();
+        self.conn_to_user.clear();
+        self.ctx_strings.clear();
+        self.ctx_table.clear();
+
         self.query_hash_cache.clear();
 
         self.conn_accepted = 0;
@@ -304,6 +349,34 @@ impl Engine {
         }
     }
 
+    #[inline]
+    pub fn intern_user(&mut self, user: &str) -> u16 {
+        let name = if user.is_empty() { "system" } else { user };
+        if let Some(&id) = self.user_table.get(name) {
+            id
+        } else {
+            let id = self.user_strings.len() as u16;
+            self.user_strings.push(name.to_string());
+            self.user_table.insert(name.to_string(), id);
+            id
+        }
+    }
+
+    #[inline]
+    pub fn intern_ctx(&mut self, ctx: &str) -> u16 {
+        if ctx.is_empty() {
+            return u16::MAX;
+        }
+        if let Some(&id) = self.ctx_table.get(ctx) {
+            id
+        } else {
+            let id = self.ctx_strings.len() as u16;
+            self.ctx_strings.push(ctx.to_string());
+            self.ctx_table.insert(ctx.to_string(), id);
+            id
+        }
+    }
+
     pub fn accept_line(&mut self, line: &[u8]) {
         self.total_lines += 1;
         let line = trim_line(line);
@@ -316,6 +389,35 @@ impl Engine {
                 let ns_id = self.intern_ns(q.ns);
                 let plan_id = self.intern_plan(q.plan_summary);
                 let remote_id = self.intern_remote(q.remote);
+
+                let u_id = if !q.user.is_empty() {
+                    self.intern_user(q.user)
+                } else if !q.ctx.is_empty() {
+                    self.conn_to_user.get(q.ctx).copied().unwrap_or(0)
+                } else {
+                    0
+                };
+                let ctx_id = self.intern_ctx(q.ctx);
+
+                if u_id > 0 {
+                    let meta = self.user_meta.entry(u_id).or_default();
+                    if meta.first_seen_ms == 0 || q.epoch_ms < meta.first_seen_ms {
+                        meta.first_seen_ms = q.epoch_ms;
+                    }
+                    if q.epoch_ms > meta.last_seen_ms {
+                        meta.last_seen_ms = q.epoch_ms;
+                    }
+                    if !q.remote.is_empty() {
+                        let ip = if let Some(colon) = q.remote.find(':') {
+                            &q.remote[..colon]
+                        } else {
+                            q.remote
+                        };
+                        if !meta.client_ips.iter().any(|c| c == ip) {
+                            meta.client_ips.push(ip.to_string());
+                        }
+                    }
+                }
 
                 let cache_key = (ns_id, q.query_hash.to_string());
                 let (op, fp_id) = if !q.query_hash.is_empty() {
@@ -350,6 +452,8 @@ impl Engine {
                 self.reslens.push(q.reslen);
                 self.is_collscan.push(q.is_collscan);
                 self.remote_ids.push(remote_id);
+                self.user_ids.push(u_id);
+                self.ctx_ids.push(ctx_id);
 
                 if q.timestamp.len() >= 10 {
                     let d = &q.timestamp[..10];
@@ -367,19 +471,76 @@ impl Engine {
             ParsedLine::ConnectionEnded { .. } => {
                 self.conn_ended += 1;
             }
-            ParsedLine::AuthSuccess { .. } => {
+            ParsedLine::AuthSuccess {
+                timestamp,
+                ctx,
+                user,
+                db,
+                client,
+                app_name,
+            } => {
                 self.auth_success += 1;
+                let u_id = self.intern_user(user);
+                if !ctx.is_empty() {
+                    self.conn_to_user.insert(ctx.to_string(), u_id);
+                }
+                let meta = self.user_meta.entry(u_id).or_default();
+                meta.auth_success_count += 1;
+                if !db.is_empty() && meta.auth_db.is_empty() {
+                    meta.auth_db = db.to_string();
+                }
+                if !app_name.is_empty() && meta.app_name.is_empty() {
+                    meta.app_name = app_name.to_string();
+                }
+                if !client.is_empty() {
+                    let ip = if let Some(colon) = client.find(':') {
+                        &client[..colon]
+                    } else {
+                        client
+                    };
+                    if !meta.client_ips.iter().any(|c| c == ip) {
+                        meta.client_ips.push(ip.to_string());
+                    }
+                }
+                let epoch = crate::parse::parse_iso_epoch(timestamp);
+                if meta.first_seen_ms == 0 || (epoch > 0 && epoch < meta.first_seen_ms) {
+                    meta.first_seen_ms = epoch;
+                }
+                if epoch > meta.last_seen_ms {
+                    meta.last_seen_ms = epoch;
+                }
             }
-            ParsedLine::AuthFail { .. } => {
+            ParsedLine::AuthFail { ctx, user, .. } => {
                 self.auth_fail += 1;
+                let u_id = if !user.is_empty() {
+                    self.intern_user(user)
+                } else if !ctx.is_empty() {
+                    self.conn_to_user.get(ctx).copied().unwrap_or(0)
+                } else {
+                    0
+                };
+                if u_id > 0 {
+                    let meta = self.user_meta.entry(u_id).or_default();
+                    meta.auth_fail_count += 1;
+                }
             }
             ParsedLine::ClientMetadata {
+                ctx,
+                app_name,
                 driver_name,
                 driver_version,
                 platform,
                 os_name,
                 os_version,
             } => {
+                if !ctx.is_empty() && !app_name.is_empty() {
+                    if let Some(&u_id) = self.conn_to_user.get(ctx) {
+                        let meta = self.user_meta.entry(u_id).or_default();
+                        if meta.app_name.is_empty() {
+                            meta.app_name = app_name.to_string();
+                        }
+                    }
+                }
                 if let Some(existing) = self.drivers.iter_mut().find(|d| d.name == driver_name && d.version == driver_version) {
                     existing.count += 1;
                 } else {

@@ -60,6 +60,7 @@ impl MongoEngine {
         collection: &str,
         search_query: &str,
         high_scan_ratio_only: bool,
+        user: &str,
     ) -> String {
         let params = reagg::FilterParams {
             op,
@@ -68,6 +69,7 @@ impl MongoEngine {
             collection,
             search_query,
             high_scan_ratio_only,
+            user,
         };
         reagg::reaggregate(&self.inner, params)
     }
@@ -93,7 +95,7 @@ mod tests {
         assert_eq!(added, 1);
         assert_eq!(engine.slow_query_count(), 1);
 
-        let json = engine.reaggregate("all", 0, 0, "all", "", false);
+        let json = engine.reaggregate("all", 0, 0, "all", "", false, "all");
         assert!(json.contains("auto_master_references"));
         assert!(json.contains("\"collscanCount\":1"));
     }
@@ -112,18 +114,45 @@ mod tests {
         assert_eq!(engine.slow_query_count(), 2);
 
         // Filter: collscan only
-        let json_collscan = engine.reaggregate("all", 1, 0, "all", "", false);
+        let json_collscan = engine.reaggregate("all", 1, 0, "all", "", false, "all");
         assert!(json_collscan.contains("\"collscanCount\":1"));
         assert!(json_collscan.contains("\"slowQueryCount\":1"));
 
         // Filter: min duration 100ms
-        let json_100ms = engine.reaggregate("all", 0, 100, "all", "", false);
+        let json_100ms = engine.reaggregate("all", 0, 100, "all", "", false, "all");
         assert!(json_100ms.contains("\"slowQueryCount\":1"));
 
         // Filter: all
-        let json_all = engine.reaggregate("all", 0, 0, "all", "", false);
+        let json_all = engine.reaggregate("all", 0, 0, "all", "", false, "all");
         assert!(json_all.contains("\"slowQueryCount\":2"));
         assert!(json_all.contains("\"accepted\":1"));
         assert!(json_all.contains("\"peakConcurrent\":42"));
+    }
+
+    #[test]
+    fn test_mongo_engine_user_tracking() {
+        let mut engine = MongoEngine::new();
+        let chunk = b"{\"t\":{\"$date\":\"2026-09-01T07:57:16.966+04:00\"},\"s\":\"I\",\"c\":\"ACCESS\",\"id\":5286306,\"ctx\":\"conn10476\",\"msg\":\"Successfully authenticated\",\"attr\":{\"client\":\"103.251.212.27:50576\",\"user\":\"prit-read-only\",\"db\":\"admin\",\"doc\":{\"application\":{\"name\":\"MongoDB Compass\"}}}}\n\
+{\"t\":{\"$date\":\"2026-09-01T07:58:00.000+04:00\"},\"s\":\"I\",\"c\":\"COMMAND\",\"id\":51803,\"ctx\":\"conn10476\",\"msg\":\"Slow query\",\"attr\":{\"ns\":\"crm.cash_settlements\",\"command\":{\"find\":\"cash_settlements\"},\"planSummary\":\"COLLSCAN\",\"docsExamined\":500,\"keysExamined\":0,\"nreturned\":10,\"durationMillis\":1200}}\n\
+{\"t\":{\"$date\":\"2026-09-01T08:00:00.000+04:00\"},\"s\":\"I\",\"c\":\"ACCESS\",\"id\":20436,\"ctx\":\"conn10476\",\"msg\":\"Checking authorization failed\",\"attr\":{\"error\":{\"code\":13,\"codeName\":\"Unauthorized\",\"errmsg\":\"not authorized\"}}}\n\
+{\"t\":{\"$date\":\"2026-09-01T08:05:00.000+04:00\"},\"s\":\"I\",\"c\":\"COMMAND\",\"id\":51803,\"ctx\":\"conn99999\",\"msg\":\"Slow query\",\"attr\":{\"ns\":\"crm.other\",\"command\":{\"find\":\"other\"},\"planSummary\":\"IXSCAN\",\"docsExamined\":1,\"keysExamined\":1,\"nreturned\":1,\"durationMillis\":80}}\n";
+
+        engine.write_ingest_for_test(chunk);
+        let added = engine.feed(chunk.len() as u32, 0.0);
+        engine.end_shard();
+        assert_eq!(added, 2);
+
+        // Reaggregate all
+        let json_all = engine.reaggregate("all", 0, 0, "all", "", false, "all");
+        assert!(json_all.contains("\"userName\":\"prit-read-only\""));
+        assert!(json_all.contains("\"authFailCount\":1"));
+        assert!(json_all.contains("\"appName\":\"MongoDB Compass\""));
+        assert!(json_all.contains("\"userNames\":[\"prit-read-only\",\"system\"]"));
+
+        // Filter for prit-read-only
+        let json_user = engine.reaggregate("all", 0, 0, "all", "", false, "prit-read-only");
+        assert!(json_user.contains("\"slowQueryCount\":1"));
+        assert!(json_user.contains("cash_settlements"));
+        assert!(!json_user.contains("crm.other"));
     }
 }

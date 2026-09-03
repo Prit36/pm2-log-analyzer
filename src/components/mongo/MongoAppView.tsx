@@ -7,6 +7,7 @@ import { MongoPatternTable } from "./MongoPatternTable";
 import { MongoSlowQueryTable } from "./MongoSlowQueryTable";
 import { MongoLatencyChart } from "./MongoLatencyChart";
 import { MongoDiagnosticsPanel } from "./MongoDiagnosticsPanel";
+import { MongoUserActivityPanel } from "./MongoUserActivityPanel";
 import { MongoQueryDetailModal } from "./MongoQueryDetailModal";
 
 export function MongoAppView() {
@@ -29,6 +30,7 @@ export function MongoAppView() {
           {/* Active View Container */}
           {activeView === "patterns" && <MongoPatternTable />}
           {activeView === "slow_queries" && <MongoSlowQueryTable />}
+          {activeView === "users" && <MongoUserActivityPanel />}
           {activeView === "charts" && <MongoLatencyChart />}
           {activeView === "diagnostics" && <MongoDiagnosticsPanel />}
         </>

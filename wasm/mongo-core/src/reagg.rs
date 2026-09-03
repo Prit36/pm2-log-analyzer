@@ -12,6 +12,7 @@ pub struct FilterParams<'a> {
     pub collection: &'a str,
     pub search_query: &'a str,
     pub high_scan_ratio_only: bool,
+    pub user: &'a str,
 }
 
 struct PatternAcc {
@@ -53,12 +54,27 @@ struct TimeBucketAcc {
     sample_durations: Vec<u32>,
 }
 
+struct UserQueryAcc {
+    count: u32,
+    collscan_count: u32,
+    total_duration_ms: u64,
+    min_duration_ms: u32,
+    max_duration_ms: u32,
+    total_docs: u64,
+    total_keys: u64,
+    total_returned: u64,
+    sample_durations: Vec<u32>,
+    ops: HashMap<u8, u32>,
+    colls: HashMap<u16, (u32, u64, u32)>,
+}
+
 pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
     let n = engine.durations_ms.len();
 
     let mut pattern_map: HashMap<u64, PatternAcc> = HashMap::new();
     let mut collection_map: HashMap<u16, CollectionAcc> = HashMap::new();
     let mut time_map: HashMap<String, TimeBucketAcc> = HashMap::new();
+    let mut user_map: HashMap<u16, UserQueryAcc> = HashMap::new();
 
     let mut matched_indices = Vec::with_capacity(n.min(32768));
     let mut all_durations = Vec::with_capacity(n.min(32768));
@@ -80,6 +96,12 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         "delete" => MongoOp::Delete as u8,
         "findAndModify" => MongoOp::FindAndModify as u8,
         _ => 0, // all
+    };
+
+    let target_user_id = if filters.user != "all" && !filters.user.is_empty() {
+        engine.user_table.get(filters.user).copied()
+    } else {
+        None
     };
 
     let search_lower = filters.search_query.to_lowercase();
@@ -109,6 +131,13 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
             continue;
         }
 
+        let u_id = engine.user_ids.get(i).copied().unwrap_or(0);
+        if let Some(want_uid) = target_user_id {
+            if u_id != want_uid {
+                continue;
+            }
+        }
+
         let docs = engine.docs_examined[i];
         let ret = engine.nreturned[i];
         let scan_ratio = (docs as f64) / ((ret as f64).max(1.0));
@@ -121,6 +150,7 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         let fp_str = &engine.fingerprint_strings[fp_id as usize];
         let remote_id = engine.remote_ids[i];
         let remote_str = &engine.remote_strings[remote_id as usize];
+        let user_str = engine.user_strings.get(u_id as usize).map(|s| s.as_str()).unwrap_or("");
 
         if !search_lower.is_empty() {
             let matches_ns = ns_str.to_lowercase().contains(&search_lower);
@@ -129,7 +159,8 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
                 .to_lowercase()
                 .contains(&search_lower);
             let matches_remote = remote_str.to_lowercase().contains(&search_lower);
-            if !matches_ns && !matches_fp && !matches_plan && !matches_remote {
+            let matches_user = user_str.to_lowercase().contains(&search_lower);
+            if !matches_ns && !matches_fp && !matches_plan && !matches_remote && !matches_user {
                 continue;
             }
         }
@@ -249,6 +280,53 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
                     total_duration_ms: dur as u64,
                     max_duration_ms: dur,
                     sample_durations: vec![dur],
+                },
+            );
+        }
+
+        // Group by user
+        if let Some(u_acc) = user_map.get_mut(&u_id) {
+            u_acc.count += 1;
+            u_acc.total_duration_ms += dur as u64;
+            if dur > u_acc.max_duration_ms {
+                u_acc.max_duration_ms = dur;
+            }
+            if dur < u_acc.min_duration_ms {
+                u_acc.min_duration_ms = dur;
+            }
+            if is_coll {
+                u_acc.collscan_count += 1;
+            }
+            u_acc.total_docs += docs as u64;
+            u_acc.total_keys += engine.keys_examined[i] as u64;
+            u_acc.total_returned += ret as u64;
+            u_acc.sample_durations.push(dur);
+            *u_acc.ops.entry(op).or_insert(0) += 1;
+            let c_entry = u_acc.colls.entry(ns_id).or_insert((0, 0, 0));
+            c_entry.0 += 1;
+            c_entry.1 += dur as u64;
+            if is_coll {
+                c_entry.2 += 1;
+            }
+        } else {
+            let mut ops = HashMap::new();
+            ops.insert(op, 1);
+            let mut colls = HashMap::new();
+            colls.insert(ns_id, (1, dur as u64, if is_coll { 1 } else { 0 }));
+            user_map.insert(
+                u_id,
+                UserQueryAcc {
+                    count: 1,
+                    collscan_count: if is_coll { 1 } else { 0 },
+                    total_duration_ms: dur as u64,
+                    min_duration_ms: dur,
+                    max_duration_ms: dur,
+                    total_docs: docs as u64,
+                    total_keys: engine.keys_examined[i] as u64,
+                    total_returned: ret as u64,
+                    sample_durations: vec![dur],
+                    ops,
+                    colls,
                 },
             );
         }
@@ -474,13 +552,23 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         let ret = engine.nreturned[idx];
         let scan_ratio = (docs as f64) / ((ret as f64).max(1.0));
 
+        let u_id = engine.user_ids.get(idx).copied().unwrap_or(0);
+        let user_name = engine.user_strings.get(u_id as usize).map(|s| s.as_str()).unwrap_or("system");
+        let ctx_id = engine.ctx_ids.get(idx).copied().unwrap_or(u16::MAX);
+        let ctx_str = if ctx_id != u16::MAX {
+            engine.ctx_strings.get(ctx_id as usize).map(|s| s.as_str()).unwrap_or("")
+        } else {
+            ""
+        };
+
         out.push_str("{");
         out.push_str(&format!("\"id\":\"query-{}\",", idx));
         out.push_str(&format!("\"timestamp\":\"{}\",", epoch_to_iso(engine.timestamps_ms[idx])));
         out.push_str(&format!("\"epochMs\":{},", engine.timestamps_ms[idx]));
         out.push_str(&format!("\"severity\":\"I\","));
         out.push_str(&format!("\"component\":\"COMMAND\","));
-        out.push_str(&format!("\"ctx\":\"\","));
+        out.push_str(&format!("\"ctx\":\"{}\",", escape_json(ctx_str)));
+        out.push_str(&format!("\"user\":\"{}\",", escape_json(user_name)));
         out.push_str(&format!("\"ns\":\"{}\",", escape_json(ns)));
         out.push_str(&format!("\"db\":\"{}\",", escape_json(db)));
         out.push_str(&format!("\"collection\":\"{}\",", escape_json(collection)));
@@ -497,11 +585,13 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         let remote = &engine.remote_strings[engine.remote_ids[idx] as usize];
         out.push_str(&format!("\"remote\":\"{}\",", escape_json(remote)));
         out.push_str(&format!(
-            "\"command\":{{\"operation\":\"{}\",\"collection\":\"{}\",\"planSummary\":\"{}\",\"fingerprint\":\"{}\"}},",
+            "\"command\":{{\"operation\":\"{}\",\"collection\":\"{}\",\"planSummary\":\"{}\",\"fingerprint\":\"{}\",\"user\":\"{}\",\"ctx\":\"{}\"}},",
             MongoOp::from_u8(engine.op_ids[idx]).as_str(),
             escape_json(collection),
             escape_json(plan),
-            escape_json(fp)
+            escape_json(fp),
+            escape_json(user_name),
+            escape_json(ctx_str)
         ));
         out.push_str(&format!("\"fingerprint\":\"{}\",", escape_json(fp)));
         out.push_str(&format!("\"indexSuggestion\":\"{}\"", escape_json(sug)));
@@ -593,6 +683,123 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
             out.push(',');
         }
         out.push_str(&format!("\"{}\"", op));
+    }
+    out.push_str("],");
+
+    // Users aggregation
+    out.push_str("\"users\":[");
+    let mut candidate_uids: Vec<u16> = Vec::new();
+    for &uid in user_map.keys() {
+        if !candidate_uids.contains(&uid) {
+            candidate_uids.push(uid);
+        }
+    }
+    for &uid in engine.user_meta.keys() {
+        if !candidate_uids.contains(&uid) {
+            candidate_uids.push(uid);
+        }
+    }
+    candidate_uids.sort_by(|&a, &b| {
+        let a_is_sys = a == 0;
+        let b_is_sys = b == 0;
+        if a_is_sys != b_is_sys {
+            return a_is_sys.cmp(&b_is_sys); // non-system before system
+        }
+        let a_cnt = user_map.get(&a).map(|u| u.count).unwrap_or(0);
+        let b_cnt = user_map.get(&b).map(|u| u.count).unwrap_or(0);
+        b_cnt.cmp(&a_cnt).then_with(|| a.cmp(&b))
+    });
+
+    for (u_idx, &uid) in candidate_uids.iter().enumerate() {
+        if u_idx > 0 {
+            out.push(',');
+        }
+        let u_name = engine.user_strings.get(uid as usize).map(|s| s.as_str()).unwrap_or("system");
+        let default_meta = crate::store::UserMeta::default();
+        let meta = engine.user_meta.get(&uid).unwrap_or(&default_meta);
+
+        let (count, collscan_count, total_dur, min_dur, max_dur, p95_dur, avg_dur, total_docs, total_keys, total_ret, scan_ratio, ops_map, top_colls) = 
+            if let Some(u_acc) = user_map.get(&uid) {
+                let mut sorted = u_acc.sample_durations.clone();
+                sorted.sort_unstable();
+                let p95 = calc_percentile(&sorted, 95.0);
+                let avg = (u_acc.total_duration_ms as f64) / (u_acc.count as f64);
+                let ratio = (u_acc.total_docs as f64) / ((u_acc.total_returned as f64).max(1.0));
+
+                let mut coll_vec: Vec<(&u16, &(u32, u64, u32))> = u_acc.colls.iter().collect();
+                coll_vec.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+
+                (u_acc.count, u_acc.collscan_count, u_acc.total_duration_ms, u_acc.min_duration_ms, u_acc.max_duration_ms, p95, avg, u_acc.total_docs, u_acc.total_keys, u_acc.total_returned, ratio, Some(&u_acc.ops), coll_vec)
+            } else {
+                (0, 0, 0, 0, 0, 0, 0.0, 0, 0, 0, 0.0, None, Vec::new())
+            };
+
+        out.push_str("{");
+        out.push_str(&format!("\"userName\":\"{}\",", escape_json(u_name)));
+        out.push_str(&format!("\"authDb\":\"{}\",", escape_json(&meta.auth_db)));
+        out.push_str(&format!("\"appName\":\"{}\",", escape_json(&meta.app_name)));
+        out.push_str("\"clientIps\":[");
+        for (ip_idx, ip) in meta.client_ips.iter().enumerate() {
+            if ip_idx > 0 { out.push(','); }
+            out.push_str(&format!("\"{}\"", escape_json(ip)));
+        }
+        out.push_str("],");
+        out.push_str(&format!("\"totalOperations\":{},", count));
+        out.push_str(&format!("\"slowQueryCount\":{},", count));
+        out.push_str(&format!("\"collscanCount\":{},", collscan_count));
+        out.push_str(&format!("\"totalDurationMs\":{},", total_dur));
+        out.push_str(&format!("\"avgDurationMs\":{:.1},", avg_dur));
+        out.push_str(&format!("\"minDurationMs\":{},", min_dur));
+        out.push_str(&format!("\"maxDurationMs\":{},", max_dur));
+        out.push_str(&format!("\"p95DurationMs\":{},", p95_dur));
+        out.push_str(&format!("\"totalDocsExamined\":{},", total_docs));
+        out.push_str(&format!("\"totalKeysExamined\":{},", total_keys));
+        out.push_str(&format!("\"totalReturned\":{},", total_ret));
+        out.push_str(&format!("\"scanRatio\":{:.1},", scan_ratio));
+        out.push_str(&format!("\"firstActive\":\"{}\",", if meta.first_seen_ms > 0 { epoch_to_iso(meta.first_seen_ms) } else { "".to_string() }));
+        out.push_str(&format!("\"lastActive\":\"{}\",", if meta.last_seen_ms > 0 { epoch_to_iso(meta.last_seen_ms) } else { "".to_string() }));
+        out.push_str(&format!("\"authSuccessCount\":{},", meta.auth_success_count));
+        out.push_str(&format!("\"authFailCount\":{},", meta.auth_fail_count));
+
+        out.push_str("\"operations\":{");
+        if let Some(ops) = ops_map {
+            let mut o_entries: Vec<(&u8, &u32)> = ops.iter().collect();
+            o_entries.sort_by(|a, b| b.1.cmp(a.1));
+            for (oi, (op_code, cnt)) in o_entries.into_iter().enumerate() {
+                if oi > 0 { out.push(','); }
+                out.push_str(&format!("\"{}\":{}", MongoOp::from_u8(*op_code).as_str(), cnt));
+            }
+        }
+        out.push_str("},");
+
+        out.push_str("\"topCollections\":[");
+        for (ci, (ns_id, (cnt, dur, collscans))) in top_colls.into_iter().take(20).enumerate() {
+            if ci > 0 { out.push(','); }
+            let ns_str = &engine.ns_strings[*ns_id as usize];
+            out.push_str("{");
+            out.push_str(&format!("\"ns\":\"{}\",", escape_json(ns_str)));
+            out.push_str(&format!("\"count\":{},", cnt));
+            out.push_str(&format!("\"totalDurationMs\":{},", dur));
+            out.push_str(&format!("\"collscanCount\":{}", collscans));
+            out.push('}');
+        }
+        out.push_str("]");
+
+        out.push('}');
+    }
+    out.push_str("],");
+
+    out.push_str("\"userNames\":[");
+    let mut names_list: Vec<&str> = Vec::new();
+    for &uid in &candidate_uids {
+        let name = engine.user_strings.get(uid as usize).map(|s| s.as_str()).unwrap_or("");
+        if !name.is_empty() && !names_list.contains(&name) {
+            names_list.push(name);
+        }
+    }
+    for (ni, name) in names_list.iter().enumerate() {
+        if ni > 0 { out.push(','); }
+        out.push_str(&format!("\"{}\"", escape_json(name)));
     }
     out.push_str("]");
     out.push('}');

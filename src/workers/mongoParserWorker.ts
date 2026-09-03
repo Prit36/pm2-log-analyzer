@@ -67,6 +67,7 @@ function runReaggregate(eng: MongoEngine, filters: MongoFilters): MongoAggregati
     filters.collection,
     filters.searchQuery,
     filters.highScanRatioOnly,
+    filters.userFilter || "all",
   );
 
   // SAFETY: Rust reaggregate returns a JSON serialized MongoAggregationResult structure

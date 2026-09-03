@@ -1,4 +1,4 @@
-import { BarChart3, Database, FileText, Filter, Flame, Search, ShieldAlert, X } from "lucide-react";
+import { BarChart3, Database, FileText, Filter, Flame, Search, ShieldAlert, User, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useMongoStore, type MongoActiveView } from "../../store/mongoStore";
 import { reaggregateMongo } from "../../hooks/useMongoParserWorker";
@@ -13,12 +13,14 @@ const {
   setOperationFilter,
   setPlanFilter,
   setSearchQuery,
+  setUserFilter,
   toggleHighScanRatio,
 } = useMongoStore.getState();
 
 const VIEW_TABS: { id: MongoActiveView; label: string; icon: typeof FileText }[] = [
   { id: "patterns", label: "Query Patterns", icon: Database },
   { id: "slow_queries", label: "Slow Query Log", icon: FileText },
+  { id: "users", label: "User Activity", icon: User },
   { id: "charts", label: "Latency Charts", icon: BarChart3 },
   { id: "diagnostics", label: "Diagnostics", icon: ShieldAlert },
 ];
@@ -37,6 +39,8 @@ export function MongoFilterBar() {
     filters,
     operations,
     collections,
+    userNames,
+    userCount,
     patternCount,
     slowQueryCount,
     collscanCount,
@@ -47,6 +51,8 @@ export function MongoFilterBar() {
       filters: s.filters,
       operations: s.result?.operations ?? [],
       collections: s.result?.collections ?? [],
+      userNames: s.result?.userNames ?? [],
+      userCount: s.result?.users.length ?? 0,
       patternCount: s.result?.patterns.length ?? 0,
       slowQueryCount: s.result?.summary.slowQueryCount ?? 0,
       collscanCount: s.result?.summary.collscanCount ?? 0,
@@ -56,6 +62,11 @@ export function MongoFilterBar() {
 
   const handleOpChange = (op: string) => {
     setOperationFilter(op);
+    void reaggregateMongo();
+  };
+
+  const handleUserChange = (user: string) => {
+    setUserFilter(user);
     void reaggregateMongo();
   };
 
@@ -96,6 +107,7 @@ export function MongoFilterBar() {
             let badgeText: string | null = null;
             if (tab.id === "patterns") badgeText = formatNum(patternCount);
             if (tab.id === "slow_queries") badgeText = formatNum(slowQueryCount);
+            if (tab.id === "users" && userCount > 0) badgeText = formatNum(userCount);
             if (tab.id === "diagnostics" && totalErrors > 0) badgeText = formatNum(totalErrors);
 
             return (
@@ -231,6 +243,30 @@ export function MongoFilterBar() {
               {collections.map((c) => (
                 <option key={c.ns} value={c.ns}>
                   {c.collection} ({c.queryCount})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* User Filter */}
+        {userNames.length > 0 && (
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] font-medium text-slate-400">User:</span>
+            <select
+              value={filters.userFilter}
+              onChange={(e) => handleUserChange(e.target.value)}
+              className={cn(
+                "max-w-[170px] truncate rounded border px-2 py-0.5 text-xs focus:outline-hidden",
+                filters.userFilter !== "all"
+                  ? "border-emerald-500 bg-emerald-50 font-semibold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+                  : "border-slate-200 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
+              )}
+            >
+              <option value="all">All Users ({userNames.length})</option>
+              {userNames.map((u) => (
+                <option key={u} value={u}>
+                  {u}
                 </option>
               ))}
             </select>

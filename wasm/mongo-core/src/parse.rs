@@ -6,6 +6,8 @@ pub struct ParsedSlowQuery<'a> {
     pub timestamp: &'a str,
     pub epoch_ms: i64,
     pub severity: u8, // b'I', b'W', b'E', b'F'
+    pub ctx: &'a str,
+    pub user: &'a str,
     pub ns: &'a str,
     pub collection: &'a str,
     pub db: &'a str,
@@ -27,19 +29,31 @@ pub enum ParsedLine<'a> {
     SlowQuery(ParsedSlowQuery<'a>),
     ConnectionAccepted {
         timestamp: &'a str,
+        ctx: &'a str,
         connection_count: u32,
         remote: &'a str,
     },
     ConnectionEnded {
         timestamp: &'a str,
+        ctx: &'a str,
     },
     AuthSuccess {
         timestamp: &'a str,
+        ctx: &'a str,
+        user: &'a str,
+        db: &'a str,
+        client: &'a str,
+        app_name: &'a str,
     },
     AuthFail {
         timestamp: &'a str,
+        ctx: &'a str,
+        user: &'a str,
+        errmsg: &'a str,
     },
     ClientMetadata {
+        ctx: &'a str,
+        app_name: &'a str,
         driver_name: &'a str,
         driver_version: &'a str,
         platform: &'a str,
@@ -258,11 +272,17 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
             let remote = extract_str_value(line, b"\"remote\":\"").unwrap_or("");
             let query_hash = extract_str_value(line, b"\"queryHash\":\"").unwrap_or("");
             let plan_cache_key = extract_str_value(line, b"\"planCacheKey\":\"").unwrap_or("");
+            let ctx = extract_str_value(line, b"\"ctx\":\"").unwrap_or("");
+            let user = extract_str_value(line, b"\"user\":\"")
+                .or_else(|| extract_str_value(line, b"\"principalName\":\""))
+                .unwrap_or("");
 
             return ParsedLine::SlowQuery(ParsedSlowQuery {
                 timestamp,
                 epoch_ms,
                 severity,
+                ctx,
+                user,
                 ns,
                 collection,
                 db,
@@ -285,26 +305,63 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
     // Check message field
     if let Some(msg) = extract_str_value(line, b"\"msg\":\"") {
         let (timestamp, _) = extract_timestamp(line);
+        let ctx = extract_str_value(line, b"\"ctx\":\"").unwrap_or("");
+
         if msg == "Connection accepted" {
             let connection_count = extract_u32_value(line, b"\"connectionCount\":").unwrap_or(0);
             let remote = extract_str_value(line, b"\"remote\":\"").unwrap_or("");
             return ParsedLine::ConnectionAccepted {
                 timestamp,
+                ctx,
                 connection_count,
                 remote,
             };
         }
         if msg == "Connection ended" {
-            return ParsedLine::ConnectionEnded { timestamp };
+            return ParsedLine::ConnectionEnded { timestamp, ctx };
         }
         if msg == "Authentication succeeded" || msg == "Successfully authenticated" {
-            return ParsedLine::AuthSuccess { timestamp };
+            let user = extract_str_value(line, b"\"user\":\"")
+                .or_else(|| extract_str_value(line, b"\"principalName\":\""))
+                .unwrap_or("unknown");
+            let db = extract_str_value(line, b"\"db\":\"")
+                .or_else(|| extract_str_value(line, b"\"authenticationDatabase\":\""))
+                .unwrap_or("admin");
+            let client = extract_str_value(line, b"\"client\":\"")
+                .or_else(|| extract_str_value(line, b"\"remote\":\""))
+                .unwrap_or("");
+            let app_name = extract_str_value(line, b"\"application\":{\"name\":\"")
+                .or_else(|| extract_str_value(line, b"\"appName\":\""))
+                .unwrap_or("");
+
+            return ParsedLine::AuthSuccess {
+                timestamp,
+                ctx,
+                user,
+                db,
+                client,
+                app_name,
+            };
         }
-        if msg == "Authentication failed" {
-            return ParsedLine::AuthFail { timestamp };
+        if msg == "Authentication failed" || msg == "Checking authorization failed" {
+            let user = extract_str_value(line, b"\"user\":\"")
+                .or_else(|| extract_str_value(line, b"\"principalName\":\""))
+                .unwrap_or("");
+            let errmsg = extract_str_value(line, b"\"errmsg\":\"").unwrap_or(msg);
+            return ParsedLine::AuthFail {
+                timestamp,
+                ctx,
+                user,
+                errmsg,
+            };
         }
         if msg == "client metadata" {
+            let app_name = extract_str_value(line, b"\"application\":{\"name\":\"")
+                .or_else(|| extract_str_value(line, b"\"appName\":\""))
+                .unwrap_or("");
             return ParsedLine::ClientMetadata {
+                ctx,
+                app_name,
                 driver_name: extract_str_value(line, b"\"name\":\"").unwrap_or("unknown"),
                 driver_version: extract_str_value(line, b"\"version\":\"").unwrap_or("unknown"),
                 platform: extract_str_value(line, b"\"platform\":\"").unwrap_or("unknown"),

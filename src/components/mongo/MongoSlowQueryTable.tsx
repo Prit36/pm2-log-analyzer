@@ -42,7 +42,7 @@ function SlowQueryRow({ index, style, queries }: RowComponentProps<SlowQueryRowP
       tabIndex={0}
       aria-label={`Inspect slow query on ${q.ns}, duration ${q.durationMs}ms`}
       className={cn(
-        "grid cursor-pointer grid-cols-[110px_90px_1fr_90px_90px_90px_80px_130px_48px] items-center border-b border-slate-100 px-4 text-xs hover:bg-emerald-50/40 dark:border-slate-800/80 dark:hover:bg-emerald-950/20",
+        "grid cursor-pointer grid-cols-[100px_85px_110px_1fr_80px_80px_80px_70px_110px_36px] items-center border-b border-slate-100 px-4 text-xs hover:bg-emerald-50/40 dark:border-slate-800/80 dark:hover:bg-emerald-950/20",
         index % 2 === 0 ? "bg-white dark:bg-slate-900" : "bg-slate-50/40 dark:bg-slate-950/30",
       )}
     >
@@ -61,6 +61,26 @@ function SlowQueryRow({ index, style, queries }: RowComponentProps<SlowQueryRowP
         >
           {formatMs(q.durationMs)}
         </span>
+      </div>
+
+      {/* 3. User & Connection */}
+      <div className="flex flex-col min-w-0 pr-2">
+        <span
+          className={cn(
+            "truncate text-[11px]",
+            q.user && q.user !== "system"
+              ? "font-semibold text-emerald-700 dark:text-emerald-300"
+              : "text-slate-500 dark:text-slate-400",
+          )}
+          title={`User: ${q.user || "system"}${q.ctx ? ` (${q.ctx})` : ""}`}
+        >
+          {q.user || "system"}
+        </span>
+        {q.ctx && (
+          <span className="truncate font-mono text-[9px] text-slate-400">
+            {q.ctx}
+          </span>
+        )}
       </div>
 
       {/* 3. Namespace & Plan */}
@@ -197,7 +217,7 @@ export function MongoSlowQueryTable() {
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
       {/* Table Header */}
-      <div className="grid grid-cols-[110px_90px_1fr_90px_90px_90px_80px_130px_48px] items-center border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
+      <div className="grid grid-cols-[100px_85px_110px_1fr_80px_80px_80px_70px_110px_36px] items-center border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
         <button
           type="button"
           onClick={() => handleHeaderSort("timestamp")}
@@ -215,6 +235,10 @@ export function MongoSlowQueryTable() {
           <span>Duration</span>
           {renderSortIcon("durationMs")}
         </button>
+
+        <div className="flex items-center gap-1 text-slate-600 dark:text-slate-400">
+          <span>User</span>
+        </div>
 
         <button
           type="button"

@@ -371,5 +371,7 @@ export function aggregateMongoData(params: {
     checkpoints,
     dates,
     operations,
+    users: [],
+    userNames: [],
   };
 }
