@@ -461,14 +461,17 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
             engine.durations_ms[p.first_query_idx]
         );
         write_escaped_json(&mut out, plan);
+        let ex_docs = engine.docs_examined[p.first_query_idx];
+        let ex_ret = engine.nreturned[p.first_query_idx];
+        let ex_scan_ratio = (ex_docs as f64) / ((ex_ret as f64).max(1.0));
         let _ = write!(
             out,
             "\",\"isCollscan\":{},\"keysExamined\":{},\"docsExamined\":{},\"nreturned\":{},\"scanRatio\":{:.1},\"numYields\":{},\"reslen\":{},\"remote\":\"",
             p.is_collscan,
             engine.keys_examined[p.first_query_idx],
-            engine.docs_examined[p.first_query_idx],
-            engine.nreturned[p.first_query_idx],
-            p_scan_ratio,
+            ex_docs,
+            ex_ret,
+            ex_scan_ratio,
             engine.num_yields[p.first_query_idx],
             engine.reslens[p.first_query_idx]
         );
