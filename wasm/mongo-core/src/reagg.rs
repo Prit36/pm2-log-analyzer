@@ -1,5 +1,6 @@
 //! Fast reaggregation kernel in Rust.
 
+use std::fmt::Write;
 use hashbrown::HashMap;
 
 use crate::fingerprint::MongoOp;
@@ -350,24 +351,28 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         total_docs as f64
     };
 
-    // Serialize to JSON String
-    let mut out = String::with_capacity(65536);
+    // Pre-allocate 1MB output buffer to prevent reallocations
+    let mut out = String::with_capacity(1024 * 1024);
     out.push_str("{\"summary\":{");
-    out.push_str(&format!("\"totalLines\":{},", engine.total_lines));
-    out.push_str(&format!("\"slowQueryCount\":{},", matched_count));
-    out.push_str(&format!("\"collscanCount\":{},", total_collscans));
-    out.push_str(&format!("\"avgDurationMs\":{:.1},", avg_dur));
-    out.push_str(&format!("\"p50DurationMs\":{},", p50));
-    out.push_str(&format!("\"p90DurationMs\":{},", p90));
-    out.push_str(&format!("\"p95DurationMs\":{},", p95));
-    out.push_str(&format!("\"p99DurationMs\":{},", p99));
-    out.push_str(&format!("\"maxDurationMs\":{},", max_duration));
-    out.push_str(&format!("\"totalDocsExamined\":{},", total_docs));
-    out.push_str(&format!("\"totalKeysExamined\":{},", total_keys));
-    out.push_str(&format!("\"totalReturned\":{},", total_returned));
-    out.push_str(&format!("\"overallScanRatio\":{:.1},", overall_scan_ratio));
-    out.push_str(&format!("\"uniquePatterns\":{},", pattern_map.len()));
-    out.push_str(&format!("\"uniqueCollections\":{}", collection_map.len()));
+    let _ = write!(
+        out,
+        "\"totalLines\":{},\"slowQueryCount\":{},\"collscanCount\":{},\"avgDurationMs\":{:.1},\"p50DurationMs\":{},\"p90DurationMs\":{},\"p95DurationMs\":{},\"p99DurationMs\":{},\"maxDurationMs\":{},\"totalDocsExamined\":{},\"totalKeysExamined\":{},\"totalReturned\":{},\"overallScanRatio\":{:.1},\"uniquePatterns\":{},\"uniqueCollections\":{}",
+        engine.total_lines,
+        matched_count,
+        total_collscans,
+        avg_dur,
+        p50,
+        p90,
+        p95,
+        p99,
+        max_duration,
+        total_docs,
+        total_keys,
+        total_returned,
+        overall_scan_ratio,
+        pattern_map.len(),
+        collection_map.len()
+    );
     out.push_str("},");
 
     // Patterns
@@ -375,7 +380,7 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
     let mut patterns: Vec<PatternAcc> = pattern_map.into_values().collect();
     patterns.sort_by(|a, b| b.total_duration_ms.cmp(&a.total_duration_ms));
 
-    for (p_idx, p) in patterns.iter().enumerate() {
+    for (p_idx, p) in patterns.iter_mut().enumerate() {
         if p_idx > 0 {
             out.push(',');
         }
@@ -389,78 +394,100 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         let plan = &engine.plan_strings[p.plan_id as usize];
         let sug = &engine.index_suggestions[p.fp_id as usize];
 
-        let mut sorted_durs = p.sample_durations.clone();
-        sorted_durs.sort_unstable();
-        let p_p50 = calc_percentile(&sorted_durs, 50.0);
-        let p_p90 = calc_percentile(&sorted_durs, 90.0);
-        let p_p95 = calc_percentile(&sorted_durs, 95.0);
-        let p_p99 = calc_percentile(&sorted_durs, 99.0);
+        p.sample_durations.sort_unstable();
+        let p_p50 = calc_percentile(&p.sample_durations, 50.0);
+        let p_p90 = calc_percentile(&p.sample_durations, 90.0);
+        let p_p95 = calc_percentile(&p.sample_durations, 95.0);
+        let p_p99 = calc_percentile(&p.sample_durations, 99.0);
         let p_avg = (p.total_duration_ms as f64) / (p.count as f64);
         let p_scan_ratio = (p.total_docs as f64) / ((p.total_returned as f64).max(1.0));
 
-        out.push_str("{");
-        out.push_str(&format!("\"id\":\"pat-{}\",", p_idx));
-        out.push_str(&format!("\"ns\":\"{}\",", escape_json(ns)));
-        out.push_str(&format!("\"db\":\"{}\",", escape_json(db)));
-        out.push_str(&format!("\"collection\":\"{}\",", escape_json(collection)));
-        out.push_str(&format!("\"op\":\"{}\",", MongoOp::from_u8(p.op).as_str()));
-        out.push_str(&format!("\"fingerprint\":\"{}\",", escape_json(fp)));
-        out.push_str(&format!("\"planSummary\":\"{}\",", escape_json(plan)));
-        out.push_str(&format!("\"isCollscan\":{},", p.is_collscan));
-        out.push_str(&format!("\"count\":{},", p.count));
-        out.push_str(&format!("\"totalDurationMs\":{},", p.total_duration_ms));
-        out.push_str(&format!("\"avgDurationMs\":{:.1},", p_avg));
-        out.push_str(&format!("\"minDurationMs\":{},", p.min_duration_ms));
-        out.push_str(&format!("\"maxDurationMs\":{},", p.max_duration_ms));
-        out.push_str(&format!("\"p50DurationMs\":{},", p_p50));
-        out.push_str(&format!("\"p90DurationMs\":{},", p_p90));
-        out.push_str(&format!("\"p95DurationMs\":{},", p_p95));
-        out.push_str(&format!("\"p99DurationMs\":{},", p_p99));
-        out.push_str(&format!("\"totalDocsExamined\":{},", p.total_docs));
-        out.push_str(&format!("\"avgDocsExamined\":{:.1},", (p.total_docs as f64) / (p.count as f64)));
-        out.push_str(&format!("\"totalKeysExamined\":{},", p.total_keys));
-        out.push_str(&format!("\"avgKeysExamined\":{:.1},", (p.total_keys as f64) / (p.count as f64)));
-        out.push_str(&format!("\"totalReturned\":{},", p.total_returned));
-        out.push_str(&format!("\"avgReturned\":{:.1},", (p.total_returned as f64) / (p.count as f64)));
-        out.push_str(&format!("\"scanRatio\":{:.1},", p_scan_ratio));
-        out.push_str(&format!("\"collscanCount\":{},", p.collscan_count));
-        out.push_str(&format!("\"indexSuggestion\":\"{}\",", escape_json(sug)));
+        let _ = write!(out, "{{\"id\":\"pat-{}\",\"ns\":\"", p_idx);
+        write_escaped_json(&mut out, ns);
+        out.push_str("\",\"db\":\"");
+        write_escaped_json(&mut out, db);
+        out.push_str("\",\"collection\":\"");
+        write_escaped_json(&mut out, collection);
+        let _ = write!(
+            out,
+            "\",\"op\":\"{}\",\"fingerprint\":\"",
+            MongoOp::from_u8(p.op).as_str()
+        );
+        write_escaped_json(&mut out, fp);
+        out.push_str("\",\"planSummary\":\"");
+        write_escaped_json(&mut out, plan);
+        let _ = write!(
+            out,
+            "\",\"isCollscan\":{},\"count\":{},\"totalDurationMs\":{},\"avgDurationMs\":{:.1},\"minDurationMs\":{},\"maxDurationMs\":{},\"p50DurationMs\":{},\"p90DurationMs\":{},\"p95DurationMs\":{},\"p99DurationMs\":{},\"totalDocsExamined\":{},\"avgDocsExamined\":{:.1},\"totalKeysExamined\":{},\"avgKeysExamined\":{:.1},\"totalReturned\":{},\"avgReturned\":{:.1},\"scanRatio\":{:.1},\"collscanCount\":{},\"indexSuggestion\":\"",
+            p.is_collscan,
+            p.count,
+            p.total_duration_ms,
+            p_avg,
+            p.min_duration_ms,
+            p.max_duration_ms,
+            p_p50,
+            p_p90,
+            p_p95,
+            p_p99,
+            p.total_docs,
+            (p.total_docs as f64) / (p.count as f64),
+            p.total_keys,
+            (p.total_keys as f64) / (p.count as f64),
+            p.total_returned,
+            (p.total_returned as f64) / (p.count as f64),
+            p_scan_ratio,
+            p.collscan_count
+        );
+        write_escaped_json(&mut out, sug);
+        out.push_str("\",\"exampleQuery\":{");
 
-        // Example query
         let ex_remote = &engine.remote_strings[engine.remote_ids[p.first_query_idx] as usize];
-        out.push_str("\"exampleQuery\":{");
-        out.push_str(&format!("\"id\":\"query-example-{}\",", p_idx));
-        out.push_str(&format!("\"timestamp\":\"{}\",", epoch_to_iso(engine.timestamps_ms[p.first_query_idx])));
-        out.push_str(&format!("\"epochMs\":{},", engine.timestamps_ms[p.first_query_idx]));
-        out.push_str(&format!("\"severity\":\"I\","));
-        out.push_str(&format!("\"component\":\"COMMAND\","));
-        out.push_str(&format!("\"ctx\":\"\","));
-        out.push_str(&format!("\"ns\":\"{}\",", escape_json(ns)));
-        out.push_str(&format!("\"db\":\"{}\",", escape_json(db)));
-        out.push_str(&format!("\"collection\":\"{}\",", escape_json(collection)));
-        out.push_str(&format!("\"op\":\"{}\",", MongoOp::from_u8(p.op).as_str()));
-        out.push_str(&format!("\"durationMs\":{},", engine.durations_ms[p.first_query_idx]));
-        out.push_str(&format!("\"planSummary\":\"{}\",", escape_json(plan)));
-        out.push_str(&format!("\"isCollscan\":{},", p.is_collscan));
-        out.push_str(&format!("\"keysExamined\":{},", engine.keys_examined[p.first_query_idx]));
-        out.push_str(&format!("\"docsExamined\":{},", engine.docs_examined[p.first_query_idx]));
-        out.push_str(&format!("\"nreturned\":{},", engine.nreturned[p.first_query_idx]));
-        out.push_str(&format!("\"scanRatio\":{:.1},", p_scan_ratio));
-        out.push_str(&format!("\"numYields\":{},", engine.num_yields[p.first_query_idx]));
-        out.push_str(&format!("\"reslen\":{},", engine.reslens[p.first_query_idx]));
-        out.push_str(&format!("\"remote\":\"{}\",", escape_json(ex_remote)));
-        out.push_str(&format!(
-            "\"command\":{{\"operation\":\"{}\",\"collection\":\"{}\",\"planSummary\":\"{}\",\"fingerprint\":\"{}\"}},",
+        let _ = write!(out, "\"id\":\"query-example-{}\",\"timestamp\":\"", p_idx);
+        write_epoch_to_iso(&mut out, engine.timestamps_ms[p.first_query_idx]);
+        let _ = write!(
+            out,
+            "\",\"epochMs\":{},\"severity\":\"I\",\"component\":\"COMMAND\",\"ctx\":\"\",\"ns\":\"",
+            engine.timestamps_ms[p.first_query_idx]
+        );
+        write_escaped_json(&mut out, ns);
+        out.push_str("\",\"db\":\"");
+        write_escaped_json(&mut out, db);
+        out.push_str("\",\"collection\":\"");
+        write_escaped_json(&mut out, collection);
+        let _ = write!(
+            out,
+            "\",\"op\":\"{}\",\"durationMs\":{},\"planSummary\":\"",
             MongoOp::from_u8(p.op).as_str(),
-            escape_json(collection),
-            escape_json(plan),
-            escape_json(fp)
-        ));
-        out.push_str(&format!("\"fingerprint\":\"{}\",", escape_json(fp)));
-        out.push_str(&format!("\"indexSuggestion\":\"{}\"", escape_json(sug)));
-        out.push_str("}");
-
-        out.push('}');
+            engine.durations_ms[p.first_query_idx]
+        );
+        write_escaped_json(&mut out, plan);
+        let _ = write!(
+            out,
+            "\",\"isCollscan\":{},\"keysExamined\":{},\"docsExamined\":{},\"nreturned\":{},\"scanRatio\":{:.1},\"numYields\":{},\"reslen\":{},\"remote\":\"",
+            p.is_collscan,
+            engine.keys_examined[p.first_query_idx],
+            engine.docs_examined[p.first_query_idx],
+            engine.nreturned[p.first_query_idx],
+            p_scan_ratio,
+            engine.num_yields[p.first_query_idx],
+            engine.reslens[p.first_query_idx]
+        );
+        write_escaped_json(&mut out, ex_remote);
+        let _ = write!(
+            out,
+            "\",\"command\":{{\"operation\":\"{}\",\"collection\":\"",
+            MongoOp::from_u8(p.op).as_str()
+        );
+        write_escaped_json(&mut out, collection);
+        out.push_str("\",\"planSummary\":\"");
+        write_escaped_json(&mut out, plan);
+        out.push_str("\",\"fingerprint\":\"");
+        write_escaped_json(&mut out, fp);
+        out.push_str("\"},\"fingerprint\":\"");
+        write_escaped_json(&mut out, fp);
+        out.push_str("\",\"indexSuggestion\":\"");
+        write_escaped_json(&mut out, sug);
+        out.push_str("\"}}");
     }
     out.push_str("],");
 
@@ -469,7 +496,7 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
     let mut collections: Vec<CollectionAcc> = collection_map.into_values().collect();
     collections.sort_by(|a, b| b.total_duration_ms.cmp(&a.total_duration_ms));
 
-    for (c_idx, c) in collections.iter().enumerate() {
+    for (c_idx, c) in collections.iter_mut().enumerate() {
         if c_idx > 0 {
             out.push(',');
         }
@@ -479,26 +506,30 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         } else {
             ("unknown", ns.as_str())
         };
-        let mut sorted = c.sample_durations.clone();
-        sorted.sort_unstable();
-        let c_p95 = calc_percentile(&sorted, 95.0);
+        c.sample_durations.sort_unstable();
+        let c_p95 = calc_percentile(&c.sample_durations, 95.0);
         let c_avg = (c.total_duration_ms as f64) / (c.count as f64);
         let c_scan_ratio = (c.total_docs as f64) / ((c.total_returned as f64).max(1.0));
 
-        out.push_str("{");
-        out.push_str(&format!("\"ns\":\"{}\",", escape_json(ns)));
-        out.push_str(&format!("\"collection\":\"{}\",", escape_json(collection)));
-        out.push_str(&format!("\"db\":\"{}\",", escape_json(db)));
-        out.push_str(&format!("\"queryCount\":{},", c.count));
-        out.push_str(&format!("\"totalDurationMs\":{},", c.total_duration_ms));
-        out.push_str(&format!("\"avgDurationMs\":{:.1},", c_avg));
-        out.push_str(&format!("\"maxDurationMs\":{},", c.max_duration_ms));
-        out.push_str(&format!("\"p95DurationMs\":{},", c_p95));
-        out.push_str(&format!("\"collscanCount\":{},", c.collscan_count));
-        out.push_str(&format!("\"totalDocsExamined\":{},", c.total_docs));
-        out.push_str(&format!("\"totalReturned\":{},", c.total_returned));
-        out.push_str(&format!("\"scanRatio\":{:.1}", c_scan_ratio));
-        out.push('}');
+        out.push_str("{\"ns\":\"");
+        write_escaped_json(&mut out, ns);
+        out.push_str("\",\"collection\":\"");
+        write_escaped_json(&mut out, collection);
+        out.push_str("\",\"db\":\"");
+        write_escaped_json(&mut out, db);
+        let _ = write!(
+            out,
+            "\",\"queryCount\":{},\"totalDurationMs\":{},\"avgDurationMs\":{:.1},\"maxDurationMs\":{},\"p95DurationMs\":{},\"collscanCount\":{},\"totalDocsExamined\":{},\"totalReturned\":{},\"scanRatio\":{:.1}}}",
+            c.count,
+            c.total_duration_ms,
+            c_avg,
+            c.max_duration_ms,
+            c_p95,
+            c.collscan_count,
+            c.total_docs,
+            c.total_returned,
+            c_scan_ratio
+        );
     }
     out.push_str("],");
 
@@ -507,34 +538,41 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
     let mut time_buckets: Vec<TimeBucketAcc> = time_map.into_values().collect();
     time_buckets.sort_by(|a, b| a.hour.cmp(&b.hour));
 
-    for (t_idx, tb) in time_buckets.iter().enumerate() {
+    for (t_idx, tb) in time_buckets.iter_mut().enumerate() {
         if t_idx > 0 {
             out.push(',');
         }
-        let mut sorted = tb.sample_durations.clone();
-        sorted.sort_unstable();
-        let tb_p95 = calc_percentile(&sorted, 95.0);
+        tb.sample_durations.sort_unstable();
+        let tb_p95 = calc_percentile(&tb.sample_durations, 95.0);
         let tb_avg = (tb.total_duration_ms as f64) / (tb.count as f64);
 
-        out.push_str("{");
-        out.push_str(&format!("\"timeKey\":\"{}\",", tb.date_str));
-        out.push_str(&format!("\"hourLabel\":\"{}\",", tb.date_str));
-        out.push_str(&format!("\"queryCount\":{},", tb.count));
-        out.push_str(&format!("\"collscanCount\":{},", tb.collscan_count));
-        out.push_str(&format!("\"avgDurationMs\":{:.1},", tb_avg));
-        out.push_str(&format!("\"p95DurationMs\":{},", tb_p95));
-        out.push_str(&format!("\"maxDurationMs\":{},", tb.max_duration_ms));
-        out.push_str("\"ops\":{}");
-        out.push('}');
+        let _ = write!(
+            out,
+            "{{\"timeKey\":\"{}\",\"hourLabel\":\"{}\",\"queryCount\":{},\"collscanCount\":{},\"avgDurationMs\":{:.1},\"p95DurationMs\":{},\"maxDurationMs\":{},\"ops\":{{}}}}",
+            tb.date_str,
+            tb.date_str,
+            tb.count,
+            tb.collscan_count,
+            tb_avg,
+            tb_p95,
+            tb.max_duration_ms
+        );
     }
     out.push_str("],");
 
     // Top Slow Queries (up to 300 queries for the virtualized slow queries table)
     out.push_str("\"slowQueries\":[");
+    let k = matched_indices.len().min(300);
     let mut top_slow: Vec<usize> = matched_indices.clone();
-    top_slow.sort_by(|&a, &b| engine.durations_ms[b].cmp(&engine.durations_ms[a]));
+    if top_slow.len() > k {
+        top_slow.select_nth_unstable_by(k - 1, |&a, &b| {
+            engine.durations_ms[b].cmp(&engine.durations_ms[a]).then_with(|| a.cmp(&b))
+        });
+        top_slow.truncate(k);
+    }
+    top_slow.sort_by(|&a, &b| engine.durations_ms[b].cmp(&engine.durations_ms[a]).then_with(|| a.cmp(&b)));
 
-    for (q_idx, &idx) in top_slow.iter().take(300).enumerate() {
+    for (q_idx, &idx) in top_slow.iter().enumerate() {
         if q_idx > 0 {
             out.push(',');
         }
@@ -560,65 +598,87 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         } else {
             ""
         };
-
-        out.push_str("{");
-        out.push_str(&format!("\"id\":\"query-{}\",", idx));
-        out.push_str(&format!("\"timestamp\":\"{}\",", epoch_to_iso(engine.timestamps_ms[idx])));
-        out.push_str(&format!("\"epochMs\":{},", engine.timestamps_ms[idx]));
-        out.push_str(&format!("\"severity\":\"I\","));
-        out.push_str(&format!("\"component\":\"COMMAND\","));
-        out.push_str(&format!("\"ctx\":\"{}\",", escape_json(ctx_str)));
-        out.push_str(&format!("\"user\":\"{}\",", escape_json(user_name)));
-        out.push_str(&format!("\"ns\":\"{}\",", escape_json(ns)));
-        out.push_str(&format!("\"db\":\"{}\",", escape_json(db)));
-        out.push_str(&format!("\"collection\":\"{}\",", escape_json(collection)));
-        out.push_str(&format!("\"op\":\"{}\",", MongoOp::from_u8(engine.op_ids[idx]).as_str()));
-        out.push_str(&format!("\"durationMs\":{},", engine.durations_ms[idx]));
-        out.push_str(&format!("\"planSummary\":\"{}\",", escape_json(plan)));
-        out.push_str(&format!("\"isCollscan\":{},", is_coll));
-        out.push_str(&format!("\"keysExamined\":{},", engine.keys_examined[idx]));
-        out.push_str(&format!("\"docsExamined\":{},", docs));
-        out.push_str(&format!("\"nreturned\":{},", ret));
-        out.push_str(&format!("\"scanRatio\":{:.1},", scan_ratio));
-        out.push_str(&format!("\"numYields\":{},", engine.num_yields[idx]));
-        out.push_str(&format!("\"reslen\":{},", engine.reslens[idx]));
         let remote = &engine.remote_strings[engine.remote_ids[idx] as usize];
-        out.push_str(&format!("\"remote\":\"{}\",", escape_json(remote)));
-        out.push_str(&format!(
-            "\"command\":{{\"operation\":\"{}\",\"collection\":\"{}\",\"planSummary\":\"{}\",\"fingerprint\":\"{}\",\"user\":\"{}\",\"ctx\":\"{}\"}},",
+
+        let _ = write!(out, "{{\"id\":\"query-{}\",\"timestamp\":\"", idx);
+        write_epoch_to_iso(&mut out, engine.timestamps_ms[idx]);
+        let _ = write!(
+            out,
+            "\",\"epochMs\":{},\"severity\":\"I\",\"component\":\"COMMAND\",\"ctx\":\"",
+            engine.timestamps_ms[idx]
+        );
+        write_escaped_json(&mut out, ctx_str);
+        out.push_str("\",\"user\":\"");
+        write_escaped_json(&mut out, user_name);
+        out.push_str("\",\"ns\":\"");
+        write_escaped_json(&mut out, ns);
+        out.push_str("\",\"db\":\"");
+        write_escaped_json(&mut out, db);
+        out.push_str("\",\"collection\":\"");
+        write_escaped_json(&mut out, collection);
+        let _ = write!(
+            out,
+            "\",\"op\":\"{}\",\"durationMs\":{},\"planSummary\":\"",
             MongoOp::from_u8(engine.op_ids[idx]).as_str(),
-            escape_json(collection),
-            escape_json(plan),
-            escape_json(fp),
-            escape_json(user_name),
-            escape_json(ctx_str)
-        ));
-        out.push_str(&format!("\"fingerprint\":\"{}\",", escape_json(fp)));
-        out.push_str(&format!("\"indexSuggestion\":\"{}\"", escape_json(sug)));
-        out.push('}');
+            engine.durations_ms[idx]
+        );
+        write_escaped_json(&mut out, plan);
+        let _ = write!(
+            out,
+            "\",\"isCollscan\":{},\"keysExamined\":{},\"docsExamined\":{},\"nreturned\":{},\"scanRatio\":{:.1},\"numYields\":{},\"reslen\":{},\"remote\":\"",
+            is_coll,
+            engine.keys_examined[idx],
+            docs,
+            ret,
+            scan_ratio,
+            engine.num_yields[idx],
+            engine.reslens[idx]
+        );
+        write_escaped_json(&mut out, remote);
+        let _ = write!(
+            out,
+            "\",\"command\":{{\"operation\":\"{}\",\"collection\":\"",
+            MongoOp::from_u8(engine.op_ids[idx]).as_str()
+        );
+        write_escaped_json(&mut out, collection);
+        out.push_str("\",\"planSummary\":\"");
+        write_escaped_json(&mut out, plan);
+        out.push_str("\",\"fingerprint\":\"");
+        write_escaped_json(&mut out, fp);
+        out.push_str("\",\"user\":\"");
+        write_escaped_json(&mut out, user_name);
+        out.push_str("\",\"ctx\":\"");
+        write_escaped_json(&mut out, ctx_str);
+        out.push_str("\"},\"fingerprint\":\"");
+        write_escaped_json(&mut out, fp);
+        out.push_str("\",\"indexSuggestion\":\"");
+        write_escaped_json(&mut out, sug);
+        out.push_str("\"}");
     }
     out.push_str("],");
 
     // Diagnostics: Connections
     out.push_str("\"connections\":{");
-    out.push_str(&format!("\"accepted\":{},", engine.conn_accepted));
-    out.push_str(&format!("\"ended\":{},", engine.conn_ended));
-    out.push_str(&format!("\"peakConcurrent\":{},", engine.conn_peak));
-    out.push_str(&format!("\"authSuccess\":{},", engine.auth_success));
-    out.push_str(&format!("\"authFailed\":{},", engine.auth_fail));
-    out.push_str("\"drivers\":[");
+    let _ = write!(
+        out,
+        "\"accepted\":{},\"ended\":{},\"peakConcurrent\":{},\"authSuccess\":{},\"authFailed\":{},\"drivers\":[",
+        engine.conn_accepted, engine.conn_ended, engine.conn_peak, engine.auth_success, engine.auth_fail
+    );
     for (d_idx, d) in engine.drivers.iter().enumerate() {
         if d_idx > 0 {
             out.push(',');
         }
-        out.push_str("{");
-        out.push_str(&format!("\"driverName\":\"{}\",", escape_json(&d.name)));
-        out.push_str(&format!("\"driverVersion\":\"{}\",", escape_json(&d.version)));
-        out.push_str(&format!("\"platform\":\"{}\",", escape_json(&d.platform)));
-        out.push_str(&format!("\"osName\":\"{}\",", escape_json(&d.os_name)));
-        out.push_str(&format!("\"osVersion\":\"{}\",", escape_json(&d.os_version)));
-        out.push_str(&format!("\"count\":{}", d.count));
-        out.push('}');
+        out.push_str("{\"driverName\":\"");
+        write_escaped_json(&mut out, &d.name);
+        out.push_str("\",\"driverVersion\":\"");
+        write_escaped_json(&mut out, &d.version);
+        out.push_str("\",\"platform\":\"");
+        write_escaped_json(&mut out, &d.platform);
+        out.push_str("\",\"osName\":\"");
+        write_escaped_json(&mut out, &d.os_name);
+        out.push_str("\",\"osVersion\":\"");
+        write_escaped_json(&mut out, &d.os_version);
+        let _ = write!(out, "\",\"count\":{}}}", d.count);
     }
     out.push_str("],\"clientIps\":[]},");
 
@@ -634,14 +694,15 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
             b'F' => "F",
             _ => "I",
         };
-        out.push_str("{");
-        out.push_str(&format!("\"timestamp\":\"{}\",", escape_json(&e.timestamp)));
-        out.push_str(&format!("\"severity\":\"{}\",", sev));
-        out.push_str(&format!("\"component\":\"COMMAND\","));
-        out.push_str(&format!("\"id\":{},", e.id));
-        out.push_str(&format!("\"msg\":\"{}\",", escape_json(&e.msg)));
-        out.push_str(&format!("\"count\":{}", e.count));
-        out.push('}');
+        out.push_str("{\"timestamp\":\"");
+        write_escaped_json(&mut out, &e.timestamp);
+        let _ = write!(
+            out,
+            "\",\"severity\":\"{}\",\"component\":\"COMMAND\",\"id\":{},\"msg\":\"",
+            sev, e.id
+        );
+        write_escaped_json(&mut out, &e.msg);
+        let _ = write!(out, "\",\"count\":{}}}", e.count);
     }
     out.push_str("],");
 
@@ -651,10 +712,11 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         if ck_idx > 0 {
             out.push(',');
         }
-        out.push_str("{");
-        out.push_str(&format!("\"timestamp\":\"{}\",", escape_json(&ck.timestamp)));
-        out.push_str(&format!("\"msg\":\"{}\"", escape_json(&ck.msg)));
-        out.push('}');
+        out.push_str("{\"timestamp\":\"");
+        write_escaped_json(&mut out, &ck.timestamp);
+        out.push_str("\",\"msg\":\"");
+        write_escaped_json(&mut out, &ck.msg);
+        out.push_str("\"}");
     }
     out.push_str("],");
 
@@ -664,7 +726,9 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         if d_idx > 0 {
             out.push(',');
         }
-        out.push_str(&format!("\"{}\"", escape_json(d)));
+        out.push('"');
+        write_escaped_json(&mut out, d);
+        out.push('"');
     }
     out.push_str("],");
 
@@ -682,7 +746,9 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         if o_idx > 0 {
             out.push(',');
         }
-        out.push_str(&format!("\"{}\"", op));
+        out.push('"');
+        out.push_str(op);
+        out.push('"');
     }
     out.push_str("],");
 
@@ -719,10 +785,9 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         let meta = engine.user_meta.get(&uid).unwrap_or(&default_meta);
 
         let (count, collscan_count, total_dur, min_dur, max_dur, p95_dur, avg_dur, total_docs, total_keys, total_ret, scan_ratio, ops_map, top_colls) = 
-            if let Some(u_acc) = user_map.get(&uid) {
-                let mut sorted = u_acc.sample_durations.clone();
-                sorted.sort_unstable();
-                let p95 = calc_percentile(&sorted, 95.0);
+            if let Some(u_acc) = user_map.get_mut(&uid) {
+                u_acc.sample_durations.sort_unstable();
+                let p95 = calc_percentile(&u_acc.sample_durations, 95.0);
                 let avg = (u_acc.total_duration_ms as f64) / (u_acc.count as f64);
                 let ratio = (u_acc.total_docs as f64) / ((u_acc.total_returned as f64).max(1.0));
 
@@ -734,62 +799,72 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
                 (0, 0, 0, 0, 0, 0, 0.0, 0, 0, 0, 0.0, None, Vec::new())
             };
 
-        out.push_str("{");
-        out.push_str(&format!("\"userName\":\"{}\",", escape_json(u_name)));
-        out.push_str(&format!("\"authDb\":\"{}\",", escape_json(&meta.auth_db)));
-        out.push_str(&format!("\"appName\":\"{}\",", escape_json(&meta.app_name)));
-        out.push_str("\"clientIps\":[");
+        out.push_str("{\"userName\":\"");
+        write_escaped_json(&mut out, u_name);
+        out.push_str("\",\"authDb\":\"");
+        write_escaped_json(&mut out, &meta.auth_db);
+        out.push_str("\",\"appName\":\"");
+        write_escaped_json(&mut out, &meta.app_name);
+        out.push_str("\",\"clientIps\":[");
         for (ip_idx, ip) in meta.client_ips.iter().enumerate() {
             if ip_idx > 0 { out.push(','); }
-            out.push_str(&format!("\"{}\"", escape_json(ip)));
+            out.push('"');
+            write_escaped_json(&mut out, ip);
+            out.push('"');
         }
         out.push_str("],");
-        out.push_str(&format!("\"totalOperations\":{},", count));
-        out.push_str(&format!("\"slowQueryCount\":{},", count));
-        out.push_str(&format!("\"collscanCount\":{},", collscan_count));
-        out.push_str(&format!("\"totalDurationMs\":{},", total_dur));
-        out.push_str(&format!("\"avgDurationMs\":{:.1},", avg_dur));
-        out.push_str(&format!("\"minDurationMs\":{},", min_dur));
-        out.push_str(&format!("\"maxDurationMs\":{},", max_dur));
-        out.push_str(&format!("\"p95DurationMs\":{},", p95_dur));
-        out.push_str(&format!("\"totalDocsExamined\":{},", total_docs));
-        out.push_str(&format!("\"totalKeysExamined\":{},", total_keys));
-        out.push_str(&format!("\"totalReturned\":{},", total_ret));
-        out.push_str(&format!("\"scanRatio\":{:.1},", scan_ratio));
-        out.push_str(&format!("\"firstActive\":\"{}\",", if meta.first_seen_ms > 0 { epoch_to_iso(meta.first_seen_ms) } else { "".to_string() }));
-        out.push_str(&format!("\"lastActive\":\"{}\",", if meta.last_seen_ms > 0 { epoch_to_iso(meta.last_seen_ms) } else { "".to_string() }));
-        out.push_str(&format!("\"authSuccessCount\":{},", meta.auth_success_count));
-        out.push_str(&format!("\"authFailCount\":{},", meta.auth_fail_count));
-
-        out.push_str("\"operations\":{");
+        let _ = write!(
+            out,
+            "\"totalOperations\":{},\"slowQueryCount\":{},\"collscanCount\":{},\"totalDurationMs\":{},\"avgDurationMs\":{:.1},\"minDurationMs\":{},\"maxDurationMs\":{},\"p95DurationMs\":{},\"totalDocsExamined\":{},\"totalKeysExamined\":{},\"totalReturned\":{},\"scanRatio\":{:.1},\"firstActive\":\"",
+            count,
+            count,
+            collscan_count,
+            total_dur,
+            avg_dur,
+            min_dur,
+            max_dur,
+            p95_dur,
+            total_docs,
+            total_keys,
+            total_ret,
+            scan_ratio
+        );
+        if meta.first_seen_ms > 0 {
+            write_epoch_to_iso(&mut out, meta.first_seen_ms);
+        }
+        out.push_str("\",\"lastActive\":\"");
+        if meta.last_seen_ms > 0 {
+            write_epoch_to_iso(&mut out, meta.last_seen_ms);
+        }
+        let _ = write!(
+            out,
+            "\",\"authSuccessCount\":{},\"authFailCount\":{},\"operations\":{{",
+            meta.auth_success_count,
+            meta.auth_fail_count
+        );
         if let Some(ops) = ops_map {
             let mut o_entries: Vec<(&u8, &u32)> = ops.iter().collect();
             o_entries.sort_by(|a, b| b.1.cmp(a.1));
             for (oi, (op_code, cnt)) in o_entries.into_iter().enumerate() {
                 if oi > 0 { out.push(','); }
-                out.push_str(&format!("\"{}\":{}", MongoOp::from_u8(*op_code).as_str(), cnt));
+                let _ = write!(out, "\"{}\":{}", MongoOp::from_u8(*op_code).as_str(), cnt);
             }
         }
-        out.push_str("},");
-
-        out.push_str("\"topCollections\":[");
+        out.push_str("},\"topCollections\":[");
         for (ci, (ns_id, (cnt, dur, collscans))) in top_colls.into_iter().take(20).enumerate() {
             if ci > 0 { out.push(','); }
             let ns_str = &engine.ns_strings[*ns_id as usize];
-            out.push_str("{");
-            out.push_str(&format!("\"ns\":\"{}\",", escape_json(ns_str)));
-            out.push_str(&format!("\"count\":{},", cnt));
-            out.push_str(&format!("\"totalDurationMs\":{},", dur));
-            out.push_str(&format!("\"collscanCount\":{}", collscans));
-            out.push('}');
+            out.push_str("{\"ns\":\"");
+            write_escaped_json(&mut out, ns_str);
+            let _ = write!(
+                out,
+                "\",\"count\":{},\"totalDurationMs\":{},\"collscanCount\":{}}}",
+                cnt, dur, collscans
+            );
         }
-        out.push_str("]");
-
-        out.push('}');
+        out.push_str("]}");
     }
-    out.push_str("],");
-
-    out.push_str("\"userNames\":[");
+    out.push_str("],\"userNames\":[");
     let mut names_list: Vec<&str> = Vec::new();
     for &uid in &candidate_uids {
         let name = engine.user_strings.get(uid as usize).map(|s| s.as_str()).unwrap_or("");
@@ -799,15 +874,16 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
     }
     for (ni, name) in names_list.iter().enumerate() {
         if ni > 0 { out.push(','); }
-        out.push_str(&format!("\"{}\"", escape_json(name)));
+        out.push('"');
+        write_escaped_json(&mut out, name);
+        out.push('"');
     }
-    out.push_str("]");
-    out.push('}');
+    out.push_str("]}");
 
     out
 }
 
-#[inline]
+#[inline(always)]
 fn calc_percentile(sorted: &[u32], p: f64) -> u32 {
     if sorted.is_empty() {
         return 0;
@@ -816,24 +892,42 @@ fn calc_percentile(sorted: &[u32], p: f64) -> u32 {
     sorted[idx.min(sorted.len() - 1)]
 }
 
-fn escape_json(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            _ => out.push(c),
+#[inline]
+pub fn write_escaped_json(out: &mut String, s: &str) {
+    let bytes = s.as_bytes();
+    let mut last = 0;
+    for (i, &b) in bytes.iter().enumerate() {
+        let esc = match b {
+            b'"' => "\\\"",
+            b'\\' => "\\\\",
+            b'\n' => "\\n",
+            b'\r' => "\\r",
+            b'\t' => "\\t",
+            _ => continue,
+        };
+        if i > last {
+            // SAFETY: original string is valid UTF-8, ascii char boundary slice is valid UTF-8
+            out.push_str(unsafe { std::str::from_utf8_unchecked(&bytes[last..i]) });
         }
+        out.push_str(esc);
+        last = i + 1;
     }
+    if last < bytes.len() {
+        // SAFETY: original string is valid UTF-8, ascii char boundary slice is valid UTF-8
+        out.push_str(unsafe { std::str::from_utf8_unchecked(&bytes[last..]) });
+    }
+}
+
+pub fn escape_json(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    write_escaped_json(&mut out, s);
     out
 }
 
-pub fn epoch_to_iso(epoch_ms: i64) -> String {
+pub fn write_epoch_to_iso(out: &mut String, epoch_ms: i64) {
     if epoch_ms <= 0 {
-        return String::from("1970-01-01T00:00:00.000Z");
+        out.push_str("1970-01-01T00:00:00.000Z");
+        return;
     }
     let total_sec = epoch_ms / 1000;
     let millis = epoch_ms % 1000;
@@ -866,8 +960,15 @@ pub fn epoch_to_iso(epoch_ms: i64) -> String {
         }
     }
     let day = days + 1;
-    format!(
+    let _ = write!(
+        out,
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
         year, month, day, hour, min, sec, millis
-    )
+    );
+}
+
+pub fn epoch_to_iso(epoch_ms: i64) -> String {
+    let mut out = String::with_capacity(24);
+    write_epoch_to_iso(&mut out, epoch_ms);
+    out
 }

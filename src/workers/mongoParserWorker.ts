@@ -44,11 +44,15 @@ async function ensureEngine(): Promise<MongoEngine> {
   return engine;
 }
 
+let cachedWasmU8: Uint8Array | null = null;
+
 function writeIngest(eng: MongoEngine, src: Uint8Array): number {
   const len = src.length;
   const ptr = eng.ingest_ptr(len);
-  // Re-read memory buffer after possible linear memory growth
-  new Uint8Array(wasmMemory!.buffer).set(src, ptr);
+  if (!cachedWasmU8 || cachedWasmU8.buffer !== wasmMemory!.buffer) {
+    cachedWasmU8 = new Uint8Array(wasmMemory!.buffer);
+  }
+  cachedWasmU8.set(src, ptr);
   return len;
 }
 
@@ -69,15 +73,14 @@ function runReaggregate(eng: MongoEngine, filters: MongoFilters): MongoAggregati
     filters.highScanRatioOnly,
     filters.userFilter || "all",
   );
-
   // SAFETY: Rust reaggregate returns a JSON serialized MongoAggregationResult structure
   return JSON.parse(jsonStr) as MongoAggregationResult;
 }
 
 async function streamParseFile(file: File, bytesOffset: number, totalAllBytes: number) {
   const eng = await ensureEngine();
-  const CHUNK_SIZE = 32 * 1024 * 1024; // 32MB streaming chunks matches Wasm INGEST_CAP
-  const QUEUE_DEPTH = 2;
+  const CHUNK_SIZE = 16 * 1024 * 1024; // 16MB streaming chunks
+  const QUEUE_DEPTH = 3;
   const pendingReads: Promise<Uint8Array>[] = [];
 
   const enqueue = (chunkOff: number) => {
@@ -180,15 +183,6 @@ self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
 
     if (isCancelled) return;
 
-    self.postMessage({
-      type: "PROGRESS",
-      payload: {
-        stage: "aggregating",
-        processed: totalBytes,
-        total: totalBytes,
-        percent: 98,
-      },
-    } satisfies MongoWorkerResponse);
 
     const result = runReaggregate(eng, currentFilters);
 

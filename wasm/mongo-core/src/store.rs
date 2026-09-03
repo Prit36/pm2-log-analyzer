@@ -88,7 +88,14 @@ pub struct Engine {
     pub ctx_strings: Vec<String>,
     pub ctx_table: HashMap<String, u16>,
 
-    pub query_hash_cache: HashMap<(u16, String), (MongoOp, u16)>,
+    pub query_hash_cache: HashMap<(u16, u64), (MongoOp, u16)>,
+
+    pub(crate) last_ns_id: u16,
+    pub(crate) last_plan_id: u16,
+    pub(crate) last_remote_id: u16,
+    pub(crate) last_ctx_id: u16,
+    pub(crate) last_qhash: (u16, u64, (MongoOp, u16)),
+    pub(crate) last_date: [u8; 10],
 
     // Diagnostics Stats
     pub conn_accepted: u32,
@@ -160,6 +167,13 @@ impl Engine {
 
             query_hash_cache: HashMap::new(),
 
+            last_ns_id: u16::MAX,
+            last_plan_id: u16::MAX,
+            last_remote_id: u16::MAX,
+            last_ctx_id: u16::MAX,
+            last_qhash: (u16::MAX, 0, (MongoOp::Find, 0)),
+            last_date: [0u8; 10],
+
             conn_accepted: 0,
             conn_ended: 0,
             conn_peak: 0,
@@ -214,6 +228,13 @@ impl Engine {
 
         self.query_hash_cache.clear();
 
+        self.last_ns_id = u16::MAX;
+        self.last_plan_id = u16::MAX;
+        self.last_remote_id = u16::MAX;
+        self.last_ctx_id = u16::MAX;
+        self.last_qhash = (u16::MAX, 0, (MongoOp::Find, 0));
+        self.last_date = [0u8; 10];
+
         self.conn_accepted = 0;
         self.conn_ended = 0;
         self.conn_peak = 0;
@@ -224,6 +245,12 @@ impl Engine {
         self.checkpoints.clear();
         self.dates.clear();
         self.total_lines = 0;
+        self.last_ns_id = u16::MAX;
+        self.last_plan_id = u16::MAX;
+        self.last_remote_id = u16::MAX;
+        self.last_ctx_id = u16::MAX;
+        self.last_qhash = (u16::MAX, 0, (MongoOp::Find, 0));
+        self.last_date = [0u8; 10];
     }
 
     pub fn ingest_ptr(&mut self, len: u32) -> u32 {
@@ -302,26 +329,36 @@ impl Engine {
 
     #[inline]
     fn intern_ns(&mut self, ns: &str) -> u16 {
-        if let Some(&id) = self.ns_table.get(ns) {
+        if self.last_ns_id != u16::MAX && self.ns_strings[self.last_ns_id as usize] == ns {
+            return self.last_ns_id;
+        }
+        let id = if let Some(&id) = self.ns_table.get(ns) {
             id
         } else {
             let id = self.ns_strings.len() as u16;
             self.ns_strings.push(ns.to_string());
             self.ns_table.insert(ns.to_string(), id);
             id
-        }
+        };
+        self.last_ns_id = id;
+        id
     }
 
     #[inline]
     fn intern_plan(&mut self, plan: &str) -> u16 {
-        if let Some(&id) = self.plan_table.get(plan) {
+        if self.last_plan_id != u16::MAX && self.plan_strings[self.last_plan_id as usize] == plan {
+            return self.last_plan_id;
+        }
+        let id = if let Some(&id) = self.plan_table.get(plan) {
             id
         } else {
             let id = self.plan_strings.len() as u16;
             self.plan_strings.push(plan.to_string());
             self.plan_table.insert(plan.to_string(), id);
             id
-        }
+        };
+        self.last_plan_id = id;
+        id
     }
 
     #[inline]
@@ -339,14 +376,19 @@ impl Engine {
 
     #[inline]
     fn intern_remote(&mut self, remote: &str) -> u16 {
-        if let Some(&id) = self.remote_table.get(remote) {
+        if self.last_remote_id != u16::MAX && self.remote_strings[self.last_remote_id as usize] == remote {
+            return self.last_remote_id;
+        }
+        let id = if let Some(&id) = self.remote_table.get(remote) {
             id
         } else {
             let id = self.remote_strings.len() as u16;
             self.remote_strings.push(remote.to_string());
             self.remote_table.insert(remote.to_string(), id);
             id
-        }
+        };
+        self.last_remote_id = id;
+        id
     }
 
     #[inline]
@@ -367,14 +409,19 @@ impl Engine {
         if ctx.is_empty() {
             return u16::MAX;
         }
-        if let Some(&id) = self.ctx_table.get(ctx) {
+        if self.last_ctx_id != u16::MAX && self.ctx_strings[self.last_ctx_id as usize] == ctx {
+            return self.last_ctx_id;
+        }
+        let id = if let Some(&id) = self.ctx_table.get(ctx) {
             id
         } else {
             let id = self.ctx_strings.len() as u16;
             self.ctx_strings.push(ctx.to_string());
             self.ctx_table.insert(ctx.to_string(), id);
             id
-        }
+        };
+        self.last_ctx_id = id;
+        id
     }
 
     pub fn accept_line(&mut self, line: &[u8]) {
@@ -419,17 +466,24 @@ impl Engine {
                     }
                 }
 
-                let cache_key = (ns_id, q.query_hash.to_string());
                 let (op, fp_id) = if !q.query_hash.is_empty() {
-                    if let Some(&(cached_op, cached_fp_id)) = self.query_hash_cache.get(&cache_key) {
-                        (cached_op, cached_fp_id)
+                    let qhash_u64 = rapidhash::v3::rapidhash_v3(q.query_hash.as_bytes());
+                    if self.last_qhash.0 == ns_id && self.last_qhash.1 == qhash_u64 {
+                        self.last_qhash.2
                     } else {
-                        let cmd = extract_command_slice(q.line).unwrap_or(b"{}");
-                        let op = detect_op(cmd);
-                        let fp_res = generate_fingerprint(op, q.collection, cmd, q.is_collscan);
-                        let fp_id = self.intern_fingerprint(&fp_res.fingerprint, &fp_res.index_suggestion);
-                        self.query_hash_cache.insert(cache_key, (op, fp_id));
-                        (op, fp_id)
+                        let cache_key = (ns_id, qhash_u64);
+                        if let Some(&(cached_op, cached_fp_id)) = self.query_hash_cache.get(&cache_key) {
+                            self.last_qhash = (ns_id, qhash_u64, (cached_op, cached_fp_id));
+                            (cached_op, cached_fp_id)
+                        } else {
+                            let cmd = extract_command_slice(q.line).unwrap_or(b"{}");
+                            let op = detect_op(cmd);
+                            let fp_res = generate_fingerprint(op, q.collection, cmd, q.is_collscan);
+                            let fp_id = self.intern_fingerprint(&fp_res.fingerprint, &fp_res.index_suggestion);
+                            self.query_hash_cache.insert(cache_key, (op, fp_id));
+                            self.last_qhash = (ns_id, qhash_u64, (op, fp_id));
+                            (op, fp_id)
+                        }
                     }
                 } else {
                     let cmd = extract_command_slice(q.line).unwrap_or(b"{}");
@@ -456,9 +510,13 @@ impl Engine {
                 self.ctx_ids.push(ctx_id);
 
                 if q.timestamp.len() >= 10 {
-                    let d = &q.timestamp[..10];
-                    if self.dates.last().map(|s| s.as_str()) != Some(d) && !self.dates.iter().any(|s| s == d) {
-                        self.dates.push(d.to_string());
+                    let d_bytes = q.timestamp[..10].as_bytes();
+                    if d_bytes != self.last_date {
+                        self.last_date.copy_from_slice(d_bytes);
+                        let d_str = &q.timestamp[..10];
+                        if !self.dates.iter().any(|s| s == d_str) {
+                            self.dates.push(d_str.to_string());
+                        }
                     }
                 }
             }
@@ -585,7 +643,7 @@ impl Engine {
 }
 
 #[inline]
-fn trim_line(bytes: &[u8]) -> &[u8] {
+pub(crate) fn trim_line(bytes: &[u8]) -> &[u8] {
     let mut start = 0;
     while start < bytes.len() && (bytes[start] == b' ' || bytes[start] == b'\t' || bytes[start] == b'\r') {
         start += 1;
