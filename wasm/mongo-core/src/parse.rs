@@ -230,51 +230,56 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
 
     // Fast check for Slow Query durationMillis from the end of the line
     if let Some(dur) = extract_u32_value_rev(line, b"\"durationMillis\":") {
-        let (timestamp, epoch_ms) = extract_timestamp(line);
-        let severity = if let Some(s) = extract_str_value(line, b"\"s\":\"") {
-            s.as_bytes().first().copied().unwrap_or(b'I')
-        } else {
-            b'I'
-        };
+        let is_slow_query = memmem::find(line, b"\"msg\":\"Slow query\"").is_some()
+            || memmem::find(line, b"\"Slow query\"").is_some();
 
-        let ns = extract_str_value(line, b"\"ns\":\"").unwrap_or("");
-        let (db, collection) = if let Some(idx) = ns.find('.') {
-            (&ns[..idx], &ns[idx + 1..])
-        } else {
-            ("unknown", ns)
-        };
+        if is_slow_query {
+            let (timestamp, epoch_ms) = extract_timestamp(line);
+            let severity = if let Some(s) = extract_str_value(line, b"\"s\":\"") {
+                s.as_bytes().first().copied().unwrap_or(b'I')
+            } else {
+                b'I'
+            };
 
-        let plan_summary = extract_str_value(line, b"\"planSummary\":\"").unwrap_or("");
-        let is_collscan = plan_summary.contains("COLLSCAN");
-        let keys_examined = extract_u32_value(line, b"\"keysExamined\":").unwrap_or(0);
-        let docs_examined = extract_u32_value(line, b"\"docsExamined\":").unwrap_or(0);
-        let nreturned = extract_u32_value(line, b"\"nreturned\":").unwrap_or(0);
-        let num_yields = extract_u32_value(line, b"\"numYields\":").unwrap_or(0);
-        let reslen = extract_u32_value(line, b"\"reslen\":").unwrap_or(0);
-        let remote = extract_str_value(line, b"\"remote\":\"").unwrap_or("");
-        let query_hash = extract_str_value(line, b"\"queryHash\":\"").unwrap_or("");
-        let plan_cache_key = extract_str_value(line, b"\"planCacheKey\":\"").unwrap_or("");
+            let ns = extract_str_value(line, b"\"ns\":\"").unwrap_or("");
+            let (db, collection) = if let Some(idx) = ns.find('.') {
+                (&ns[..idx], &ns[idx + 1..])
+            } else {
+                ("unknown", ns)
+            };
 
-        return ParsedLine::SlowQuery(ParsedSlowQuery {
-            timestamp,
-            epoch_ms,
-            severity,
-            ns,
-            collection,
-            db,
-            duration_ms: dur,
-            plan_summary,
-            is_collscan,
-            keys_examined,
-            docs_examined,
-            nreturned,
-            num_yields,
-            reslen,
-            remote,
-            query_hash,
-            plan_cache_key,
-            line,
-        });
+            let plan_summary = extract_str_value(line, b"\"planSummary\":\"").unwrap_or("");
+            let is_collscan = plan_summary.contains("COLLSCAN");
+            let keys_examined = extract_u32_value(line, b"\"keysExamined\":").unwrap_or(0);
+            let docs_examined = extract_u32_value(line, b"\"docsExamined\":").unwrap_or(0);
+            let nreturned = extract_u32_value(line, b"\"nreturned\":").unwrap_or(0);
+            let num_yields = extract_u32_value(line, b"\"numYields\":").unwrap_or(0);
+            let reslen = extract_u32_value(line, b"\"reslen\":").unwrap_or(0);
+            let remote = extract_str_value(line, b"\"remote\":\"").unwrap_or("");
+            let query_hash = extract_str_value(line, b"\"queryHash\":\"").unwrap_or("");
+            let plan_cache_key = extract_str_value(line, b"\"planCacheKey\":\"").unwrap_or("");
+
+            return ParsedLine::SlowQuery(ParsedSlowQuery {
+                timestamp,
+                epoch_ms,
+                severity,
+                ns,
+                collection,
+                db,
+                duration_ms: dur,
+                plan_summary,
+                is_collscan,
+                keys_examined,
+                docs_examined,
+                nreturned,
+                num_yields,
+                reslen,
+                remote,
+                query_hash,
+                plan_cache_key,
+                line,
+            });
+        }
     }
 
     // Check message field

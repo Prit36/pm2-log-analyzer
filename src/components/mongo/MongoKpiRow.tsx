@@ -5,11 +5,12 @@ import { formatMs, formatNum } from "../../utils/format";
 import { cn } from "../../utils/cn";
 
 export function MongoKpiRow() {
-  const { summary, connections, errorsCount } = useMongoStore(
+  const { summary, connections, errorTypesCount, totalErrorEvents } = useMongoStore(
     useShallow((s) => ({
       summary: s.result?.summary,
       connections: s.result?.connections,
-      errorsCount: s.result?.errors.length ?? 0,
+      errorTypesCount: s.result?.errors.length ?? 0,
+      totalErrorEvents: s.result?.errors.reduce((sum, e) => sum + e.count, 0) ?? 0,
     })),
   );
 
@@ -149,7 +150,9 @@ export function MongoKpiRow() {
             {connections?.peakConcurrent ? `${connections.peakConcurrent} peak` : "Normal"}
           </div>
           <div className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">
-            {errorsCount > 0 ? `${errorsCount} warnings/errors` : "No engine errors"}
+            {totalErrorEvents > 0
+              ? `${formatNum(totalErrorEvents)} events (${errorTypesCount} types)`
+              : "No engine errors"}
           </div>
         </div>
       </div>

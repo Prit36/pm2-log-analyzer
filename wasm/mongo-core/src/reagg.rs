@@ -56,7 +56,7 @@ struct TimeBucketAcc {
 pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
     let n = engine.durations_ms.len();
 
-    let mut pattern_map: HashMap<u16, PatternAcc> = HashMap::new();
+    let mut pattern_map: HashMap<u64, PatternAcc> = HashMap::new();
     let mut collection_map: HashMap<u16, CollectionAcc> = HashMap::new();
     let mut time_map: HashMap<String, TimeBucketAcc> = HashMap::new();
 
@@ -119,6 +119,8 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         let plan_id = engine.plan_ids[i];
         let fp_id = engine.fingerprint_ids[i];
         let fp_str = &engine.fingerprint_strings[fp_id as usize];
+        let remote_id = engine.remote_ids[i];
+        let remote_str = &engine.remote_strings[remote_id as usize];
 
         if !search_lower.is_empty() {
             let matches_ns = ns_str.to_lowercase().contains(&search_lower);
@@ -126,7 +128,8 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
             let matches_plan = engine.plan_strings[plan_id as usize]
                 .to_lowercase()
                 .contains(&search_lower);
-            if !matches_ns && !matches_fp && !matches_plan {
+            let matches_remote = remote_str.to_lowercase().contains(&search_lower);
+            if !matches_ns && !matches_fp && !matches_plan && !matches_remote {
                 continue;
             }
         }
@@ -145,8 +148,13 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         total_keys += engine.keys_examined[i] as u64;
         total_returned += ret as u64;
 
-        // Group by pattern
-        if let Some(acc) = pattern_map.get_mut(&fp_id) {
+        // Group by pattern (composite key ensures collections and plans never collide)
+        let pattern_key: u64 = ((ns_id as u64) << 48)
+            | ((op as u64) << 40)
+            | ((plan_id as u64) << 24)
+            | (fp_id as u64);
+
+        if let Some(acc) = pattern_map.get_mut(&pattern_key) {
             acc.count += 1;
             acc.total_duration_ms += dur as u64;
             if dur < acc.min_duration_ms {
@@ -161,12 +169,10 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
             if is_coll {
                 acc.collscan_count += 1;
             }
-            if acc.sample_durations.len() < 2000 {
-                acc.sample_durations.push(dur);
-            }
+            acc.sample_durations.push(dur);
         } else {
             pattern_map.insert(
-                fp_id,
+                pattern_key,
                 PatternAcc {
                     fp_id,
                     ns_id,
@@ -199,9 +205,7 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
             }
             c_acc.total_docs += docs as u64;
             c_acc.total_returned += ret as u64;
-            if c_acc.sample_durations.len() < 1000 {
-                c_acc.sample_durations.push(dur);
-            }
+            c_acc.sample_durations.push(dur);
         } else {
             collection_map.insert(
                 ns_id,
@@ -317,7 +321,7 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         let p_scan_ratio = (p.total_docs as f64) / ((p.total_returned as f64).max(1.0));
 
         out.push_str("{");
-        out.push_str(&format!("\"id\":\"pat-{}\",", p.fp_id));
+        out.push_str(&format!("\"id\":\"pat-{}\",", p_idx));
         out.push_str(&format!("\"ns\":\"{}\",", escape_json(ns)));
         out.push_str(&format!("\"db\":\"{}\",", escape_json(db)));
         out.push_str(&format!("\"collection\":\"{}\",", escape_json(collection)));
@@ -345,8 +349,9 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         out.push_str(&format!("\"indexSuggestion\":\"{}\",", escape_json(sug)));
 
         // Example query
+        let ex_remote = &engine.remote_strings[engine.remote_ids[p.first_query_idx] as usize];
         out.push_str("\"exampleQuery\":{");
-        out.push_str(&format!("\"id\":\"query-example-{}\",", p.fp_id));
+        out.push_str(&format!("\"id\":\"query-example-{}\",", p_idx));
         out.push_str(&format!("\"timestamp\":\"{}\",", epoch_to_iso(engine.timestamps_ms[p.first_query_idx])));
         out.push_str(&format!("\"epochMs\":{},", engine.timestamps_ms[p.first_query_idx]));
         out.push_str(&format!("\"severity\":\"I\","));
@@ -365,6 +370,7 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         out.push_str(&format!("\"scanRatio\":{:.1},", p_scan_ratio));
         out.push_str(&format!("\"numYields\":{},", engine.num_yields[p.first_query_idx]));
         out.push_str(&format!("\"reslen\":{},", engine.reslens[p.first_query_idx]));
+        out.push_str(&format!("\"remote\":\"{}\",", escape_json(ex_remote)));
         out.push_str(&format!(
             "\"command\":{{\"operation\":\"{}\",\"collection\":\"{}\",\"planSummary\":\"{}\",\"fingerprint\":\"{}\"}},",
             MongoOp::from_u8(p.op).as_str(),
@@ -488,6 +494,8 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         out.push_str(&format!("\"scanRatio\":{:.1},", scan_ratio));
         out.push_str(&format!("\"numYields\":{},", engine.num_yields[idx]));
         out.push_str(&format!("\"reslen\":{},", engine.reslens[idx]));
+        let remote = &engine.remote_strings[engine.remote_ids[idx] as usize];
+        out.push_str(&format!("\"remote\":\"{}\",", escape_json(remote)));
         out.push_str(&format!(
             "\"command\":{{\"operation\":\"{}\",\"collection\":\"{}\",\"planSummary\":\"{}\",\"fingerprint\":\"{}\"}},",
             MongoOp::from_u8(engine.op_ids[idx]).as_str(),

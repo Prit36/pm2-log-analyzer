@@ -4,6 +4,7 @@ import { useMongoStore, type MongoActiveView } from "../../store/mongoStore";
 import { reaggregateMongo } from "../../hooks/useMongoParserWorker";
 import type { MongoPlanFilter } from "../../mongo/types";
 import { cn } from "../../utils/cn";
+import { formatNum } from "../../utils/format";
 
 const {
   setActiveView,
@@ -37,9 +38,9 @@ export function MongoFilterBar() {
     operations,
     collections,
     patternCount,
-    queryCount,
+    slowQueryCount,
     collscanCount,
-    errorsCount,
+    totalErrors,
   } = useMongoStore(
     useShallow((s) => ({
       activeView: s.activeView,
@@ -47,9 +48,9 @@ export function MongoFilterBar() {
       operations: s.result?.operations ?? [],
       collections: s.result?.collections ?? [],
       patternCount: s.result?.patterns.length ?? 0,
-      queryCount: s.result?.slowQueries.length ?? 0,
+      slowQueryCount: s.result?.summary.slowQueryCount ?? 0,
       collscanCount: s.result?.summary.collscanCount ?? 0,
-      errorsCount: s.result?.errors.length ?? 0,
+      totalErrors: s.result?.errors.reduce((sum, e) => sum + e.count, 0) ?? 0,
     })),
   );
 
@@ -93,9 +94,9 @@ export function MongoFilterBar() {
             const Icon = tab.icon;
             const isActive = activeView === tab.id;
             let badgeText: string | null = null;
-            if (tab.id === "patterns") badgeText = String(patternCount);
-            if (tab.id === "slow_queries") badgeText = String(queryCount);
-            if (tab.id === "diagnostics" && errorsCount > 0) badgeText = String(errorsCount);
+            if (tab.id === "patterns") badgeText = formatNum(patternCount);
+            if (tab.id === "slow_queries") badgeText = formatNum(slowQueryCount);
+            if (tab.id === "diagnostics" && totalErrors > 0) badgeText = formatNum(totalErrors);
 
             return (
               <button

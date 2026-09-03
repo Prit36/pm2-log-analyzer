@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, ArrowUpDown, Check, Copy, ExternalLink, Flame, Lightbulb } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
 import { useShallow } from "zustand/react/shallow";
 import type { MongoQueryPattern, MongoSortField } from "../../mongo/types";
@@ -171,6 +171,38 @@ export function MongoPatternTable() {
     })),
   );
 
+  const sortedPatterns = useMemo(() => {
+    if (!patterns.length) return [];
+    return [...patterns].sort((a, b) => {
+      let cmp = 0;
+      switch (sortField) {
+        case "count":
+          cmp = a.count - b.count;
+          break;
+        case "avgDurationMs":
+          cmp = a.avgDurationMs - b.avgDurationMs;
+          break;
+        case "p95DurationMs":
+          cmp = a.p95DurationMs - b.p95DurationMs;
+          break;
+        case "maxDurationMs":
+          cmp = a.maxDurationMs - b.maxDurationMs;
+          break;
+        case "scanRatio":
+          cmp = a.scanRatio - b.scanRatio;
+          break;
+        case "collection":
+          cmp = a.collection.localeCompare(b.collection);
+          break;
+        case "totalDurationMs":
+        default:
+          cmp = a.totalDurationMs - b.totalDurationMs;
+          break;
+      }
+      return sortDirection === "asc" ? cmp : -cmp;
+    });
+  }, [patterns, sortField, sortDirection]);
+
   const handleHeaderSort = (field: MongoSortField) => {
     setSort(field);
   };
@@ -184,7 +216,7 @@ export function MongoPatternTable() {
     );
   };
 
-  if (patterns.length === 0) {
+  if (sortedPatterns.length === 0) {
     return (
       <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
         <Lightbulb className="size-8 text-slate-400" />
@@ -274,11 +306,11 @@ export function MongoPatternTable() {
 
       {/* Virtualized Pattern Rows */}
       <List
-        rowCount={patterns.length}
+        rowCount={sortedPatterns.length}
         rowHeight={ROW_HEIGHT}
         style={{ height: TABLE_HEIGHT }}
         rowComponent={PatternRow}
-        rowProps={{ patterns, copiedIndex, setCopiedIndex }}
+        rowProps={{ patterns: sortedPatterns, copiedIndex, setCopiedIndex }}
       />
     </div>
   );

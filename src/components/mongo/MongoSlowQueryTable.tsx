@@ -1,4 +1,5 @@
 import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Flame, Info } from "lucide-react";
+import { useMemo } from "react";
 import { List, type RowComponentProps } from "react-window";
 import { useShallow } from "zustand/react/shallow";
 import type { MongoSlowQuery, MongoSlowQuerySortField } from "../../mongo/types";
@@ -23,27 +24,38 @@ function SlowQueryRow({ index, style, queries }: RowComponentProps<SlowQueryRowP
   const q = queries[index];
   if (!q) return null;
 
-  const timeOnly = q.timestamp.length >= 19 ? q.timestamp.slice(11, 23) : q.timestamp;
+  const handleInspect = () => {
+    setActiveSlowQuery(q);
+  };
 
   return (
     <div
       style={style}
-      onClick={() => setActiveSlowQuery(q)}
+      onClick={handleInspect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleInspect();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      aria-label={`Inspect slow query on ${q.ns}, duration ${q.durationMs}ms`}
       className={cn(
-        "grid cursor-pointer grid-cols-[100px_85px_minmax(0,2fr)_90px_90px_80px_80px_110px_35px] items-center border-b border-slate-100 px-3 text-xs transition-colors hover:bg-slate-100/70 dark:border-slate-800 dark:hover:bg-slate-800/60",
+        "grid cursor-pointer grid-cols-[110px_90px_1fr_90px_90px_90px_80px_130px_48px] items-center border-b border-slate-100 px-4 text-xs hover:bg-emerald-50/40 dark:border-slate-800/80 dark:hover:bg-emerald-950/20",
         index % 2 === 0 ? "bg-white dark:bg-slate-900" : "bg-slate-50/40 dark:bg-slate-950/30",
       )}
     >
       {/* 1. Time */}
-      <div className="font-mono text-[11px] text-slate-500 dark:text-slate-400" title={q.timestamp}>
-        {timeOnly}
+      <div className="truncate font-mono text-[11px] text-slate-500 dark:text-slate-400" title={q.timestamp}>
+        {q.timestamp.length >= 19 ? q.timestamp.slice(11, 19) : q.timestamp}
       </div>
 
-      {/* 2. Duration Badge */}
+      {/* 2. Duration badge */}
       <div>
         <span
           className={cn(
-            "inline-block rounded border px-1.5 py-0.5 font-mono text-[11px] font-bold tabular-nums",
+            "inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[11px] font-semibold",
             getDurationClass(q.durationMs),
           )}
         >
@@ -51,51 +63,54 @@ function SlowQueryRow({ index, style, queries }: RowComponentProps<SlowQueryRowP
         </span>
       </div>
 
-      {/* 3. Namespace, Operation & Plan */}
-      <div className="flex min-w-0 flex-col gap-0.5 pr-2">
-        <div className="flex items-center gap-1.5">
-          <span className="font-semibold text-slate-900 dark:text-slate-100 truncate">
-            {q.collection}
+      {/* 3. Namespace & Plan */}
+      <div className="flex items-center gap-1.5 min-w-0 pr-3">
+        <span className="truncate font-semibold text-slate-900 dark:text-slate-100" title={q.ns}>
+          {q.collection}
+        </span>
+        <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+          {q.op}
+        </span>
+        {q.isCollscan ? (
+          <span className="flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-bold text-amber-800 dark:bg-amber-950/80 dark:text-amber-300">
+            <Flame className="size-3" />
+            COLLSCAN
           </span>
-          <span className="rounded bg-slate-100 px-1 py-0.2 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            {q.op}
+        ) : (
+          <span className="shrink-0 rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 truncate max-w-[120px]" title={q.planSummary}>
+            {q.planSummary}
           </span>
-          {q.isCollscan ? (
-            <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.2 text-[10px] font-bold text-amber-800 dark:bg-amber-950/80 dark:text-amber-300">
-              <Flame className="size-2.5" />
-              COLLSCAN
-            </span>
-          ) : (
-            <span className="truncate text-[10px] text-slate-400" title={q.planSummary}>
-              {q.planSummary}
-            </span>
-          )}
-        </div>
+        )}
       </div>
 
       {/* 4. Docs Examined */}
-      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300 font-medium">
+      <div className="text-right font-mono text-slate-700 dark:text-slate-300">
         {formatNum(q.docsExamined)}
       </div>
 
       {/* 5. Keys Examined */}
-      <div className="text-right tabular-nums text-slate-500 dark:text-slate-400">
+      <div className="text-right font-mono text-slate-600 dark:text-slate-400">
         {formatNum(q.keysExamined)}
       </div>
 
       {/* 6. Returned */}
-      <div className="text-right tabular-nums text-slate-700 dark:text-slate-300">
+      <div className="text-right font-mono text-slate-600 dark:text-slate-400">
         {formatNum(q.nreturned)}
       </div>
 
       {/* 7. Scan Ratio */}
-      <div
-        className={cn(
-          "text-right font-medium tabular-nums",
-          q.scanRatio > 100 ? "text-rose-600 dark:text-rose-400" : "text-slate-500 dark:text-slate-400",
-        )}
-      >
-        {Math.round(q.scanRatio * 10) / 10}x
+      <div className="text-right font-mono">
+        <span
+          className={cn(
+            q.scanRatio >= 1000
+              ? "font-bold text-rose-600 dark:text-rose-400"
+              : q.scanRatio >= 100
+                ? "font-semibold text-amber-600 dark:text-amber-400"
+                : "text-slate-600 dark:text-slate-400",
+          )}
+        >
+          {Math.round(q.scanRatio * 10) / 10}x
+        </span>
       </div>
 
       {/* 8. Remote IP */}
@@ -120,6 +135,38 @@ export function MongoSlowQueryTable() {
     })),
   );
 
+  const sortedQueries = useMemo(() => {
+    if (!queries.length) return [];
+    return [...queries].sort((a, b) => {
+      let cmp = 0;
+      switch (slowSortField) {
+        case "timestamp":
+          cmp = a.epochMs - b.epochMs;
+          break;
+        case "docsExamined":
+          cmp = a.docsExamined - b.docsExamined;
+          break;
+        case "keysExamined":
+          cmp = a.keysExamined - b.keysExamined;
+          break;
+        case "nreturned":
+          cmp = a.nreturned - b.nreturned;
+          break;
+        case "scanRatio":
+          cmp = a.scanRatio - b.scanRatio;
+          break;
+        case "collection":
+          cmp = a.collection.localeCompare(b.collection);
+          break;
+        case "durationMs":
+        default:
+          cmp = a.durationMs - b.durationMs;
+          break;
+      }
+      return slowSortDirection === "asc" ? cmp : -cmp;
+    });
+  }, [queries, slowSortField, slowSortDirection]);
+
   const handleHeaderSort = (field: MongoSlowQuerySortField) => {
     setSlowSort(field);
   };
@@ -133,7 +180,7 @@ export function MongoSlowQueryTable() {
     );
   };
 
-  if (queries.length === 0) {
+  if (sortedQueries.length === 0) {
     return (
       <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
         <Info className="size-8 text-slate-400" />
@@ -145,12 +192,12 @@ export function MongoSlowQueryTable() {
   }
 
   const ROW_HEIGHT = 44;
-  const TABLE_HEIGHT = Math.min(620, Math.max(280, queries.length * ROW_HEIGHT));
+  const TABLE_HEIGHT = Math.min(620, Math.max(280, sortedQueries.length * ROW_HEIGHT));
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
       {/* Table Header */}
-      <div className="grid grid-cols-[100px_85px_minmax(0,2fr)_90px_90px_80px_80px_110px_35px] items-center border-b border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
+      <div className="grid grid-cols-[110px_90px_1fr_90px_90px_90px_80px_130px_48px] items-center border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
         <button
           type="button"
           onClick={() => handleHeaderSort("timestamp")}
@@ -220,11 +267,11 @@ export function MongoSlowQueryTable() {
 
       {/* Virtualized Query Rows */}
       <List
-        rowCount={queries.length}
+        rowCount={sortedQueries.length}
         rowHeight={ROW_HEIGHT}
         style={{ height: TABLE_HEIGHT }}
         rowComponent={SlowQueryRow}
-        rowProps={{ queries }}
+        rowProps={{ queries: sortedQueries }}
       />
     </div>
   );

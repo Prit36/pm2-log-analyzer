@@ -52,6 +52,7 @@ pub struct Engine {
     pub num_yields: Vec<u32>,
     pub reslens: Vec<u32>,
     pub is_collscan: Vec<bool>,
+    pub remote_ids: Vec<u16>,
 
     // Arenas and Tables
     pub ns_strings: Vec<String>,
@@ -64,7 +65,10 @@ pub struct Engine {
     pub fingerprint_table: HashMap<String, u16>,
     pub index_suggestions: Vec<String>,
 
-    pub query_hash_cache: HashMap<String, (MongoOp, u16)>,
+    pub remote_strings: Vec<String>,
+    pub remote_table: HashMap<String, u16>,
+
+    pub query_hash_cache: HashMap<(u16, String), (MongoOp, u16)>,
 
     // Diagnostics Stats
     pub conn_accepted: u32,
@@ -106,6 +110,7 @@ impl Engine {
             num_yields: Vec::with_capacity(65536),
             reslens: Vec::with_capacity(65536),
             is_collscan: Vec::with_capacity(65536),
+            remote_ids: Vec::with_capacity(65536),
 
             ns_strings: Vec::new(),
             ns_table: HashMap::new(),
@@ -116,6 +121,9 @@ impl Engine {
             fingerprint_strings: Vec::new(),
             fingerprint_table: HashMap::new(),
             index_suggestions: Vec::new(),
+
+            remote_strings: Vec::new(),
+            remote_table: HashMap::new(),
 
             query_hash_cache: HashMap::new(),
 
@@ -148,6 +156,7 @@ impl Engine {
         self.num_yields.clear();
         self.reslens.clear();
         self.is_collscan.clear();
+        self.remote_ids.clear();
 
         self.ns_strings.clear();
         self.ns_table.clear();
@@ -156,6 +165,8 @@ impl Engine {
         self.fingerprint_strings.clear();
         self.fingerprint_table.clear();
         self.index_suggestions.clear();
+        self.remote_strings.clear();
+        self.remote_table.clear();
         self.query_hash_cache.clear();
 
         self.conn_accepted = 0;
@@ -281,6 +292,18 @@ impl Engine {
         }
     }
 
+    #[inline]
+    fn intern_remote(&mut self, remote: &str) -> u16 {
+        if let Some(&id) = self.remote_table.get(remote) {
+            id
+        } else {
+            let id = self.remote_strings.len() as u16;
+            self.remote_strings.push(remote.to_string());
+            self.remote_table.insert(remote.to_string(), id);
+            id
+        }
+    }
+
     pub fn accept_line(&mut self, line: &[u8]) {
         self.total_lines += 1;
         let line = trim_line(line);
@@ -292,16 +315,18 @@ impl Engine {
             ParsedLine::SlowQuery(q) => {
                 let ns_id = self.intern_ns(q.ns);
                 let plan_id = self.intern_plan(q.plan_summary);
+                let remote_id = self.intern_remote(q.remote);
 
+                let cache_key = (ns_id, q.query_hash.to_string());
                 let (op, fp_id) = if !q.query_hash.is_empty() {
-                    if let Some(&(cached_op, cached_fp_id)) = self.query_hash_cache.get(q.query_hash) {
+                    if let Some(&(cached_op, cached_fp_id)) = self.query_hash_cache.get(&cache_key) {
                         (cached_op, cached_fp_id)
                     } else {
                         let cmd = extract_command_slice(q.line).unwrap_or(b"{}");
                         let op = detect_op(cmd);
                         let fp_res = generate_fingerprint(op, q.collection, cmd, q.is_collscan);
                         let fp_id = self.intern_fingerprint(&fp_res.fingerprint, &fp_res.index_suggestion);
-                        self.query_hash_cache.insert(q.query_hash.to_string(), (op, fp_id));
+                        self.query_hash_cache.insert(cache_key, (op, fp_id));
                         (op, fp_id)
                     }
                 } else {
@@ -324,6 +349,7 @@ impl Engine {
                 self.num_yields.push(q.num_yields);
                 self.reslens.push(q.reslen);
                 self.is_collscan.push(q.is_collscan);
+                self.remote_ids.push(remote_id);
 
                 if q.timestamp.len() >= 10 {
                     let d = &q.timestamp[..10];

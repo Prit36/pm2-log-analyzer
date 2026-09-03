@@ -91,7 +91,24 @@ pub fn detect_op(cmd: &[u8]) -> MongoOp {
         b"createIndexes" => MongoOp::CreateIndexes,
         b"dropIndexes" => MongoOp::DropIndexes,
         b"count" => MongoOp::Count,
-        _ => MongoOp::Other,
+        b"q" => {
+            if memmem::find(cmd, b"\"u\":").is_some() || memmem::find(cmd, b"\"update\":").is_some() {
+                MongoOp::Update
+            } else if memmem::find(cmd, b"\"remove\":true").is_some() || memmem::find(cmd, b"\"delete\":").is_some() {
+                MongoOp::Delete
+            } else {
+                MongoOp::Other
+            }
+        }
+        _ => {
+            if memmem::find(cmd, b"\"update\":").is_some() {
+                MongoOp::Update
+            } else if memmem::find(cmd, b"\"delete\":").is_some() {
+                MongoOp::Delete
+            } else {
+                MongoOp::Other
+            }
+        }
     }
 }
 
