@@ -20,7 +20,7 @@ import { useMongoStore } from "../../store/mongoStore";
 import { reaggregateMongo } from "../../hooks/useMongoParserWorker";
 import type { MongoUserActivity } from "../../mongo/types";
 import { cn } from "../../utils/cn";
-import { formatMs, formatNum } from "../../utils/format";
+import { formatDateTime, formatMs, formatNum } from "../../utils/format";
 
 const {
   setActiveUserDetail,
@@ -464,8 +464,8 @@ export function MongoUserActivityPanel() {
                   <span className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
                     <Clock className="size-3" /> First Activity:
                   </span>
-                  <span className="font-mono text-slate-800 dark:text-slate-200">
-                    {activeUserDetail.firstActive}
+                  <span className="font-mono text-slate-800 dark:text-slate-200" title={activeUserDetail.firstActive}>
+                    {formatDateTime(activeUserDetail.firstActive)}
                   </span>
                 </div>
               )}
@@ -475,8 +475,8 @@ export function MongoUserActivityPanel() {
                   <span className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
                     <Clock className="size-3" /> Last Activity:
                   </span>
-                  <span className="font-mono text-slate-800 dark:text-slate-200">
-                    {activeUserDetail.lastActive}
+                  <span className="font-mono text-slate-800 dark:text-slate-200" title={activeUserDetail.lastActive}>
+                    {formatDateTime(activeUserDetail.lastActive)}
                   </span>
                 </div>
               )}

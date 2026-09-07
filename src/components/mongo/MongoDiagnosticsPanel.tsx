@@ -2,7 +2,7 @@ import { Database, Network, ShieldAlert, Timer } from "lucide-react";
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useMongoStore } from "../../store/mongoStore";
-import { formatMs, formatNum } from "../../utils/format";
+import { formatDateTime, formatMs, formatNum } from "../../utils/format";
 import { cn } from "../../utils/cn";
 
 type DiagTab = "errors" | "connections" | "collections" | "checkpoints";
@@ -108,7 +108,7 @@ export function MongoDiagnosticsPanel() {
                       <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
                         <span>Component: {e.component}</span>
                         {e.id && <span>· ID: {e.id}</span>}
-                        <span>· {e.timestamp}</span>
+                        <span>· {formatDateTime(e.timestamp)}</span>
                       </div>
                     </div>
                   </div>
@@ -273,7 +273,7 @@ export function MongoDiagnosticsPanel() {
                   key={idx}
                   className="rounded-lg border border-slate-100 bg-slate-50/60 p-2.5 font-mono text-[11px] dark:border-slate-800 dark:bg-slate-800/40"
                 >
-                  <span className="text-slate-400">{cp.timestamp}</span>
+                  <span className="text-slate-400">{formatDateTime(cp.timestamp)}</span>
                   <span className="ml-2 text-slate-700 dark:text-slate-300">{cp.msg}</span>
                 </div>
               ))

@@ -19,5 +19,11 @@ export function formatBytes(bytes: number): string {
 export function formatDate(date?: string): string {
   if (!date) return "";
   const [y, m, d] = date.split("-");
-  return y && m && d ? new Date(+y, +m - 1, +d).toLocaleDateString() : date;
+  return y && m && d ? new Date(+y, +m - 1, +d.slice(0, 2)).toLocaleDateString() : date;
+}
+
+export function formatDateTime(ts?: string | null): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? ts : d.toLocaleString();
 }

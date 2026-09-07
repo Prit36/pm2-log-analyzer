@@ -4,7 +4,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useMongoStore } from "../../store/mongoStore";
 import { reaggregateMongo } from "../../hooks/useMongoParserWorker";
 import { cn } from "../../utils/cn";
-import { formatBytes, formatMs, formatNum } from "../../utils/format";
+import { formatBytes, formatDateTime, formatMs, formatNum } from "../../utils/format";
 
 const { setActiveSlowQuery, setUserFilter, showToast } = useMongoStore.getState();
 
@@ -198,7 +198,7 @@ export function MongoQueryDetailModal() {
             <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-800/50">
               <span className="text-slate-500 dark:text-slate-400">Timestamp</span>
               <p className="mt-1 font-mono font-semibold text-slate-900 dark:text-slate-100 truncate" title={activeQuery.timestamp}>
-                {activeQuery.timestamp}
+                {formatDateTime(activeQuery.timestamp)}
               </p>
             </div>
           </div>
