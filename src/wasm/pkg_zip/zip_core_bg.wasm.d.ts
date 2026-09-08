@@ -1,9 +1,16 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const __wbg_fastdecompressor_free: (a: number, b: number) => void;
 export const __wbg_zipextractor_free: (a: number, b: number) => void;
 export const classify_log_name_or_content: (a: number, b: number, c: number, d: number) => [number, number];
 export const decompress_gz_bytes: (a: number, b: number) => [number, number, number];
+export const fastdecompressor_clear: (a: number) => void;
+export const fastdecompressor_decompress_deflate: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const fastdecompressor_decompress_gzip: (a: number, b: number, c: number) => [number, number, number];
+export const fastdecompressor_new: () => number;
+export const fastdecompressor_output_len: (a: number) => number;
+export const fastdecompressor_output_ptr: (a: number) => number;
 export const zipextractor_classify_entry_content: (a: number, b: number, c: number) => [number, number];
 export const zipextractor_extract_entry: (a: number, b: number) => [number, number, number];
 export const zipextractor_inspect: (a: number) => [number, number, number];

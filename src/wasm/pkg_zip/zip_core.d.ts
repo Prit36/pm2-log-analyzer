@@ -1,6 +1,30 @@
 /* tslint:disable */
 /* eslint-disable */
 
+/**
+ * Zero-copy fast streaming decompressor for worker threads
+ */
+export class FastDecompressor {
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Release linear memory allocated for output buffer immediately.
+     */
+    clear(): void;
+    /**
+     * Decompress raw deflate bytes directly into linear memory.
+     * Returns raw pointer in Wasm memory to avoid intermediate copies.
+     */
+    decompress_deflate(compressed: Uint8Array, uncompressed_size: number): number;
+    /**
+     * Decompress Gzip bytes directly into linear memory.
+     */
+    decompress_gzip(gz_bytes: Uint8Array): number;
+    constructor();
+    output_len(): number;
+    output_ptr(): number;
+}
+
 export class ZipExtractor {
     free(): void;
     [Symbol.dispose](): void;
@@ -24,9 +48,16 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly __wbg_fastdecompressor_free: (a: number, b: number) => void;
     readonly __wbg_zipextractor_free: (a: number, b: number) => void;
     readonly classify_log_name_or_content: (a: number, b: number, c: number, d: number) => [number, number];
     readonly decompress_gz_bytes: (a: number, b: number) => [number, number, number];
+    readonly fastdecompressor_clear: (a: number) => void;
+    readonly fastdecompressor_decompress_deflate: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly fastdecompressor_decompress_gzip: (a: number, b: number, c: number) => [number, number, number];
+    readonly fastdecompressor_new: () => number;
+    readonly fastdecompressor_output_len: (a: number) => number;
+    readonly fastdecompressor_output_ptr: (a: number) => number;
     readonly zipextractor_classify_entry_content: (a: number, b: number, c: number) => [number, number];
     readonly zipextractor_extract_entry: (a: number, b: number) => [number, number, number];
     readonly zipextractor_inspect: (a: number) => [number, number, number];

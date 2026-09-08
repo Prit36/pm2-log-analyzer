@@ -1,5 +1,78 @@
 /* @ts-self-types="./zip_core.d.ts" */
 
+/**
+ * Zero-copy fast streaming decompressor for worker threads
+ */
+export class FastDecompressor {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        FastDecompressorFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_fastdecompressor_free(ptr, 0);
+    }
+    /**
+     * Release linear memory allocated for output buffer immediately.
+     */
+    clear() {
+        wasm.fastdecompressor_clear(this.__wbg_ptr);
+    }
+    /**
+     * Decompress raw deflate bytes directly into linear memory.
+     * Returns raw pointer in Wasm memory to avoid intermediate copies.
+     * @param {Uint8Array} compressed
+     * @param {number} uncompressed_size
+     * @returns {number}
+     */
+    decompress_deflate(compressed, uncompressed_size) {
+        const ptr0 = passArray8ToWasm0(compressed, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.fastdecompressor_decompress_deflate(this.__wbg_ptr, ptr0, len0, uncompressed_size);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * Decompress Gzip bytes directly into linear memory.
+     * @param {Uint8Array} gz_bytes
+     * @returns {number}
+     */
+    decompress_gzip(gz_bytes) {
+        const ptr0 = passArray8ToWasm0(gz_bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.fastdecompressor_decompress_gzip(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    constructor() {
+        const ret = wasm.fastdecompressor_new();
+        this.__wbg_ptr = ret;
+        FastDecompressorFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @returns {number}
+     */
+    output_len() {
+        const ret = wasm.fastdecompressor_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    output_ptr() {
+        const ret = wasm.fastdecompressor_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) FastDecompressor.prototype[Symbol.dispose] = FastDecompressor.prototype.free;
+
 export class ZipExtractor {
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
@@ -170,6 +243,9 @@ function __wbg_get_imports() {
     };
 }
 
+const FastDecompressorFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_fastdecompressor_free(ptr, 1));
 const ZipExtractorFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_zipextractor_free(ptr, 1));
