@@ -1,4 +1,14 @@
-import { BarChart3, Database, FileText, Filter, Flame, Search, ShieldAlert, User, X } from "lucide-react";
+import {
+  BarChart3,
+  Database,
+  FileText,
+  Filter,
+  Flame,
+  Search,
+  ShieldAlert,
+  User,
+  X,
+} from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useMongoStore, type MongoActiveView } from "../../store/mongoStore";
 import { reaggregateMongo } from "../../hooks/useMongoParserWorker";
@@ -122,7 +132,12 @@ export function MongoFilterBar() {
                     : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200",
                 )}
               >
-                <Icon className={cn("size-3.5", isActive ? "text-emerald-600 dark:text-emerald-400" : "text-slate-400")} />
+                <Icon
+                  className={cn(
+                    "size-3.5",
+                    isActive ? "text-emerald-600 dark:text-emerald-400" : "text-slate-400",
+                  )}
+                />
                 <span>{tab.label}</span>
                 {badgeText && (
                   <span
@@ -185,7 +200,9 @@ export function MongoFilterBar() {
           <button
             type="button"
             data-testid="mongo-filter-plan-collscan"
-            onClick={() => handlePlanChange(filters.planFilter === "collscan_only" ? "all" : "collscan_only")}
+            onClick={() =>
+              handlePlanChange(filters.planFilter === "collscan_only" ? "all" : "collscan_only")
+            }
             className={cn(
               "flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold transition-colors",
               filters.planFilter === "collscan_only"
@@ -199,7 +216,9 @@ export function MongoFilterBar() {
           <button
             type="button"
             data-testid="mongo-filter-plan-ixscan"
-            onClick={() => handlePlanChange(filters.planFilter === "ixscan_only" ? "all" : "ixscan_only")}
+            onClick={() =>
+              handlePlanChange(filters.planFilter === "ixscan_only" ? "all" : "ixscan_only")
+            }
             className={cn(
               "rounded px-2 py-0.5 text-xs font-medium transition-colors",
               filters.planFilter === "ixscan_only"

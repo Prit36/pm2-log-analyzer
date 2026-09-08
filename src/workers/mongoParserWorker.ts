@@ -58,11 +58,7 @@ function writeIngest(eng: MongoEngine, src: Uint8Array): number {
 
 function runReaggregate(eng: MongoEngine, filters: MongoFilters): MongoAggregationResult {
   const planCode =
-    filters.planFilter === "collscan_only"
-      ? 1
-      : filters.planFilter === "ixscan_only"
-        ? 2
-        : 0;
+    filters.planFilter === "collscan_only" ? 1 : filters.planFilter === "ixscan_only" ? 2 : 0;
 
   const jsonStr = eng.reaggregate(
     filters.operation,
@@ -182,7 +178,6 @@ self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
     }
 
     if (isCancelled) return;
-
 
     const result = runReaggregate(eng, currentFilters);
 

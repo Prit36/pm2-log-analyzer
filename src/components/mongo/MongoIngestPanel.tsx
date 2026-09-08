@@ -5,6 +5,7 @@ import { useMongoStore } from "../../store/mongoStore";
 import { cancelMongo, parseMongoFiles, parseMongoText } from "../../hooks/useMongoParserWorker";
 import { formatBytes } from "../../utils/format";
 import { cn } from "../../utils/cn";
+import { isArchiveFile, handleArchiveUpload } from "../../utils/zipExtractor";
 
 export const PASTE_WARN_BYTES = 8 * 1024 * 1024;
 
@@ -15,7 +16,10 @@ function filterValidFiles(fileList: FileList | File[] | null | undefined): File[
   if (!fileList || fileList.length === 0) return [];
   return Array.from(fileList).filter(
     (f) =>
+      isArchiveFile(f) ||
+      /\.log(?:\.\d+)?$/i.test(f.name) ||
       /\.log\d*$/i.test(f.name) ||
+      /\.(?:txt|json|out|err|\d+)$/i.test(f.name) ||
       f.name.endsWith(".txt") ||
       f.name.endsWith(".json") ||
       f.type === "text/plain" ||
@@ -32,10 +36,16 @@ function useMongoIngestHandlers(params: {
   inputRef: React.RefObject<HTMLInputElement | null>;
   setUploadMode: (v: "replace" | "append") => void;
 }) {
-  const { busy, hasData, loadedFiles, setPendingDrop, setDragOver, inputRef, setUploadMode } = params;
+  const { busy, hasData, loadedFiles, setPendingDrop, setDragOver, inputRef, setUploadMode } =
+    params;
 
   const executeAppend = (files: File[]) => {
     setPendingDrop(null);
+    const archive = files.find(isArchiveFile);
+    if (archive) {
+      void handleArchiveUpload(archive, "append");
+      return;
+    }
     const existingCount = useMongoStore.getState().loadedFiles.length;
     const combined = appendLoadedFiles(files);
     if (combined.length === existingCount) return;
@@ -44,6 +54,11 @@ function useMongoIngestHandlers(params: {
 
   const executeReplace = (files: File[]) => {
     setPendingDrop(null);
+    const archive = files.find(isArchiveFile);
+    if (archive) {
+      void handleArchiveUpload(archive, "replace");
+      return;
+    }
     const unique = setLoadedFiles(files);
     if (unique.length === 0) return;
     void parseMongoFiles(unique);
@@ -55,7 +70,7 @@ function useMongoIngestHandlers(params: {
     if (busy) return;
     const validFiles = filterValidFiles(e.dataTransfer.files);
     if (validFiles.length === 0) {
-      showToast("Please upload log files (.log, .log1, .txt, etc.)");
+      showToast("Please upload log or archive files (.log, .zip, .gz, .txt, .json, etc.)");
       return;
     }
     if (hasData && loadedFiles.length > 0) setPendingDrop(validFiles);
@@ -159,7 +174,7 @@ export function MongoIngestPanel() {
           data-testid="mongo-log-file-input"
           className="hidden"
           onChange={onFileChange}
-          accept=".log*,.txt,.json"
+          accept=".log*,.txt,.json,.1,.2,.3,.4,.5,.6,.7,.8,.9,.zip,.gz,application/zip,application/x-zip-compressed,application/gzip,text/plain"
         />
 
         {busy ? (
@@ -215,10 +230,11 @@ export function MongoIngestPanel() {
               <Database className="size-6 text-emerald-600 dark:text-emerald-400" />
             </div>
             <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Drop MongoDB log files here
+              Drop MongoDB logs or .zip archive here
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm">
-              Supports mongod JSON log files (.log, .log1, etc.) · Ingests in your browser without uploading to any server
+              Supports mongod log files (.log, .log.1, .gz, .zip) · Auto-classifies API &amp;
+              MongoDB logs
             </p>
             <div className="mt-2 flex items-center gap-2">
               <button
@@ -250,8 +266,8 @@ export function MongoIngestPanel() {
               Add or Replace Files?
             </h3>
             <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-400">
-              You selected {pendingDrop.length} file{pendingDrop.length > 1 ? "s" : ""}. Do you want to
-              combine them with existing logs or replace the analysis?
+              You selected {pendingDrop.length} file{pendingDrop.length > 1 ? "s" : ""}. Do you want
+              to combine them with existing logs or replace the analysis?
             </p>
             <div className="mt-5 flex justify-end gap-2">
               <button

@@ -1,4 +1,13 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, Check, Copy, ExternalLink, Flame, Lightbulb } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Check,
+  Copy,
+  ExternalLink,
+  Flame,
+  Lightbulb,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
 import { useShallow } from "zustand/react/shallow";
@@ -90,7 +99,10 @@ function PatternRow({
             </span>
           )}
         </div>
-        <p className="truncate font-mono text-[11px] text-slate-500 dark:text-slate-400" title={p.fingerprint}>
+        <p
+          className="truncate font-mono text-[11px] text-slate-500 dark:text-slate-400"
+          title={p.fingerprint}
+        >
           {p.fingerprint}
         </p>
       </div>
@@ -124,7 +136,9 @@ function PatternRow({
       <div
         className={cn(
           "text-right font-medium tabular-nums",
-          p.scanRatio > 100 ? "text-rose-600 dark:text-rose-400" : "text-slate-600 dark:text-slate-400",
+          p.scanRatio > 100
+            ? "text-rose-600 dark:text-rose-400"
+            : "text-slate-600 dark:text-slate-400",
         )}
         title={`Examined avg ${formatNum(p.avgDocsExamined)} docs to return ${p.avgReturned}`}
       >

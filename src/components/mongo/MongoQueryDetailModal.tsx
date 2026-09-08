@@ -105,7 +105,10 @@ export function MongoQueryDetailModal() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-800/50">
               <span className="text-slate-500 dark:text-slate-400">Execution Plan</span>
-              <p className="mt-1 font-semibold text-slate-900 dark:text-slate-100 truncate" title={activeQuery.planSummary}>
+              <p
+                className="mt-1 font-semibold text-slate-900 dark:text-slate-100 truncate"
+                title={activeQuery.planSummary}
+              >
                 {activeQuery.planSummary || "Unknown"}
               </p>
             </div>
@@ -115,7 +118,9 @@ export function MongoQueryDetailModal() {
               <p className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
                 {formatNum(activeQuery.docsExamined)} / {formatNum(activeQuery.nreturned)}
               </p>
-              <span className="text-[10px] text-slate-500">Ratio: {Math.round(activeQuery.scanRatio * 10) / 10}x</span>
+              <span className="text-[10px] text-slate-500">
+                Ratio: {Math.round(activeQuery.scanRatio * 10) / 10}x
+              </span>
             </div>
 
             <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-800/50">
@@ -144,7 +149,10 @@ export function MongoQueryDetailModal() {
             {activeQuery.remote && (
               <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-800/50">
                 <span className="text-slate-500 dark:text-slate-400">Remote Client</span>
-                <p className="mt-1 font-mono font-semibold text-slate-900 dark:text-slate-100 truncate" title={activeQuery.remote}>
+                <p
+                  className="mt-1 font-mono font-semibold text-slate-900 dark:text-slate-100 truncate"
+                  title={activeQuery.remote}
+                >
                   {activeQuery.remote}
                 </p>
               </div>
@@ -197,7 +205,10 @@ export function MongoQueryDetailModal() {
 
             <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-800/50">
               <span className="text-slate-500 dark:text-slate-400">Timestamp</span>
-              <p className="mt-1 font-mono font-semibold text-slate-900 dark:text-slate-100 truncate" title={activeQuery.timestamp}>
+              <p
+                className="mt-1 font-mono font-semibold text-slate-900 dark:text-slate-100 truncate"
+                title={activeQuery.timestamp}
+              >
                 {formatDateTime(activeQuery.timestamp)}
               </p>
             </div>
@@ -214,7 +225,11 @@ export function MongoQueryDetailModal() {
                 onClick={copyCommandJson}
                 className="flex items-center gap-1 rounded bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-xs hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200"
               >
-                {copiedCmd ? <Check className="size-3 text-emerald-600" /> : <Copy className="size-3" />}
+                {copiedCmd ? (
+                  <Check className="size-3 text-emerald-600" />
+                ) : (
+                  <Copy className="size-3" />
+                )}
                 <span>{copiedCmd ? "Copied" : "Copy JSON"}</span>
               </button>
             </div>

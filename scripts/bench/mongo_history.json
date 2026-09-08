@@ -64,11 +64,7 @@
         "uploadToReadySec": 7.044827499999999,
         "throughputMBps": 51.87974097645881,
         "reaggAvgMs": 2598,
-        "reaggWallMs": [
-          273,
-          3695,
-          3826
-        ],
+        "reaggWallMs": [273, 3695, 3826],
         "browserRssPeakMB": 2845.21875,
         "jsHeapPeakMB": 1164.9515953063965,
         "jsHeapUsedAfterMB": 1024.4177169799805
@@ -140,11 +136,7 @@
         "uploadToReadySec": 6.4739926,
         "throughputMBps": 56.40996185097747,
         "reaggAvgMs": 2335,
-        "reaggWallMs": [
-          253,
-          3225,
-          3527
-        ],
+        "reaggWallMs": [253, 3225, 3527],
         "browserRssPeakMB": 2854.66796875,
         "jsHeapPeakMB": 1164.8086738586426,
         "jsHeapUsedAfterMB": 1024.4060897827148
@@ -155,11 +147,7 @@
         "uploadToReadySec": 6.5187771,
         "throughputMBps": 55.949587412153704,
         "reaggAvgMs": 2346.3333333333335,
-        "reaggWallMs": [
-          239,
-          3187,
-          3613
-        ],
+        "reaggWallMs": [239, 3187, 3613],
         "browserRssPeakMB": 2792.69921875,
         "jsHeapPeakMB": 1164.814842224121,
         "jsHeapUsedAfterMB": 1024.4002838134766
@@ -170,11 +158,7 @@
         "uploadToReadySec": 6.5898907,
         "throughputMBps": 55.39599650767988,
         "reaggAvgMs": 2352,
-        "reaggWallMs": [
-          241,
-          3251,
-          3564
-        ],
+        "reaggWallMs": [241, 3251, 3564],
         "browserRssPeakMB": 2792.73046875,
         "jsHeapPeakMB": 1164.8435974121094,
         "jsHeapUsedAfterMB": 1024.4063034057617
@@ -246,11 +230,7 @@
         "uploadToReadySec": 1.845423,
         "throughputMBps": 183.46331120839477,
         "reaggAvgMs": 20,
-        "reaggWallMs": [
-          22,
-          19,
-          19
-        ],
+        "reaggWallMs": [22, 19, 19],
         "browserRssPeakMB": 887.99609375,
         "jsHeapPeakMB": 8.584972381591797,
         "jsHeapUsedAfterMB": 8.600231170654297
@@ -322,11 +302,7 @@
         "uploadToReadySec": 1.8736727,
         "throughputMBps": 180.70001227679978,
         "reaggAvgMs": 20,
-        "reaggWallMs": [
-          21,
-          20,
-          19
-        ],
+        "reaggWallMs": [21, 20, 19],
         "browserRssPeakMB": 888.3046875,
         "jsHeapPeakMB": 8.58047103881836,
         "jsHeapUsedAfterMB": 8.59572982788086
@@ -337,11 +313,7 @@
         "uploadToReadySec": 1.8350309999999999,
         "throughputMBps": 184.57215539701693,
         "reaggAvgMs": 19.666666666666668,
-        "reaggWallMs": [
-          21,
-          20,
-          18
-        ],
+        "reaggWallMs": [21, 20, 18],
         "browserRssPeakMB": 891.44921875,
         "jsHeapPeakMB": 8.614822387695312,
         "jsHeapUsedAfterMB": 8.630081176757812
@@ -352,11 +324,7 @@
         "uploadToReadySec": 1.8549328,
         "throughputMBps": 182.46676959400912,
         "reaggAvgMs": 20,
-        "reaggWallMs": [
-          20,
-          20,
-          20
-        ],
+        "reaggWallMs": [20, 20, 20],
         "browserRssPeakMB": 888.12890625,
         "jsHeapPeakMB": 8.589744567871094,
         "jsHeapUsedAfterMB": 8.60238265991211
@@ -428,11 +396,7 @@
         "uploadToReadySec": 0.8711819000000001,
         "throughputMBps": 391.9735388828131,
         "reaggAvgMs": 19.333333333333332,
-        "reaggWallMs": [
-          22,
-          19,
-          17
-        ],
+        "reaggWallMs": [22, 19, 17],
         "browserRssPeakMB": 658.390625,
         "jsHeapPeakMB": 8.43796157836914,
         "jsHeapUsedAfterMB": 8.450599670410156
@@ -504,11 +468,7 @@
         "uploadToReadySec": 0.8603345,
         "throughputMBps": 397.54002700895956,
         "reaggAvgMs": 20,
-        "reaggWallMs": [
-          23,
-          19,
-          18
-        ],
+        "reaggWallMs": [23, 19, 18],
         "browserRssPeakMB": 660.609375,
         "jsHeapPeakMB": 8.407756805419922,
         "jsHeapUsedAfterMB": 8.420394897460938
@@ -519,11 +479,7 @@
         "uploadToReadySec": 0.8887287,
         "throughputMBps": 384.3493396139254,
         "reaggAvgMs": 20,
-        "reaggWallMs": [
-          22,
-          20,
-          18
-        ],
+        "reaggWallMs": [22, 20, 18],
         "browserRssPeakMB": 658.9296875,
         "jsHeapPeakMB": 8.41012191772461,
         "jsHeapUsedAfterMB": 8.422760009765625
@@ -534,11 +490,7 @@
         "uploadToReadySec": 0.8664881,
         "throughputMBps": 394.2738530781348,
         "reaggAvgMs": 19.666666666666668,
-        "reaggWallMs": [
-          20,
-          22,
-          17
-        ],
+        "reaggWallMs": [20, 22, 17],
         "browserRssPeakMB": 666.27734375,
         "jsHeapPeakMB": 8.408035278320312,
         "jsHeapUsedAfterMB": 8.420673370361328
@@ -610,11 +562,7 @@
         "uploadToReadySec": 0.8406014,
         "throughputMBps": 406.684410196817,
         "reaggAvgMs": 22.666666666666668,
-        "reaggWallMs": [
-          21,
-          31,
-          16
-        ],
+        "reaggWallMs": [21, 31, 16],
         "browserRssPeakMB": 657.45703125,
         "jsHeapPeakMB": 8.400882720947266,
         "jsHeapUsedAfterMB": 8.413520812988281
@@ -625,11 +573,7 @@
         "uploadToReadySec": 0.8273594,
         "throughputMBps": 413.18735894535155,
         "reaggAvgMs": 20,
-        "reaggWallMs": [
-          22,
-          20,
-          18
-        ],
+        "reaggWallMs": [22, 20, 18],
         "browserRssPeakMB": 657.62890625,
         "jsHeapPeakMB": 8.402976989746094,
         "jsHeapUsedAfterMB": 8.41561508178711
@@ -640,11 +584,7 @@
         "uploadToReadySec": 0.8371588000000001,
         "throughputMBps": 408.1668564065259,
         "reaggAvgMs": 18.333333333333332,
-        "reaggWallMs": [
-          20,
-          18,
-          17
-        ],
+        "reaggWallMs": [20, 18, 17],
         "browserRssPeakMB": 658.4375,
         "jsHeapPeakMB": 8.408557891845703,
         "jsHeapUsedAfterMB": 8.421195983886719
@@ -716,11 +656,7 @@
         "uploadToReadySec": 0.5447917,
         "throughputMBps": 633.81381664636,
         "reaggAvgMs": 20,
-        "reaggWallMs": [
-          22,
-          20,
-          18
-        ],
+        "reaggWallMs": [22, 20, 18],
         "browserRssPeakMB": 677.00390625,
         "jsHeapPeakMB": 8.430179595947266,
         "jsHeapUsedAfterMB": 8.442817687988281
@@ -731,11 +667,7 @@
         "uploadToReadySec": 0.5400267,
         "throughputMBps": 639.8501387096586,
         "reaggAvgMs": 19.666666666666668,
-        "reaggWallMs": [
-          21,
-          19,
-          19
-        ],
+        "reaggWallMs": [21, 19, 19],
         "browserRssPeakMB": 676.70703125,
         "jsHeapPeakMB": 8.405765533447266,
         "jsHeapUsedAfterMB": 8.418403625488281
@@ -746,11 +678,7 @@
         "uploadToReadySec": 0.5426197,
         "throughputMBps": 636.2146265578992,
         "reaggAvgMs": 19.333333333333332,
-        "reaggWallMs": [
-          21,
-          19,
-          18
-        ],
+        "reaggWallMs": [21, 19, 18],
         "browserRssPeakMB": 674.109375,
         "jsHeapPeakMB": 8.392780303955078,
         "jsHeapUsedAfterMB": 8.405418395996094
@@ -822,11 +750,7 @@
         "uploadToReadySec": 0.5556089000000002,
         "throughputMBps": 619.7810384180273,
         "reaggAvgMs": 19.666666666666668,
-        "reaggWallMs": [
-          22,
-          20,
-          17
-        ],
+        "reaggWallMs": [22, 20, 17],
         "browserRssPeakMB": 673.68359375,
         "jsHeapPeakMB": 8.41314697265625,
         "jsHeapUsedAfterMB": 8.425785064697266
@@ -837,11 +761,7 @@
         "uploadToReadySec": 0.5341653000000001,
         "throughputMBps": 647.2472501398281,
         "reaggAvgMs": 19,
-        "reaggWallMs": [
-          19,
-          20,
-          18
-        ],
+        "reaggWallMs": [19, 20, 18],
         "browserRssPeakMB": 674.16796875,
         "jsHeapPeakMB": 8.395973205566406,
         "jsHeapUsedAfterMB": 8.408611297607422
@@ -852,11 +772,7 @@
         "uploadToReadySec": 0.5386256,
         "throughputMBps": 641.0712267606312,
         "reaggAvgMs": 20.333333333333332,
-        "reaggWallMs": [
-          23,
-          19,
-          19
-        ],
+        "reaggWallMs": [23, 19, 19],
         "browserRssPeakMB": 674.0234375,
         "jsHeapPeakMB": 8.391868591308594,
         "jsHeapUsedAfterMB": 8.40450668334961
@@ -928,11 +844,7 @@
         "uploadToReadySec": 0.5402027999999999,
         "throughputMBps": 638.633693579032,
         "reaggAvgMs": 20.333333333333332,
-        "reaggWallMs": [
-          22,
-          21,
-          18
-        ],
+        "reaggWallMs": [22, 21, 18],
         "browserRssPeakMB": 675.9453125,
         "jsHeapPeakMB": 8.417404174804688,
         "jsHeapUsedAfterMB": 8.430042266845703
@@ -943,11 +855,7 @@
         "uploadToReadySec": 0.5423807,
         "throughputMBps": 636.2146265578992,
         "reaggAvgMs": 19.666666666666668,
-        "reaggWallMs": [
-          22,
-          19,
-          18
-        ],
+        "reaggWallMs": [22, 19, 18],
         "browserRssPeakMB": 673.390625,
         "jsHeapPeakMB": 8.41470718383789,
         "jsHeapUsedAfterMB": 8.427345275878906
@@ -958,11 +866,7 @@
         "uploadToReadySec": 0.537018,
         "throughputMBps": 642.2969843643801,
         "reaggAvgMs": 20.333333333333332,
-        "reaggWallMs": [
-          24,
-          19,
-          18
-        ],
+        "reaggWallMs": [24, 19, 18],
         "browserRssPeakMB": 675.87109375,
         "jsHeapPeakMB": 8.413402557373047,
         "jsHeapUsedAfterMB": 8.426040649414062
@@ -1034,11 +938,7 @@
         "uploadToReadySec": 0.5765346,
         "throughputMBps": 598.7902367603757,
         "reaggAvgMs": 19.333333333333332,
-        "reaggWallMs": [
-          22,
-          19,
-          17
-        ],
+        "reaggWallMs": [22, 19, 17],
         "browserRssPeakMB": 677.14453125,
         "jsHeapPeakMB": 8.429428100585938,
         "jsHeapUsedAfterMB": 8.442066192626953
@@ -1110,11 +1010,7 @@
         "uploadToReadySec": 0.5657447,
         "throughputMBps": 610.7660414955832,
         "reaggAvgMs": 20,
-        "reaggWallMs": [
-          22,
-          20,
-          18
-        ],
+        "reaggWallMs": [22, 20, 18],
         "browserRssPeakMB": 674.81640625,
         "jsHeapPeakMB": 8.443473815917969,
         "jsHeapUsedAfterMB": 8.456111907958984
@@ -1186,11 +1082,7 @@
         "uploadToReadySec": 0.5663655,
         "throughputMBps": 608.5531210553818,
         "reaggAvgMs": 18.666666666666668,
-        "reaggWallMs": [
-          20,
-          19,
-          17
-        ],
+        "reaggWallMs": [20, 19, 17],
         "browserRssPeakMB": 677.5390625,
         "jsHeapPeakMB": 8.433845520019531,
         "jsHeapUsedAfterMB": 8.446483612060547
@@ -1201,11 +1093,7 @@
         "uploadToReadySec": 0.5487747000000001,
         "throughputMBps": 632.620193639493,
         "reaggAvgMs": 19,
-        "reaggWallMs": [
-          21,
-          19,
-          17
-        ],
+        "reaggWallMs": [21, 19, 17],
         "browserRssPeakMB": 674.76953125,
         "jsHeapPeakMB": 8.411041259765625,
         "jsHeapUsedAfterMB": 8.42367935180664
@@ -1216,11 +1104,7 @@
         "uploadToReadySec": 0.5570723,
         "throughputMBps": 619.7810384180273,
         "reaggAvgMs": 21.666666666666668,
-        "reaggWallMs": [
-          22,
-          26,
-          17
-        ],
+        "reaggWallMs": [22, 26, 17],
         "browserRssPeakMB": 677.55859375,
         "jsHeapPeakMB": 8.406356811523438,
         "jsHeapUsedAfterMB": 8.418994903564453
@@ -1292,11 +1176,7 @@
         "uploadToReadySec": 0.5619498,
         "throughputMBps": 619.7810384180273,
         "reaggAvgMs": 20.666666666666668,
-        "reaggWallMs": [
-          21,
-          22,
-          19
-        ],
+        "reaggWallMs": [21, 22, 19],
         "browserRssPeakMB": 694.15234375,
         "jsHeapPeakMB": 8.737110137939453,
         "jsHeapUsedAfterMB": 8.749748229980469
@@ -1307,11 +1187,7 @@
         "uploadToReadySec": 0.5438930999999999,
         "throughputMBps": 633.81381664636,
         "reaggAvgMs": 21.666666666666668,
-        "reaggWallMs": [
-          22,
-          22,
-          21
-        ],
+        "reaggWallMs": [22, 22, 21],
         "browserRssPeakMB": 681.59765625,
         "jsHeapPeakMB": 8.711559295654297,
         "jsHeapUsedAfterMB": 8.724197387695312
@@ -1322,11 +1198,7 @@
         "uploadToReadySec": 0.5373271999999999,
         "throughputMBps": 642.2969843643801,
         "reaggAvgMs": 22.333333333333332,
-        "reaggWallMs": [
-          22,
-          24,
-          21
-        ],
+        "reaggWallMs": [22, 24, 21],
         "browserRssPeakMB": 684.24609375,
         "jsHeapPeakMB": 8.725173950195312,
         "jsHeapUsedAfterMB": 8.737812042236328
@@ -1398,11 +1270,7 @@
         "uploadToReadySec": 0.6580019,
         "throughputMBps": 525.6984707708464,
         "reaggAvgMs": 22,
-        "reaggWallMs": [
-          21,
-          24,
-          21
-        ],
+        "reaggWallMs": [21, 24, 21],
         "browserRssPeakMB": 688.49609375,
         "jsHeapPeakMB": 8.991024017333984,
         "jsHeapUsedAfterMB": 9.003662109375
@@ -1413,11 +1281,7 @@
         "uploadToReadySec": 0.6387557,
         "throughputMBps": 538.3354532412993,
         "reaggAvgMs": 22.333333333333332,
-        "reaggWallMs": [
-          21,
-          26,
-          20
-        ],
+        "reaggWallMs": [21, 26, 20],
         "browserRssPeakMB": 684.1015625,
         "jsHeapPeakMB": 8.997695922851562,
         "jsHeapUsedAfterMB": 9.010334014892578
@@ -1428,11 +1292,7 @@
         "uploadToReadySec": 0.6396362,
         "throughputMBps": 537.4741165161133,
         "reaggAvgMs": 26.333333333333332,
-        "reaggWallMs": [
-          29,
-          27,
-          23
-        ],
+        "reaggWallMs": [29, 27, 23],
         "browserRssPeakMB": 686.6484375,
         "jsHeapPeakMB": 8.965389251708984,
         "jsHeapUsedAfterMB": 8.97802734375
@@ -1504,11 +1364,7 @@
         "uploadToReadySec": 0.6558066999999999,
         "throughputMBps": 524.8770669102669,
         "reaggAvgMs": 23,
-        "reaggWallMs": [
-          22,
-          25,
-          22
-        ],
+        "reaggWallMs": [22, 25, 22],
         "browserRssPeakMB": 686.70703125,
         "jsHeapPeakMB": 8.987781524658203,
         "jsHeapUsedAfterMB": 9.000419616699219
@@ -1519,11 +1375,7 @@
         "uploadToReadySec": 0.6609441999999999,
         "throughputMBps": 520.0020477129578,
         "reaggAvgMs": 26,
-        "reaggWallMs": [
-          23,
-          26,
-          29
-        ],
+        "reaggWallMs": [23, 26, 29],
         "browserRssPeakMB": 684.5,
         "jsHeapPeakMB": 8.964813232421875,
         "jsHeapUsedAfterMB": 8.97745132446289
@@ -1534,11 +1386,7 @@
         "uploadToReadySec": 0.6559170000000001,
         "throughputMBps": 527.3490154200483,
         "reaggAvgMs": 23.666666666666668,
-        "reaggWallMs": [
-          22,
-          25,
-          24
-        ],
+        "reaggWallMs": [22, 25, 24],
         "browserRssPeakMB": 685.125,
         "jsHeapPeakMB": 8.975139617919922,
         "jsHeapUsedAfterMB": 8.987777709960938
@@ -1610,11 +1458,7 @@
         "uploadToReadySec": 0.7031669000000002,
         "throughputMBps": 488.2577366607134,
         "reaggAvgMs": 24,
-        "reaggWallMs": [
-          21,
-          26,
-          25
-        ],
+        "reaggWallMs": [21, 26, 25],
         "browserRssPeakMB": 687.3125,
         "jsHeapPeakMB": 9.005863189697266,
         "jsHeapUsedAfterMB": 9.018501281738281
@@ -1686,11 +1530,7 @@
         "uploadToReadySec": 0.6476061,
         "throughputMBps": 530.6813946644088,
         "reaggAvgMs": 20.666666666666668,
-        "reaggWallMs": [
-          21,
-          22,
-          19
-        ],
+        "reaggWallMs": [21, 22, 19],
         "browserRssPeakMB": 682.859375,
         "jsHeapPeakMB": 8.967647552490234,
         "jsHeapUsedAfterMB": 8.98028564453125
@@ -1762,11 +1602,7 @@
         "uploadToReadySec": 0.6306635000000002,
         "throughputMBps": 545.3268227639137,
         "reaggAvgMs": 20.666666666666668,
-        "reaggWallMs": [
-          21,
-          22,
-          19
-        ],
+        "reaggWallMs": [21, 22, 19],
         "browserRssPeakMB": 682.3125,
         "jsHeapPeakMB": 9.0054931640625,
         "jsHeapUsedAfterMB": 9.018131256103516
@@ -1838,11 +1674,7 @@
         "uploadToReadySec": 0.6307807,
         "throughputMBps": 545.3268227639137,
         "reaggAvgMs": 21.666666666666668,
-        "reaggWallMs": [
-          23,
-          23,
-          19
-        ],
+        "reaggWallMs": [23, 23, 19],
         "browserRssPeakMB": 678.5390625,
         "jsHeapPeakMB": 8.95914077758789,
         "jsHeapUsedAfterMB": 8.971778869628906
@@ -1914,11 +1746,7 @@
         "uploadToReadySec": 0.6305863999999999,
         "throughputMBps": 546.2135330448306,
         "reaggAvgMs": 20.666666666666668,
-        "reaggWallMs": [
-          22,
-          21,
-          19
-        ],
+        "reaggWallMs": [22, 21, 19],
         "browserRssPeakMB": 667.65625,
         "jsHeapPeakMB": 9.015495300292969,
         "jsHeapUsedAfterMB": 9.028133392333984
@@ -1929,11 +1757,7 @@
         "uploadToReadySec": 0.6266173999999999,
         "throughputMBps": 548.8910503636778,
         "reaggAvgMs": 21,
-        "reaggWallMs": [
-          23,
-          21,
-          19
-        ],
+        "reaggWallMs": [23, 21, 19],
         "browserRssPeakMB": 666.859375,
         "jsHeapPeakMB": 8.99209213256836,
         "jsHeapUsedAfterMB": 9.004730224609375
@@ -1944,11 +1768,7 @@
         "uploadToReadySec": 0.6294592,
         "throughputMBps": 547.1031316328515,
         "reaggAvgMs": 21.333333333333332,
-        "reaggWallMs": [
-          22,
-          23,
-          19
-        ],
+        "reaggWallMs": [22, 23, 19],
         "browserRssPeakMB": 667.65234375,
         "jsHeapPeakMB": 8.983219146728516,
         "jsHeapUsedAfterMB": 8.995857238769531
@@ -2020,11 +1840,7 @@
         "uploadToReadySec": 0.6118347000000001,
         "throughputMBps": 562.6822827848757,
         "reaggAvgMs": 21.333333333333332,
-        "reaggWallMs": [
-          22,
-          23,
-          19
-        ],
+        "reaggWallMs": [22, 23, 19],
         "browserRssPeakMB": 667.25390625,
         "jsHeapPeakMB": 8.976566314697266,
         "jsHeapUsedAfterMB": 8.989204406738281
@@ -2035,11 +1851,7 @@
         "uploadToReadySec": 0.6126068,
         "throughputMBps": 561.7413425126603,
         "reaggAvgMs": 20.666666666666668,
-        "reaggWallMs": [
-          22,
-          22,
-          18
-        ],
+        "reaggWallMs": [22, 22, 18],
         "browserRssPeakMB": 667.0859375,
         "jsHeapPeakMB": 9.019241333007812,
         "jsHeapUsedAfterMB": 9.031879425048828
@@ -2050,11 +1862,7 @@
         "uploadToReadySec": 0.6137836000000001,
         "throughputMBps": 560.8035439441917,
         "reaggAvgMs": 23.666666666666668,
-        "reaggWallMs": [
-          28,
-          22,
-          21
-        ],
+        "reaggWallMs": [28, 22, 21],
         "browserRssPeakMB": 666.54296875,
         "jsHeapPeakMB": 8.963081359863281,
         "jsHeapUsedAfterMB": 8.975719451904297
@@ -2126,11 +1934,7 @@
         "uploadToReadySec": 0.5731034999999992,
         "throughputMBps": 602.0095391085498,
         "reaggAvgMs": 21.666666666666668,
-        "reaggWallMs": [
-          22,
-          22,
-          21
-        ],
+        "reaggWallMs": [22, 22, 21],
         "browserRssPeakMB": 674.86328125,
         "jsHeapPeakMB": 8.97015380859375,
         "jsHeapUsedAfterMB": 8.982791900634766
@@ -2202,11 +2006,7 @@
         "uploadToReadySec": 0.49632860000000006,
         "throughputMBps": 696.9322050260805,
         "reaggAvgMs": 21.333333333333332,
-        "reaggWallMs": [
-          22,
-          22,
-          20
-        ],
+        "reaggWallMs": [22, 22, 20],
         "browserRssPeakMB": 671.16796875,
         "jsHeapPeakMB": 8.965435028076172,
         "jsHeapUsedAfterMB": 8.978073120117188
@@ -2278,11 +2078,7 @@
         "uploadToReadySec": 0.5170557,
         "throughputMBps": 667.8356318540175,
         "reaggAvgMs": 20.666666666666668,
-        "reaggWallMs": [
-          21,
-          22,
-          19
-        ],
+        "reaggWallMs": [21, 22, 19],
         "browserRssPeakMB": 685.61328125,
         "jsHeapPeakMB": 8.997611999511719,
         "jsHeapUsedAfterMB": 9.010250091552734
@@ -2354,11 +2150,7 @@
         "uploadToReadySec": 0.4948869000000002,
         "throughputMBps": 699.8360892136892,
         "reaggAvgMs": 21.333333333333332,
-        "reaggWallMs": [
-          21,
-          24,
-          19
-        ],
+        "reaggWallMs": [21, 24, 19],
         "browserRssPeakMB": 667.23046875,
         "jsHeapPeakMB": 8.99151611328125,
         "jsHeapUsedAfterMB": 9.004154205322266
@@ -2430,11 +2222,7 @@
         "uploadToReadySec": 0.479076,
         "throughputMBps": 725.5320147355741,
         "reaggAvgMs": 21.333333333333332,
-        "reaggWallMs": [
-          22,
-          23,
-          19
-        ],
+        "reaggWallMs": [22, 23, 19],
         "browserRssPeakMB": 670.0078125,
         "jsHeapPeakMB": 8.979179382324219,
         "jsHeapUsedAfterMB": 8.991817474365234
@@ -2506,11 +2294,7 @@
         "uploadToReadySec": 0.47362389999999993,
         "throughputMBps": 733.4526699182768,
         "reaggAvgMs": 20.666666666666668,
-        "reaggWallMs": [
-          21,
-          22,
-          19
-        ],
+        "reaggWallMs": [21, 22, 19],
         "browserRssPeakMB": 666.57421875,
         "jsHeapPeakMB": 8.954925537109375,
         "jsHeapUsedAfterMB": 8.96756362915039
@@ -2521,11 +2305,7 @@
         "uploadToReadySec": 0.47787110000000005,
         "throughputMBps": 725.5320147355741,
         "reaggAvgMs": 21.333333333333332,
-        "reaggWallMs": [
-          22,
-          23,
-          19
-        ],
+        "reaggWallMs": [22, 23, 19],
         "browserRssPeakMB": 670.03125,
         "jsHeapPeakMB": 8.989555358886719,
         "jsHeapUsedAfterMB": 9.002193450927734
@@ -2536,11 +2316,7 @@
         "uploadToReadySec": 0.5467749000000001,
         "throughputMBps": 633.81381664636,
         "reaggAvgMs": 21.666666666666668,
-        "reaggWallMs": [
-          23,
-          22,
-          20
-        ],
+        "reaggWallMs": [23, 22, 20],
         "browserRssPeakMB": 669.70703125,
         "jsHeapPeakMB": 8.972618103027344,
         "jsHeapUsedAfterMB": 8.98525619506836
@@ -2612,11 +2388,7 @@
         "uploadToReadySec": 0.46932020000000013,
         "throughputMBps": 739.9148079792308,
         "reaggAvgMs": 20.333333333333332,
-        "reaggWallMs": [
-          21,
-          22,
-          18
-        ],
+        "reaggWallMs": [21, 22, 18],
         "browserRssPeakMB": 669.3828125,
         "jsHeapPeakMB": 8.97220230102539,
         "jsHeapUsedAfterMB": 8.984840393066406
@@ -2627,11 +2399,7 @@
         "uploadToReadySec": 0.48135839999999985,
         "throughputMBps": 717.7806043217324,
         "reaggAvgMs": 20.666666666666668,
-        "reaggWallMs": [
-          21,
-          22,
-          19
-        ],
+        "reaggWallMs": [21, 22, 19],
         "browserRssPeakMB": 669.16015625,
         "jsHeapPeakMB": 8.980113983154297,
         "jsHeapUsedAfterMB": 8.992752075195312
@@ -2642,11 +2410,7 @@
         "uploadToReadySec": 0.4671916,
         "throughputMBps": 744.8366359702235,
         "reaggAvgMs": 21,
-        "reaggWallMs": [
-          21,
-          22,
-          20
-        ],
+        "reaggWallMs": [21, 22, 20],
         "browserRssPeakMB": 677.21875,
         "jsHeapPeakMB": 8.962738037109375,
         "jsHeapUsedAfterMB": 8.97537612915039
@@ -2718,11 +2482,7 @@
         "uploadToReadySec": 0.4690427999999999,
         "throughputMBps": 738.2886215880677,
         "reaggAvgMs": 20.666666666666668,
-        "reaggWallMs": [
-          21,
-          23,
-          18
-        ],
+        "reaggWallMs": [21, 23, 18],
         "browserRssPeakMB": 667.27734375,
         "jsHeapPeakMB": 8.977497100830078,
         "jsHeapUsedAfterMB": 8.990135192871094
@@ -2733,11 +2493,7 @@
         "uploadToReadySec": 0.47287480000000004,
         "throughputMBps": 733.4526699182768,
         "reaggAvgMs": 20,
-        "reaggWallMs": [
-          20,
-          22,
-          18
-        ],
+        "reaggWallMs": [20, 22, 18],
         "browserRssPeakMB": 667.24609375,
         "jsHeapPeakMB": 8.974620819091797,
         "jsHeapUsedAfterMB": 8.987258911132812
@@ -2748,11 +2504,7 @@
         "uploadToReadySec": 0.4637514000000001,
         "throughputMBps": 748.1543938141889,
         "reaggAvgMs": 20.333333333333332,
-        "reaggWallMs": [
-          21,
-          21,
-          19
-        ],
+        "reaggWallMs": [21, 21, 19],
         "browserRssPeakMB": 666.95703125,
         "jsHeapPeakMB": 8.97812271118164,
         "jsHeapUsedAfterMB": 8.990760803222656
@@ -2824,11 +2576,7 @@
         "uploadToReadySec": 0.47154279999999993,
         "throughputMBps": 736.669567593357,
         "reaggAvgMs": 21.333333333333332,
-        "reaggWallMs": [
-          22,
-          23,
-          19
-        ],
+        "reaggWallMs": [22, 23, 19],
         "browserRssPeakMB": 667.1953125,
         "jsHeapPeakMB": 8.980533599853516,
         "jsHeapUsedAfterMB": 8.993171691894531
@@ -2839,11 +2587,7 @@
         "uploadToReadySec": 0.4617760999999999,
         "throughputMBps": 749.8243813003812,
         "reaggAvgMs": 21.333333333333332,
-        "reaggWallMs": [
-          21,
-          22,
-          21
-        ],
+        "reaggWallMs": [21, 22, 21],
         "browserRssPeakMB": 667.00390625,
         "jsHeapPeakMB": 8.983367919921875,
         "jsHeapUsedAfterMB": 8.99600601196289
@@ -2854,11 +2598,7 @@
         "uploadToReadySec": 0.46040910000000007,
         "throughputMBps": 753.1868224721318,
         "reaggAvgMs": 21,
-        "reaggWallMs": [
-          22,
-          22,
-          19
-        ],
+        "reaggWallMs": [22, 22, 19],
         "browserRssPeakMB": 669.9609375,
         "jsHeapPeakMB": 8.981918334960938,
         "jsHeapUsedAfterMB": 8.994556427001953
@@ -2930,11 +2670,7 @@
         "uploadToReadySec": 0.484466,
         "throughputMBps": 716.250155272006,
         "reaggAvgMs": 22.333333333333332,
-        "reaggWallMs": [
-          21,
-          23,
-          23
-        ],
+        "reaggWallMs": [21, 23, 23],
         "browserRssPeakMB": 670.01953125,
         "jsHeapPeakMB": 8.970699310302734,
         "jsHeapUsedAfterMB": 8.98333740234375
@@ -2945,11 +2681,7 @@
         "uploadToReadySec": 0.4659606000000001,
         "throughputMBps": 746.4918284946018,
         "reaggAvgMs": 20.333333333333332,
-        "reaggWallMs": [
-          19,
-          24,
-          18
-        ],
+        "reaggWallMs": [19, 24, 18],
         "browserRssPeakMB": 669.9453125,
         "jsHeapPeakMB": 8.973220825195312,
         "jsHeapUsedAfterMB": 8.985858917236328
@@ -2960,11 +2692,7 @@
         "uploadToReadySec": 0.45959900000000004,
         "throughputMBps": 754.8793771293725,
         "reaggAvgMs": 20,
-        "reaggWallMs": [
-          20,
-          22,
-          18
-        ],
+        "reaggWallMs": [20, 22, 18],
         "browserRssPeakMB": 667.01171875,
         "jsHeapPeakMB": 8.955818176269531,
         "jsHeapUsedAfterMB": 8.968456268310547
@@ -3036,11 +2764,7 @@
         "uploadToReadySec": 0.464042,
         "throughputMBps": 746.4918284946018,
         "reaggAvgMs": 21,
-        "reaggWallMs": [
-          21,
-          23,
-          19
-        ],
+        "reaggWallMs": [21, 23, 19],
         "browserRssPeakMB": 666.3046875,
         "jsHeapPeakMB": 8.96331787109375,
         "jsHeapUsedAfterMB": 8.975955963134766
@@ -3051,11 +2775,7 @@
         "uploadToReadySec": 0.4674434,
         "throughputMBps": 741.54817400126,
         "reaggAvgMs": 22.333333333333332,
-        "reaggWallMs": [
-          22,
-          24,
-          21
-        ],
+        "reaggWallMs": [22, 24, 21],
         "browserRssPeakMB": 676.87109375,
         "jsHeapPeakMB": 8.971275329589844,
         "jsHeapUsedAfterMB": 8.98391342163086
@@ -3066,11 +2786,7 @@
         "uploadToReadySec": 0.4602879,
         "throughputMBps": 753.1868224721318,
         "reaggAvgMs": 21,
-        "reaggWallMs": [
-          21,
-          22,
-          20
-        ],
+        "reaggWallMs": [21, 22, 20],
         "browserRssPeakMB": 667.015625,
         "jsHeapPeakMB": 8.987548828125,
         "jsHeapUsedAfterMB": 9.000186920166016
@@ -3142,11 +2858,7 @@
         "uploadToReadySec": 0.4776241,
         "throughputMBps": 725.5320147355741,
         "reaggAvgMs": 20.333333333333332,
-        "reaggWallMs": [
-          20,
-          23,
-          18
-        ],
+        "reaggWallMs": [20, 23, 18],
         "browserRssPeakMB": 669.375,
         "jsHeapPeakMB": 8.976577758789062,
         "jsHeapUsedAfterMB": 8.989215850830078
@@ -3157,11 +2869,7 @@
         "uploadToReadySec": 0.4783327999999999,
         "throughputMBps": 725.5320147355741,
         "reaggAvgMs": 22.666666666666668,
-        "reaggWallMs": [
-          22,
-          25,
-          21
-        ],
+        "reaggWallMs": [22, 25, 21],
         "browserRssPeakMB": 669.73828125,
         "jsHeapPeakMB": 8.979972839355469,
         "jsHeapUsedAfterMB": 8.992610931396484
@@ -3172,11 +2880,7 @@
         "uploadToReadySec": 0.4786564000000001,
         "throughputMBps": 723.9683681520922,
         "reaggAvgMs": 20.666666666666668,
-        "reaggWallMs": [
-          22,
-          22,
-          18
-        ],
+        "reaggWallMs": [22, 22, 18],
         "browserRssPeakMB": 669.58984375,
         "jsHeapPeakMB": 8.96493911743164,
         "jsHeapUsedAfterMB": 8.977577209472656
@@ -3248,11 +2952,7 @@
         "uploadToReadySec": 0.47130690000000003,
         "throughputMBps": 735.0575991741155,
         "reaggAvgMs": 21.666666666666668,
-        "reaggWallMs": [
-          22,
-          23,
-          20
-        ],
+        "reaggWallMs": [22, 23, 20],
         "browserRssPeakMB": 666.87890625,
         "jsHeapPeakMB": 8.967552185058594,
         "jsHeapUsedAfterMB": 8.98019027709961
@@ -3324,11 +3024,7 @@
         "uploadToReadySec": 0.4991019999999999,
         "throughputMBps": 696.9322050260805,
         "reaggAvgMs": 23.333333333333332,
-        "reaggWallMs": [
-          22,
-          25,
-          23
-        ],
+        "reaggWallMs": [22, 25, 23],
         "browserRssPeakMB": 685.73828125,
         "jsHeapPeakMB": 8.98038101196289,
         "jsHeapUsedAfterMB": 8.993019104003906
@@ -3400,11 +3096,7 @@
         "uploadToReadySec": 0.37797659999999994,
         "throughputMBps": 922.8607769850846,
         "reaggAvgMs": 22,
-        "reaggWallMs": [
-          24,
-          23,
-          19
-        ],
+        "reaggWallMs": [24, 23, 19],
         "browserRssPeakMB": 667.2421875,
         "jsHeapPeakMB": 8.9415283203125,
         "jsHeapUsedAfterMB": 8.954166412353516
@@ -3476,11 +3168,7 @@
         "uploadToReadySec": 0.37841589999999997,
         "throughputMBps": 922.8607769850846,
         "reaggAvgMs": 20.666666666666668,
-        "reaggWallMs": [
-          22,
-          21,
-          19
-        ],
+        "reaggWallMs": [22, 21, 19],
         "browserRssPeakMB": 670.82421875,
         "jsHeapPeakMB": 8.928096771240234,
         "jsHeapUsedAfterMB": 8.94073486328125
@@ -3491,11 +3179,7 @@
         "uploadToReadySec": 0.3781610999999999,
         "throughputMBps": 927.9594553109691,
         "reaggAvgMs": 19.666666666666668,
-        "reaggWallMs": [
-          20,
-          20,
-          19
-        ],
+        "reaggWallMs": [20, 20, 19],
         "browserRssPeakMB": 666.33203125,
         "jsHeapPeakMB": 8.941173553466797,
         "jsHeapUsedAfterMB": 8.953811645507812
@@ -3506,11 +3190,7 @@
         "uploadToReadySec": 0.378799,
         "throughputMBps": 925.4030931751262,
         "reaggAvgMs": 19.666666666666668,
-        "reaggWallMs": [
-          22,
-          21,
-          16
-        ],
+        "reaggWallMs": [22, 21, 16],
         "browserRssPeakMB": 669.15625,
         "jsHeapPeakMB": 8.897491455078125,
         "jsHeapUsedAfterMB": 8.91012954711914
@@ -3582,11 +3262,7 @@
         "uploadToReadySec": 0.36919860000000004,
         "throughputMBps": 948.9302904592396,
         "reaggAvgMs": 19.333333333333332,
-        "reaggWallMs": [
-          22,
-          19,
-          17
-        ],
+        "reaggWallMs": [22, 19, 17],
         "browserRssPeakMB": 669.59375,
         "jsHeapPeakMB": 8.925418853759766,
         "jsHeapUsedAfterMB": 8.938056945800781
@@ -3597,11 +3273,7 @@
         "uploadToReadySec": 0.37073749999999994,
         "throughputMBps": 946.2572473875234,
         "reaggAvgMs": 20.333333333333332,
-        "reaggWallMs": [
-          25,
-          19,
-          17
-        ],
+        "reaggWallMs": [25, 19, 17],
         "browserRssPeakMB": 667.01953125,
         "jsHeapPeakMB": 8.955558776855469,
         "jsHeapUsedAfterMB": 8.968196868896484
@@ -3612,11 +3284,7 @@
         "uploadToReadySec": 0.37278340000000004,
         "throughputMBps": 938.3277173814827,
         "reaggAvgMs": 20.333333333333332,
-        "reaggWallMs": [
-          22,
-          21,
-          18
-        ],
+        "reaggWallMs": [22, 21, 18],
         "browserRssPeakMB": 668.9921875,
         "jsHeapPeakMB": 8.94400405883789,
         "jsHeapUsedAfterMB": 8.956642150878906
@@ -3688,11 +3356,7 @@
         "uploadToReadySec": 0.37730680000000005,
         "throughputMBps": 925.4030931751262,
         "reaggAvgMs": 20,
-        "reaggWallMs": [
-          21,
-          21,
-          18
-        ],
+        "reaggWallMs": [21, 21, 18],
         "browserRssPeakMB": 669.171875,
         "jsHeapPeakMB": 8.913177490234375,
         "jsHeapUsedAfterMB": 8.92581558227539
@@ -3703,11 +3367,7 @@
         "uploadToReadySec": 0.36171529999999996,
         "throughputMBps": 965.291157536123,
         "reaggAvgMs": 20.333333333333332,
-        "reaggWallMs": [
-          22,
-          19,
-          20
-        ],
+        "reaggWallMs": [22, 19, 20],
         "browserRssPeakMB": 666.09765625,
         "jsHeapPeakMB": 8.911994934082031,
         "jsHeapUsedAfterMB": 8.924633026123047
@@ -3718,11 +3378,7 @@
         "uploadToReadySec": 0.36618920000000005,
         "throughputMBps": 954.321939836849,
         "reaggAvgMs": 20,
-        "reaggWallMs": [
-          21,
-          20,
-          19
-        ],
+        "reaggWallMs": [21, 20, 19],
         "browserRssPeakMB": 666.55078125,
         "jsHeapPeakMB": 8.92184066772461,
         "jsHeapUsedAfterMB": 8.934478759765625
@@ -3794,11 +3450,7 @@
         "uploadToReadySec": 0.3816938,
         "throughputMBps": 917.8178219195923,
         "reaggAvgMs": 19.666666666666668,
-        "reaggWallMs": [
-          22,
-          20,
-          17
-        ],
+        "reaggWallMs": [22, 20, 17],
         "browserRssPeakMB": 666.8984375,
         "jsHeapPeakMB": 8.952159881591797,
         "jsHeapUsedAfterMB": 8.964797973632812
@@ -3870,11 +3522,7 @@
         "uploadToReadySec": 0.4030052999999999,
         "throughputMBps": 863.5509584127784,
         "reaggAvgMs": 19.666666666666668,
-        "reaggWallMs": [
-          21,
-          20,
-          18
-        ],
+        "reaggWallMs": [21, 20, 18],
         "browserRssPeakMB": 669.3515625,
         "jsHeapPeakMB": 8.972980499267578,
         "jsHeapUsedAfterMB": 8.985618591308594
@@ -3885,11 +3533,7 @@
         "uploadToReadySec": 0.36582939999999986,
         "throughputMBps": 957.04080576231,
         "reaggAvgMs": 19.666666666666668,
-        "reaggWallMs": [
-          22,
-          19,
-          18
-        ],
+        "reaggWallMs": [22, 19, 18],
         "browserRssPeakMB": 666.79296875,
         "jsHeapPeakMB": 8.959278106689453,
         "jsHeapUsedAfterMB": 8.971916198730469
@@ -3900,11 +3544,7 @@
         "uploadToReadySec": 0.3649547,
         "throughputMBps": 959.7752080644881,
         "reaggAvgMs": 19.333333333333332,
-        "reaggWallMs": [
-          21,
-          20,
-          17
-        ],
+        "reaggWallMs": [21, 20, 17],
         "browserRssPeakMB": 669.56640625,
         "jsHeapPeakMB": 8.952598571777344,
         "jsHeapUsedAfterMB": 8.96523666381836
@@ -3976,11 +3616,7 @@
         "uploadToReadySec": 0.3580388999999999,
         "throughputMBps": 976.5154733214268,
         "reaggAvgMs": 19.333333333333332,
-        "reaggWallMs": [
-          21,
-          20,
-          17
-        ],
+        "reaggWallMs": [21, 20, 17],
         "browserRssPeakMB": 669.3515625,
         "jsHeapPeakMB": 8.943435668945312,
         "jsHeapUsedAfterMB": 8.956073760986328
@@ -3991,11 +3627,7 @@
         "uploadToReadySec": 0.36084329999999987,
         "throughputMBps": 968.0729764339217,
         "reaggAvgMs": 20.333333333333332,
-        "reaggWallMs": [
-          20,
-          21,
-          20
-        ],
+        "reaggWallMs": [20, 21, 20],
         "browserRssPeakMB": 666.37890625,
         "jsHeapPeakMB": 8.932182312011719,
         "jsHeapUsedAfterMB": 8.944820404052734
@@ -4006,11 +3638,7 @@
         "uploadToReadySec": 0.3638226000000001,
         "throughputMBps": 959.7752080644881,
         "reaggAvgMs": 20,
-        "reaggWallMs": [
-          22,
-          22,
-          16
-        ],
+        "reaggWallMs": [22, 22, 16],
         "browserRssPeakMB": 666.2265625,
         "jsHeapPeakMB": 8.932697296142578,
         "jsHeapUsedAfterMB": 8.945335388183594

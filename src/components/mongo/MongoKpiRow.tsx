@@ -31,7 +31,9 @@ export function MongoKpiRow() {
       {/* 1. Total Slow Queries */}
       <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Slow Queries</span>
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            Slow Queries
+          </span>
           <Database className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
         </div>
         <div className="mt-2">
@@ -57,13 +59,18 @@ export function MongoKpiRow() {
           <span
             className={cn(
               "text-xs font-semibold",
-              isHighCollscan ? "text-amber-700 dark:text-amber-400" : "text-slate-500 dark:text-slate-400",
+              isHighCollscan
+                ? "text-amber-700 dark:text-amber-400"
+                : "text-slate-500 dark:text-slate-400",
             )}
           >
             COLLSCANs
           </span>
           {isHighCollscan ? (
-            <Flame className="size-4 animate-pulse text-amber-600 dark:text-amber-400" aria-hidden />
+            <Flame
+              className="size-4 animate-pulse text-amber-600 dark:text-amber-400"
+              aria-hidden
+            />
           ) : (
             <AlertTriangle className="size-4 text-slate-400" aria-hidden />
           )}
@@ -72,7 +79,9 @@ export function MongoKpiRow() {
           <div
             className={cn(
               "text-xl font-bold tracking-tight",
-              isHighCollscan ? "text-amber-700 dark:text-amber-400" : "text-slate-900 dark:text-slate-100",
+              isHighCollscan
+                ? "text-amber-700 dark:text-amber-400"
+                : "text-slate-900 dark:text-slate-100",
             )}
           >
             {formatNum(summary.collscanCount)}
@@ -86,7 +95,9 @@ export function MongoKpiRow() {
       {/* 3. Latency: P95 */}
       <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">P95 Latency</span>
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            P95 Latency
+          </span>
           <Clock className="size-4 text-blue-600 dark:text-blue-400" aria-hidden />
         </div>
         <div className="mt-2">
@@ -102,7 +113,9 @@ export function MongoKpiRow() {
       {/* 4. Max Duration */}
       <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Max Duration</span>
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            Max Duration
+          </span>
           <Flame className="size-4 text-rose-600 dark:text-rose-400" aria-hidden />
         </div>
         <div className="mt-2">
@@ -118,7 +131,9 @@ export function MongoKpiRow() {
       {/* 5. Total Docs Scanned */}
       <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Docs Examined</span>
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            Docs Examined
+          </span>
           <Network className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
         </div>
         <div className="mt-2">
@@ -134,7 +149,9 @@ export function MongoKpiRow() {
             )}
             title={`Scan:Return ratio = ${summary.overallScanRatio}:1`}
           >
-            {summary.overallScanRatio > 1 ? `${summary.overallScanRatio}x scan ratio` : "Direct index hits"}
+            {summary.overallScanRatio > 1
+              ? `${summary.overallScanRatio}x scan ratio`
+              : "Direct index hits"}
           </div>
         </div>
       </div>
@@ -142,7 +159,9 @@ export function MongoKpiRow() {
       {/* 6. Peak Connections & Errors */}
       <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Diagnostics</span>
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            Diagnostics
+          </span>
           <ShieldAlert className="size-4 text-amber-500 dark:text-amber-400" aria-hidden />
         </div>
         <div className="mt-2">

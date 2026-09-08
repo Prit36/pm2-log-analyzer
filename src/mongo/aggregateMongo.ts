@@ -33,7 +33,11 @@ export function filterMongoQueries(
     if (filters.planFilter === "collscan_only" && !q.isCollscan) return false;
     if (filters.planFilter === "ixscan_only" && q.isCollscan) return false;
     if (filters.minDurationMs > 0 && q.durationMs < filters.minDurationMs) return false;
-    if (filters.collection !== "all" && q.collection !== filters.collection && q.ns !== filters.collection)
+    if (
+      filters.collection !== "all" &&
+      q.collection !== filters.collection &&
+      q.ns !== filters.collection
+    )
       return false;
     if (filters.highScanRatioOnly && q.scanRatio < 100) return false;
     if (filters.dateFilter !== "all" && !q.timestamp.startsWith(filters.dateFilter)) return false;
@@ -64,16 +68,8 @@ export function aggregateMongoData(params: {
   operations: string[];
   totalLines: number;
 }): MongoAggregationResult {
-  const {
-    allQueries,
-    filters,
-    connections,
-    errors,
-    checkpoints,
-    dates,
-    operations,
-    totalLines,
-  } = params;
+  const { allQueries, filters, connections, errors, checkpoints, dates, operations, totalLines } =
+    params;
 
   const filteredQueries = filterMongoQueries(allQueries, filters);
 
@@ -111,7 +107,16 @@ export function aggregateMongoData(params: {
       totalReturned: number;
     }
   >();
-  const bucketMap = new Map<string, { timeKey: string; hourLabel: string; durations: number[]; collscans: number; ops: Record<string, number> }>();
+  const bucketMap = new Map<
+    string,
+    {
+      timeKey: string;
+      hourLabel: string;
+      durations: number[];
+      collscans: number;
+      ops: Record<string, number>;
+    }
+  >();
 
   let allDurations: number[] = [];
   let totalDocs = 0;
@@ -266,7 +271,7 @@ export function aggregateMongoData(params: {
       case "collection":
         return a.collection.localeCompare(b.collection) * dir;
       default:
-        return (b.totalDurationMs - a.totalDurationMs);
+        return b.totalDurationMs - a.totalDurationMs;
     }
   });
 
@@ -289,7 +294,7 @@ export function aggregateMongoData(params: {
       case "collection":
         return a.collection.localeCompare(b.collection) * dir;
       default:
-        return (b.durationMs - a.durationMs);
+        return b.durationMs - a.durationMs;
     }
   });
 
@@ -341,7 +346,8 @@ export function aggregateMongoData(params: {
     });
 
   const queryCount = allDurations.length;
-  const avgDurationMs = queryCount > 0 ? Math.round(allDurations.reduce((acc, v) => acc + v, 0) / queryCount) : 0;
+  const avgDurationMs =
+    queryCount > 0 ? Math.round(allDurations.reduce((acc, v) => acc + v, 0) / queryCount) : 0;
   const overallScanRatio = totalDocs / Math.max(totalRet, 1);
 
   return {

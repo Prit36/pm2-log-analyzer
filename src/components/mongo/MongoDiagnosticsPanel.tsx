@@ -85,7 +85,9 @@ export function MongoDiagnosticsPanel() {
         {activeTab === "errors" && (
           <div className="space-y-2">
             {errors.length === 0 ? (
-              <p className="py-6 text-center text-slate-500">No engine warnings or errors recorded.</p>
+              <p className="py-6 text-center text-slate-500">
+                No engine warnings or errors recorded.
+              </p>
             ) : (
               errors.map((e, idx) => (
                 <div
@@ -223,7 +225,10 @@ export function MongoDiagnosticsPanel() {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {collections.map((c) => (
                   <tr key={c.ns} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                    <td className="py-2 font-semibold text-slate-900 dark:text-slate-100" title={c.ns}>
+                    <td
+                      className="py-2 font-semibold text-slate-900 dark:text-slate-100"
+                      title={c.ns}
+                    >
                       {c.collection}
                     </td>
                     <td className="py-2 text-right tabular-nums text-slate-700 dark:text-slate-300">

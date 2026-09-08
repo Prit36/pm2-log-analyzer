@@ -22,20 +22,11 @@ import type { MongoUserActivity } from "../../mongo/types";
 import { cn } from "../../utils/cn";
 import { formatDateTime, formatMs, formatNum } from "../../utils/format";
 
-const {
-  setActiveUserDetail,
-  setActiveView,
-  setCollectionFilter,
-  setUserFilter,
-} = useMongoStore.getState();
+const { setActiveUserDetail, setActiveView, setCollectionFilter, setUserFilter } =
+  useMongoStore.getState();
 
 export function MongoUserActivityPanel() {
-  const {
-    users,
-    activeUserDetail,
-    currentFilterUser,
-    connections,
-  } = useMongoStore(
+  const { users, activeUserDetail, currentFilterUser, connections } = useMongoStore(
     useShallow((s) => ({
       users: s.result?.users ?? [],
       activeUserDetail: s.activeUserDetail,
@@ -61,8 +52,10 @@ export function MongoUserActivityPanel() {
   const kpis = useMemo(() => {
     const totalUsers = users.length;
     const namedUsers = users.filter((u) => u.userName !== "system").length;
-    const totalAuthSuccess = connections?.authSuccess ?? users.reduce((acc, u) => acc + u.authSuccessCount, 0);
-    const totalAuthFail = connections?.authFailed ?? users.reduce((acc, u) => acc + u.authFailCount, 0);
+    const totalAuthSuccess =
+      connections?.authSuccess ?? users.reduce((acc, u) => acc + u.authSuccessCount, 0);
+    const totalAuthFail =
+      connections?.authFailed ?? users.reduce((acc, u) => acc + u.authFailCount, 0);
     const totalUserQueries = users.reduce((acc, u) => acc + u.slowQueryCount, 0);
     const topUser = [...users]
       .filter((u) => u.userName !== "system")
@@ -109,7 +102,9 @@ export function MongoUserActivityPanel() {
             <Users className="size-5" />
           </div>
           <div>
-            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Identified Users</div>
+            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              Identified Users
+            </div>
             <div className="text-xl font-bold text-slate-900 dark:text-slate-100">
               {kpis.namedUsers}{" "}
               <span className="text-xs font-normal text-slate-400">({kpis.totalUsers} total)</span>
@@ -122,7 +117,9 @@ export function MongoUserActivityPanel() {
             <UserCheck className="size-5" />
           </div>
           <div>
-            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Authenticated Sessions</div>
+            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              Authenticated Sessions
+            </div>
             <div className="text-xl font-bold text-slate-900 dark:text-slate-100">
               {formatNum(kpis.totalAuthSuccess)}
             </div>
@@ -141,11 +138,15 @@ export function MongoUserActivityPanel() {
             <ShieldAlert className="size-5" />
           </div>
           <div>
-            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Auth / Security Fails</div>
+            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              Auth / Security Fails
+            </div>
             <div
               className={cn(
                 "text-xl font-bold",
-                kpis.totalAuthFail > 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100",
+                kpis.totalAuthFail > 0
+                  ? "text-rose-600 dark:text-rose-400"
+                  : "text-slate-900 dark:text-slate-100",
               )}
             >
               {formatNum(kpis.totalAuthFail)}
@@ -158,11 +159,15 @@ export function MongoUserActivityPanel() {
             <Flame className="size-5" />
           </div>
           <div className="min-w-0">
-            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Top Querying User</div>
+            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              Top Querying User
+            </div>
             <div className="truncate text-base font-bold text-slate-900 dark:text-slate-100">
               {kpis.topUserName}
             </div>
-            <div className="text-[11px] text-slate-400">{formatNum(kpis.topUserQueries)} queries</div>
+            <div className="text-[11px] text-slate-400">
+              {formatNum(kpis.topUserQueries)} queries
+            </div>
           </div>
         </div>
       </div>
@@ -270,7 +275,9 @@ export function MongoUserActivityPanel() {
                                 )}
                               </div>
                               <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-slate-400">
-                                {u.appName && <span className="truncate max-w-[120px]">{u.appName}</span>}
+                                {u.appName && (
+                                  <span className="truncate max-w-[120px]">{u.appName}</span>
+                                )}
                                 {u.clientIps.length > 0 && (
                                   <span className="truncate max-w-[130px] font-mono text-[10px]">
                                     {u.clientIps.join(", ")}
@@ -321,12 +328,19 @@ export function MongoUserActivityPanel() {
                           )}
                         </td>
 
-                        <td className="py-2.5 pl-3 pr-4 text-right" onClick={(e) => e.stopPropagation()}>
+                        <td
+                          className="py-2.5 pl-3 pr-4 text-right"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <div className="flex items-center justify-end gap-1">
                             <button
                               type="button"
                               onClick={() => handleFilterToUser(u.userName)}
-                              title={isFilterActive ? "Clear user filter" : `Filter entire view to ${u.userName}`}
+                              title={
+                                isFilterActive
+                                  ? "Clear user filter"
+                                  : `Filter entire view to ${u.userName}`
+                              }
                               className={cn(
                                 "rounded px-2 py-1 text-[11px] font-medium transition-colors",
                                 isFilterActive
@@ -414,7 +428,9 @@ export function MongoUserActivityPanel() {
                 <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
                   {(activeUserDetail.totalDurationMs / 1000).toFixed(2)}s
                 </div>
-                <div className="text-[10px] text-slate-400">Avg {formatMs(activeUserDetail.avgDurationMs)}</div>
+                <div className="text-[10px] text-slate-400">
+                  Avg {formatMs(activeUserDetail.avgDurationMs)}
+                </div>
               </div>
 
               <div className="rounded-lg bg-slate-50 p-2.5 dark:bg-slate-800/50">
@@ -422,7 +438,9 @@ export function MongoUserActivityPanel() {
                 <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
                   {formatNum(activeUserDetail.slowQueryCount)}
                 </div>
-                <div className="text-[10px] text-slate-400">P95 {formatMs(activeUserDetail.p95DurationMs)}</div>
+                <div className="text-[10px] text-slate-400">
+                  P95 {formatMs(activeUserDetail.p95DurationMs)}
+                </div>
               </div>
 
               <div className="rounded-lg bg-slate-50 p-2.5 dark:bg-slate-800/50">
@@ -464,7 +482,10 @@ export function MongoUserActivityPanel() {
                   <span className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
                     <Clock className="size-3" /> First Activity:
                   </span>
-                  <span className="font-mono text-slate-800 dark:text-slate-200" title={activeUserDetail.firstActive}>
+                  <span
+                    className="font-mono text-slate-800 dark:text-slate-200"
+                    title={activeUserDetail.firstActive}
+                  >
                     {formatDateTime(activeUserDetail.firstActive)}
                   </span>
                 </div>
@@ -475,7 +496,10 @@ export function MongoUserActivityPanel() {
                   <span className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
                     <Clock className="size-3" /> Last Activity:
                   </span>
-                  <span className="font-mono text-slate-800 dark:text-slate-200" title={activeUserDetail.lastActive}>
+                  <span
+                    className="font-mono text-slate-800 dark:text-slate-200"
+                    title={activeUserDetail.lastActive}
+                  >
                     {formatDateTime(activeUserDetail.lastActive)}
                   </span>
                 </div>
@@ -486,7 +510,9 @@ export function MongoUserActivityPanel() {
                   <ShieldAlert className="size-3" /> Auth Audit:
                 </span>
                 <span className="text-slate-800 dark:text-slate-200">
-                  <span className="text-emerald-600 font-semibold">{activeUserDetail.authSuccessCount} succeeded</span>
+                  <span className="text-emerald-600 font-semibold">
+                    {activeUserDetail.authSuccessCount} succeeded
+                  </span>
                   {activeUserDetail.authFailCount > 0 && (
                     <span className="text-rose-600 font-bold ml-2">
                       ({activeUserDetail.authFailCount} authorization failures)
@@ -512,7 +538,9 @@ export function MongoUserActivityPanel() {
                       key={opName}
                       className="flex items-center justify-between rounded-lg border border-slate-100 bg-white p-2 dark:border-slate-800 dark:bg-slate-800/40"
                     >
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">{opName}</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200">
+                        {opName}
+                      </span>
                       <span className="text-slate-500 dark:text-slate-400">
                         {formatNum(count)} <span className="text-[10px]">({pct}%)</span>
                       </span>
@@ -593,9 +621,12 @@ export function MongoUserActivityPanel() {
         ) : (
           <div className="hidden flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 p-8 text-center text-slate-400 dark:border-slate-800 lg:flex lg:w-5/12">
             <User className="size-10 text-slate-300 dark:text-slate-700 mb-2" />
-            <div className="font-medium text-slate-600 dark:text-slate-300">Select a User to Inspect</div>
+            <div className="font-medium text-slate-600 dark:text-slate-300">
+              Select a User to Inspect
+            </div>
             <p className="mt-1 max-w-xs text-xs">
-              Click on any user in the table to review their executed queries, affected collections, client applications, and security authorization logs.
+              Click on any user in the table to review their executed queries, affected collections,
+              client applications, and security authorization logs.
             </p>
           </div>
         )}

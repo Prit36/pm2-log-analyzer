@@ -1,7 +1,4 @@
-import type {
-  MongoWorkerMessage,
-  MongoWorkerResponse,
-} from "../workers/mongoParserWorker";
+import type { MongoWorkerMessage, MongoWorkerResponse } from "../workers/mongoParserWorker";
 import MongoParserWorker from "../workers/mongoParserWorker.ts?worker&inline";
 import { useMongoStore } from "../store/mongoStore";
 
@@ -45,15 +42,8 @@ function ensureMongoBench(partial?: Partial<MongoBench>): MongoBench {
   return w.__MONGO_BENCH__;
 }
 
-const {
-  clearAnalysis,
-  setError,
-  setParsing,
-  setProgress,
-  setResult,
-  setWorkerReady,
-  showToast,
-} = useMongoStore.getState();
+const { clearAnalysis, setError, setParsing, setProgress, setResult, setWorkerReady, showToast } =
+  useMongoStore.getState();
 
 let worker: Worker | null = null;
 let resolveFn: (() => void) | null = null;
@@ -154,7 +144,9 @@ export async function parseMongoFile(file: File): Promise<void> {
     collectionsCount: result?.collections.length ?? 0,
     p95DurationMs: result?.summary.p95DurationMs ?? 0,
   });
-  showToast(`Parsed ${count.toLocaleString()} slow queries (${collscans.toLocaleString()} COLLSCANs) in ${ms}ms`);
+  showToast(
+    `Parsed ${count.toLocaleString()} slow queries (${collscans.toLocaleString()} COLLSCANs) in ${ms}ms`,
+  );
 }
 
 export async function parseMongoFiles(files: File[]): Promise<void> {
@@ -184,7 +176,9 @@ export async function parseMongoFiles(files: File[]): Promise<void> {
     collectionsCount: result?.collections.length ?? 0,
     p95DurationMs: result?.summary.p95DurationMs ?? 0,
   });
-  showToast(`Parsed ${count.toLocaleString()} slow queries across ${files.length} files in ${ms}ms`);
+  showToast(
+    `Parsed ${count.toLocaleString()} slow queries across ${files.length} files in ${ms}ms`,
+  );
 }
 
 export async function parseMongoText(text: string): Promise<void> {

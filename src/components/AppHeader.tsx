@@ -44,6 +44,7 @@ export function AppHeader() {
   // PM2 State
   const {
     isDark,
+    hasPm2Data,
     canPm2Export,
     canPm2Clear,
     pm2FileNamesTitle,
@@ -52,6 +53,7 @@ export function AppHeader() {
   } = useAnalysisStore(
     useShallow((s) => ({
       isDark: s.theme === "dark",
+      hasPm2Data: s.hasData,
       canPm2Export: s.hasData && !s.isParsing,
       canPm2Clear: s.hasData || s.sourceKind !== "none",
       pm2FileNamesTitle: buildFileNamesTitle(s.fileNames),
@@ -61,8 +63,9 @@ export function AppHeader() {
   );
 
   // Mongo State
-  const { canMongoExport, canMongoClear } = useMongoStore(
+  const { hasMongoData, canMongoExport, canMongoClear } = useMongoStore(
     useShallow((s) => ({
+      hasMongoData: s.hasData,
       canMongoExport: s.hasData && !s.isParsing,
       canMongoClear: s.hasData || s.sourceKind !== "none",
     })),
@@ -100,7 +103,10 @@ export function AppHeader() {
           ) : (
             <div>
               <div className="flex items-center gap-2">
-                <FileText className="size-5 shrink-0 text-blue-600 dark:text-blue-400" aria-hidden />
+                <FileText
+                  className="size-5 shrink-0 text-blue-600 dark:text-blue-400"
+                  aria-hidden
+                />
                 <h1 className="truncate text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100">
                   PM2 Log Analyzer
                 </h1>
@@ -133,7 +139,7 @@ export function AppHeader() {
             data-testid="app-switcher-pm2"
             onClick={() => handleSwitchMode("pm2")}
             className={cn(
-              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
+              "relative flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
               !isMongo
                 ? "bg-white text-blue-600 shadow-xs dark:bg-slate-900 dark:text-blue-400"
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200",
@@ -141,13 +147,19 @@ export function AppHeader() {
           >
             <FileText className="size-3.5" />
             <span>PM2 Logs</span>
+            {hasPm2Data && isMongo && (
+              <span
+                className="size-1.5 rounded-full bg-blue-500 animate-pulse"
+                title="PM2 logs loaded"
+              />
+            )}
           </button>
           <button
             type="button"
             data-testid="app-switcher-mongo"
             onClick={() => handleSwitchMode("mongo")}
             className={cn(
-              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
+              "relative flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
               isMongo
                 ? "bg-white text-emerald-600 shadow-xs dark:bg-slate-900 dark:text-emerald-400"
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200",
@@ -155,6 +167,12 @@ export function AppHeader() {
           >
             <Database className="size-3.5" />
             <span>MongoDB Logs</span>
+            {hasMongoData && !isMongo && (
+              <span
+                className="size-1.5 rounded-full bg-emerald-500 animate-pulse"
+                title="MongoDB logs loaded"
+              />
+            )}
           </button>
         </div>
 

@@ -153,12 +153,7 @@ export function parseMongoLine(line: string): ParsedMongoLine {
     const scanRatio = docsExamined / Math.max(nreturned, 1);
 
     const { fingerprint, filterKeys, sortKeys } = extractFingerprint(op, collection, command);
-    const indexSuggestion = generateIndexSuggestion(
-      collection,
-      filterKeys,
-      sortKeys,
-      planSummary,
-    );
+    const indexSuggestion = generateIndexSuggestion(collection, filterKeys, sortKeys, planSummary);
 
     querySeq++;
     const query: MongoSlowQuery = {

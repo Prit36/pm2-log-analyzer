@@ -6,6 +6,8 @@ import { cancel, parseFiles, parseText } from "../hooks/useParserWorker";
 import { formatBytes } from "../utils/format";
 import { cn } from "../utils/cn";
 
+import { isArchiveFile, handleArchiveUpload } from "../utils/zipExtractor";
+
 export const PASTE_WARN_BYTES = 8 * 1024 * 1024;
 
 const { appendLoadedFiles, setLoadedFiles, setPasteOpen, setSourcePaste, showToast } =
@@ -15,7 +17,10 @@ function filterValidFiles(fileList: FileList | File[] | null | undefined): File[
   if (!fileList || fileList.length === 0) return [];
   return Array.from(fileList).filter(
     (f) =>
+      isArchiveFile(f) ||
+      /\.log(?:\.\d+)?$/i.test(f.name) ||
       /\.log\d*$/i.test(f.name) ||
+      /\.(?:txt|out|err|\d+)$/i.test(f.name) ||
       f.name.endsWith(".txt") ||
       f.type === "text/plain" ||
       f.type === "",
@@ -46,6 +51,11 @@ function useIngestHandlers(params: {
 
   const executeAppend = (files: File[]) => {
     setPendingDrop(null);
+    const archive = files.find(isArchiveFile);
+    if (archive) {
+      void handleArchiveUpload(archive, "append");
+      return;
+    }
     const existingCount = useAnalysisStore.getState().loadedFiles.length;
     const combined = appendLoadedFiles(files);
     if (combined.length === existingCount) return;
@@ -54,6 +64,11 @@ function useIngestHandlers(params: {
 
   const executeReplace = (files: File[]) => {
     setPendingDrop(null);
+    const archive = files.find(isArchiveFile);
+    if (archive) {
+      void handleArchiveUpload(archive, "replace");
+      return;
+    }
     const unique = setLoadedFiles(files);
     if (unique.length === 0) return;
     void parseFiles(unique);
@@ -65,7 +80,7 @@ function useIngestHandlers(params: {
     if (busy) return;
     const validFiles = filterValidFiles(e.dataTransfer.files);
     if (validFiles.length === 0) {
-      showToast("Please upload log or text files (.log, .log1, .txt, etc.)");
+      showToast("Please upload log, text, or archive files (.log, .zip, .gz, .txt, etc.)");
       return;
     }
     if (hasData && loadedFiles.length > 0) setPendingDrop(validFiles);
@@ -83,7 +98,7 @@ function useIngestHandlers(params: {
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const validFiles = filterValidFiles(e.target.files);
     if (validFiles.length === 0) {
-      showToast("Please upload log or text files (.log, .log1, .txt, etc.)");
+      showToast("Please upload log, text, or archive files (.log, .zip, .gz, .txt, etc.)");
       e.target.value = "";
       return;
     }
@@ -283,10 +298,10 @@ function EmptyPanel(props: {
       <Upload className="size-8 text-slate-400 dark:text-slate-500" aria-hidden />
       <div>
         <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
-          {props.isParsing ? "Parsing PM2 log file(s)…" : "Drop PM2 log file(s)"}
+          {props.isParsing ? "Parsing PM2 log file(s)…" : "Drop PM2 / API logs or .zip archive"}
         </p>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          .log / .log1 / .txt — multi-file &amp; multi-day log analysis supported
+          .log / .log.1 / .gz / .zip (auto-classifies API &amp; MongoDB logs)
         </p>
       </div>
       {props.isParsing ? (
@@ -524,7 +539,7 @@ export function IngestPanel() {
         ref={inputRef}
         type="file"
         multiple
-        accept=".log,.log1,.log2,.log3,.log4,.log5,.log6,.log7,.log8,.log9,.log10,.txt,.out,.err,.1,.2,.3,.4,.5,.6,.7,.8,.9,text/plain"
+        accept=".log,.log1,.log2,.log3,.log4,.log5,.log6,.log7,.log8,.log9,.log10,.txt,.out,.err,.1,.2,.3,.4,.5,.6,.7,.8,.9,.zip,.gz,application/zip,application/x-zip-compressed,application/gzip,text/plain"
         className="hidden"
         data-testid="log-file-input"
         onChange={onInputChange}

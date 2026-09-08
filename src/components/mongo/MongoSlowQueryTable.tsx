@@ -10,9 +10,12 @@ import { cn } from "../../utils/cn";
 const { setActiveSlowQuery, setSlowSort } = useMongoStore.getState();
 
 function getDurationClass(ms: number) {
-  if (ms >= 5000) return "bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800";
-  if (ms >= 1000) return "bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800";
-  if (ms >= 500) return "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800";
+  if (ms >= 5000)
+    return "bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800";
+  if (ms >= 1000)
+    return "bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800";
+  if (ms >= 500)
+    return "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800";
   return "bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700";
 }
 
@@ -47,7 +50,10 @@ function SlowQueryRow({ index, style, queries }: RowComponentProps<SlowQueryRowP
       )}
     >
       {/* 1. Time */}
-      <div className="truncate font-mono text-[11px] text-slate-500 dark:text-slate-400" title={q.timestamp}>
+      <div
+        className="truncate font-mono text-[11px] text-slate-500 dark:text-slate-400"
+        title={q.timestamp}
+      >
         {q.timestamp.length >= 19 ? q.timestamp.slice(11, 19) : q.timestamp}
       </div>
 
@@ -76,11 +82,7 @@ function SlowQueryRow({ index, style, queries }: RowComponentProps<SlowQueryRowP
         >
           {q.user || "system"}
         </span>
-        {q.ctx && (
-          <span className="truncate font-mono text-[9px] text-slate-400">
-            {q.ctx}
-          </span>
-        )}
+        {q.ctx && <span className="truncate font-mono text-[9px] text-slate-400">{q.ctx}</span>}
       </div>
 
       {/* 3. Namespace & Plan */}
@@ -97,7 +99,10 @@ function SlowQueryRow({ index, style, queries }: RowComponentProps<SlowQueryRowP
             COLLSCAN
           </span>
         ) : (
-          <span className="shrink-0 rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 truncate max-w-[120px]" title={q.planSummary}>
+          <span
+            className="shrink-0 rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 truncate max-w-[120px]"
+            title={q.planSummary}
+          >
             {q.planSummary}
           </span>
         )}
@@ -134,7 +139,10 @@ function SlowQueryRow({ index, style, queries }: RowComponentProps<SlowQueryRowP
       </div>
 
       {/* 8. Remote IP */}
-      <div className="truncate font-mono text-[11px] text-slate-500 dark:text-slate-400 pl-2" title={q.remote}>
+      <div
+        className="truncate font-mono text-[11px] text-slate-500 dark:text-slate-400 pl-2"
+        title={q.remote}
+      >
         {q.remote || "unknown"}
       </div>
 
@@ -192,7 +200,8 @@ export function MongoSlowQueryTable() {
   };
 
   const renderSortIcon = (field: MongoSlowQuerySortField) => {
-    if (slowSortField !== field) return <ArrowUpDown className="size-3 text-slate-400 opacity-60" />;
+    if (slowSortField !== field)
+      return <ArrowUpDown className="size-3 text-slate-400 opacity-60" />;
     return slowSortDirection === "asc" ? (
       <ArrowUp className="size-3 text-emerald-600 dark:text-emerald-400" />
     ) : (

@@ -91,7 +91,8 @@ export const useMongoStore = create<MongoStoreState>()(
       setResult: (result) =>
         set({
           result,
-          hasData: result !== null && (result.summary.slowQueryCount > 0 || result.summary.totalLines > 0),
+          hasData:
+            result !== null && (result.summary.slowQueryCount > 0 || result.summary.totalLines > 0),
         }),
       setError: (error) => set({ error }),
 
@@ -206,7 +207,8 @@ export const useMongoStore = create<MongoStoreState>()(
       setSort: (sortField, dir) => {
         const current = get().filters;
         const sortDirection =
-          dir ?? (current.sortField === sortField && current.sortDirection === "desc" ? "asc" : "desc");
+          dir ??
+          (current.sortField === sortField && current.sortDirection === "desc" ? "asc" : "desc");
         set({ filters: { ...current, sortField, sortDirection } });
       },
 

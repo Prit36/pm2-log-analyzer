@@ -154,7 +154,11 @@ export function MongoLatencyChart() {
             <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
               <XAxis dataKey="hourLabel" tick={{ fontSize: 11, fill: tickColor }} />
-              <YAxis yAxisId="left" tick={{ fontSize: 11, fill: tickColor }} allowDecimals={false} />
+              <YAxis
+                yAxisId="left"
+                tick={{ fontSize: 11, fill: tickColor }}
+                allowDecimals={false}
+              />
               <YAxis
                 yAxisId="right"
                 orientation="right"
@@ -171,7 +175,15 @@ export function MongoLatencyChart() {
                 }}
               />
               <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "8px", color: tickColor }} />
-              <Bar yAxisId="left" dataKey="queryCount" name="Slow Queries" fill="#10b981" opacity={0.65} maxBarSize={40} radius={[3, 3, 0, 0]} />
+              <Bar
+                yAxisId="left"
+                dataKey="queryCount"
+                name="Slow Queries"
+                fill="#10b981"
+                opacity={0.65}
+                maxBarSize={40}
+                radius={[3, 3, 0, 0]}
+              />
               <Line
                 yAxisId="right"
                 type="monotone"
@@ -198,8 +210,21 @@ export function MongoLatencyChart() {
               <YAxis tick={{ fontSize: 11, fill: tickColor }} allowDecimals={false} />
               <Tooltip contentStyle={tooltipStyle} />
               <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "8px", color: tickColor }} />
-              <Bar dataKey="collscanCount" name="COLLSCAN (Table Scan)" fill="#f59e0b" stackId="a" maxBarSize={40} />
-              <Bar dataKey="ixscanCount" name="IXSCAN (Indexed)" fill="#10b981" stackId="a" maxBarSize={40} radius={[3, 3, 0, 0]} />
+              <Bar
+                dataKey="collscanCount"
+                name="COLLSCAN (Table Scan)"
+                fill="#f59e0b"
+                stackId="a"
+                maxBarSize={40}
+              />
+              <Bar
+                dataKey="ixscanCount"
+                name="IXSCAN (Indexed)"
+                fill="#10b981"
+                stackId="a"
+                maxBarSize={40}
+                radius={[3, 3, 0, 0]}
+              />
             </BarChart>
           ) : (
             <BarChart
@@ -209,12 +234,22 @@ export function MongoLatencyChart() {
             >
               <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 11, fill: tickColor }} unit="s" />
-              <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: tickColor }} width={120} />
+              <YAxis
+                type="category"
+                dataKey="name"
+                tick={{ fontSize: 11, fill: tickColor }}
+                width={120}
+              />
               <Tooltip
                 contentStyle={tooltipStyle}
                 formatter={(val) => [`${Number(val ?? 0)} seconds`, "Total Database Time"]}
               />
-              <Bar dataKey="totalSec" name="Total DB Time (Seconds)" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
+              <Bar
+                dataKey="totalSec"
+                name="Total DB Time (Seconds)"
+                fill="#8b5cf6"
+                radius={[0, 4, 4, 0]}
+              />
             </BarChart>
           )}
         </ResponsiveContainer>

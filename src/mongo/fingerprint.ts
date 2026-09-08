@@ -17,7 +17,9 @@ export type MongoFingerprint = {
 };
 
 function isPlainObject(value: MongoParsedNode | undefined): value is MongoDoc {
-  return value !== null && value !== undefined && !Array.isArray(value) && value.constructor === Object;
+  return (
+    value !== null && value !== undefined && !Array.isArray(value) && value.constructor === Object
+  );
 }
 
 function normalizeNode(node: MongoParsedNode): MongoParsedNode {

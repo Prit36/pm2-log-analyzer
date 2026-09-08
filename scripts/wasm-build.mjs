@@ -37,11 +37,19 @@ function requireWasmOpt() {
 
 function buildCrate({ crateDir, wasmName, pkgDir, bytesTs, exportConst }) {
   const cratePath = path.join(root, crateDir);
-  const wasmOut = path.join(cratePath, "target", "wasm32-unknown-unknown", "release", `${wasmName}.wasm`);
+  const wasmOut = path.join(
+    cratePath,
+    "target",
+    "wasm32-unknown-unknown",
+    "release",
+    `${wasmName}.wasm`,
+  );
 
   console.log(`\n=== Building ${wasmName} (${crateDir}) ===`);
   run(`cargo test --manifest-path "${crateDir}/Cargo.toml"`);
-  run(`cargo build --manifest-path "${crateDir}/Cargo.toml" --target wasm32-unknown-unknown --release`);
+  run(
+    `cargo build --manifest-path "${crateDir}/Cargo.toml" --target wasm32-unknown-unknown --release`,
+  );
 
   fs.mkdirSync(pkgDir, { recursive: true });
   run(`wasm-bindgen --target web --out-dir "${pkgDir}" --out-name ${wasmName} "${wasmOut}"`);
@@ -95,4 +103,13 @@ buildCrate({
   pkgDir: path.join(root, "src", "wasm", "pkg_mongo"),
   bytesTs: path.join(root, "src", "wasm", "mongoCoreBytes.ts"),
   exportConst: "MONGO_CORE_WASM_BASE64",
+});
+
+// 3. Zip Core
+buildCrate({
+  crateDir: "wasm/zip-core",
+  wasmName: "zip_core",
+  pkgDir: path.join(root, "src", "wasm", "pkg_zip"),
+  bytesTs: path.join(root, "src", "wasm", "zipCoreBytes.ts"),
+  exportConst: "ZIP_CORE_WASM_BASE64",
 });

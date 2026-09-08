@@ -164,6 +164,9 @@ Boris Cherny (creator of Claude Code) keeps his team's file around 100 lines. Un
 - Lint: `<package-manager> run lint` (`oxlint && tsc --noEmit`); fix: `<package-manager> run lint:fix`
 - Format: `<package-manager> run fmt` (`oxfmt`); check: `<package-manager> run fmt:check`
 - Typecheck: `<package-manager> run typecheck` (`tsc --noEmit`)
+- Bench (PM2): `<package-manager> run bench`
+- Bench (Mongo): `<package-manager> run bench:mongo`
+- Bench (Zip): `<package-manager> run bench:zip`
 - Run locally: `<package-manager> run dev`
 - Preview build: `<package-manager> run preview`
 
