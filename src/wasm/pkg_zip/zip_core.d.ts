@@ -25,46 +25,26 @@ export class FastDecompressor {
     output_ptr(): number;
 }
 
-export class ZipExtractor {
-    free(): void;
-    [Symbol.dispose](): void;
-    classify_entry_content(data: Uint8Array): string;
-    extract_entry(index: number): Uint8Array;
-    inspect(): any;
-    constructor(bytes: Uint8Array);
-}
-
 /**
  * Fast classifier for standalone files or buffers
  */
 export function classify_log_name_or_content(name: string, sample: Uint8Array): string;
-
-/**
- * Standalone Gzip decompressor for dropped .gz files
- */
-export function decompress_gz_bytes(data: Uint8Array): Uint8Array;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_fastdecompressor_free: (a: number, b: number) => void;
-    readonly __wbg_zipextractor_free: (a: number, b: number) => void;
     readonly classify_log_name_or_content: (a: number, b: number, c: number, d: number) => [number, number];
-    readonly decompress_gz_bytes: (a: number, b: number) => [number, number, number];
     readonly fastdecompressor_clear: (a: number) => void;
     readonly fastdecompressor_decompress_deflate: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly fastdecompressor_decompress_gzip: (a: number, b: number, c: number) => [number, number, number];
     readonly fastdecompressor_new: () => number;
     readonly fastdecompressor_output_len: (a: number) => number;
     readonly fastdecompressor_output_ptr: (a: number) => number;
-    readonly zipextractor_classify_entry_content: (a: number, b: number, c: number) => [number, number];
-    readonly zipextractor_extract_entry: (a: number, b: number) => [number, number, number];
-    readonly zipextractor_inspect: (a: number) => [number, number, number];
-    readonly zipextractor_new: (a: number, b: number) => [number, number, number];
+    readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-    readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_start: () => void;

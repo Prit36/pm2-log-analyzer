@@ -1,36 +1,4 @@
-use flate2::read::GzDecoder;
-use std::io::{Cursor, Read};
 use wasm_bindgen::prelude::*;
-use zip::ZipArchive;
-
-#[derive(serde::Serialize)]
-pub struct ZipEntryInfo {
-    pub index: usize,
-    pub name: String,
-    pub clean_name: String,
-    pub uncompressed_size: u64,
-    pub compressed_size: u64,
-    pub data_start: u64,
-    pub is_deflated: bool,
-    pub is_dir: bool,
-    pub category: String, // "pm2" | "mongo" | "unknown" | "skip"
-}
-
-#[derive(serde::Serialize)]
-pub struct ExtractResult {
-    pub clean_name: String,
-    pub category: String,
-}
-
-fn strip_path_and_gz(name: &str) -> String {
-    let lower = name.replace('\\', "/");
-    let file_name = lower.rsplit('/').next().unwrap_or(&lower);
-    if let Some(stripped) = file_name.strip_suffix(".gz") {
-        stripped.to_string()
-    } else {
-        file_name.to_string()
-    }
-}
 
 fn classify_by_name(name: &str) -> Option<&'static str> {
     let lower = name.to_ascii_lowercase().replace('\\', "/");
@@ -99,155 +67,100 @@ fn classify_by_content(data: &[u8]) -> &'static str {
     "unknown"
 }
 
-#[wasm_bindgen]
-pub struct ZipExtractor {
-    archive_bytes: Vec<u8>,
-}
-
-#[wasm_bindgen]
-impl ZipExtractor {
-    #[wasm_bindgen(constructor)]
-    pub fn new(bytes: Vec<u8>) -> Result<ZipExtractor, JsValue> {
-        Ok(ZipExtractor {
-            archive_bytes: bytes,
-        })
+fn decompress_gzip_internal(gz_bytes: &[u8], output: &mut Vec<u8>) -> Result<(), &'static str> {
+    if gz_bytes.len() < 10 {
+        return Err("Gzip buffer too small");
     }
 
-    pub fn inspect(&self) -> Result<JsValue, JsValue> {
-        let cursor = Cursor::new(&self.archive_bytes);
-        let mut archive = ZipArchive::new(cursor).map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let mut entries = Vec::with_capacity(archive.len());
+    let n = gz_bytes.len();
+    let isize = u32::from_le_bytes([
+        gz_bytes[n - 4],
+        gz_bytes[n - 3],
+        gz_bytes[n - 2],
+        gz_bytes[n - 1],
+    ]) as usize;
 
-        for i in 0..archive.len() {
-            let entry = archive.by_index(i).map_err(|e| JsValue::from_str(&e.to_string()))?;
-            let name = entry.name().to_string();
-            let is_dir = entry.is_dir();
-            let clean_name = strip_path_and_gz(&name);
-            let category = classify_by_name(&name).unwrap_or("unknown").to_string();
-            let data_start = entry.data_start();
-            let is_deflated = entry.compression() == zip::CompressionMethod::Deflated;
+    let mut target_size = if isize > 0 && isize < 2 * 1024 * 1024 * 1024 {
+        isize
+    } else {
+        gz_bytes.len().saturating_mul(4).max(64 * 1024)
+    };
 
-            entries.push(ZipEntryInfo {
-                index: i,
-                name,
-                clean_name,
-                uncompressed_size: entry.size(),
-                compressed_size: entry.compressed_size(),
-                data_start,
-                is_deflated,
-                is_dir,
-                category,
-            });
-        }
+    let config = zlib_rs::InflateConfig { window_bits: 31 };
 
-        serde_wasm_bindgen::to_value(&entries).map_err(|e| JsValue::from_str(&e.to_string()))
-    }
-
-    pub fn extract_entry(&self, index: usize) -> Result<js_sys::Uint8Array, JsValue> {
-        let cursor = Cursor::new(&self.archive_bytes);
-        let mut archive = ZipArchive::new(cursor).map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let mut entry = archive.by_index(index).map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let entry_name = entry.name().to_string();
-        let data_start = entry.data_start() as usize;
-        let comp_size = entry.compressed_size() as usize;
-        let uncomp_size = entry.size() as usize;
-        let is_deflated = entry.compression() == zip::CompressionMethod::Deflated;
-
-        let data = if is_deflated && uncomp_size > 0 && data_start + comp_size <= self.archive_bytes.len() {
-            let comp_slice = &self.archive_bytes[data_start..data_start + comp_size];
-            let mut out = vec![0u8; uncomp_size];
-            let mut decomp = Box::<miniz_oxide::inflate::core::DecompressorOxide>::default();
-            let (status, _in_c, out_c) = miniz_oxide::inflate::core::decompress(
-                &mut decomp,
-                comp_slice,
-                &mut out,
-                0,
-                miniz_oxide::inflate::core::inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF,
-            );
-            if status == miniz_oxide::inflate::TINFLStatus::Done && out_c == uncomp_size {
-                out
-            } else {
-                miniz_oxide::inflate::decompress_to_vec(comp_slice)
-                    .map_err(|e| JsValue::from_str(&format!("Deflate decompression failed: {e:?}")))?
+    for _ in 0..10 {
+        output.clear();
+        output.resize(target_size, 0);
+        let (slice, rc) = zlib_rs::decompress_slice(output, gz_bytes, config);
+        match rc {
+            zlib_rs::ReturnCode::Ok | zlib_rs::ReturnCode::StreamEnd => {
+                let actual_len = slice.len();
+                output.truncate(actual_len);
+                return Ok(());
             }
-        } else if data_start + comp_size <= self.archive_bytes.len() {
-            self.archive_bytes[data_start..data_start + comp_size].to_vec()
-        } else {
-            let mut fallback = Vec::with_capacity(uncomp_size);
-            entry.read_to_end(&mut fallback).map_err(|e| JsValue::from_str(&e.to_string()))?;
-            fallback
-        };
-
-        // If it's a .gz file or has gzip magic bytes (0x1f, 0x8b), decompress gzip
-        let final_data = if entry_name.ends_with(".gz") || (data.len() >= 2 && data[0] == 0x1f && data[1] == 0x8b) {
-            let mut gz = GzDecoder::new(&data[..]);
-            let mut decompressed = Vec::new();
-            gz.read_to_end(&mut decompressed)
-                .map_err(|e| JsValue::from_str(&format!("Gzip error in {}: {e}", entry_name)))?;
-            decompressed
-        } else {
-            data
-        };
-
-        // SAFETY: Typed array created from decompressed buffer copy
-        Ok(js_sys::Uint8Array::from(&final_data[..]))
+            zlib_rs::ReturnCode::BufError => {
+                target_size = target_size.saturating_mul(2);
+                if target_size > 2 * 1024 * 1024 * 1024 {
+                    return Err("Decompressed size exceeds 2GB limit");
+                }
+            }
+            _ => {
+                return Err("Gzip decompression failed");
+            }
+        }
     }
-
-    pub fn classify_entry_content(&self, data: &[u8]) -> String {
-        classify_by_content(data).to_string()
-    }
+    Err("Gzip decompression buffer exceeded retry limit")
 }
 
 /// Zero-copy fast streaming decompressor for worker threads
 #[wasm_bindgen]
 pub struct FastDecompressor {
     output: Vec<u8>,
-    decomp: Box<miniz_oxide::inflate::core::DecompressorOxide>,
+    nested_output: Vec<u8>,
+}
+
+impl Default for FastDecompressor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[wasm_bindgen]
 impl FastDecompressor {
     #[wasm_bindgen(constructor)]
     pub fn new() -> FastDecompressor {
-        let mut decomp = Box::<miniz_oxide::inflate::core::DecompressorOxide>::default();
-        decomp.init();
         FastDecompressor {
             output: Vec::new(),
-            decomp,
+            nested_output: Vec::new(),
         }
     }
 
     /// Decompress raw deflate bytes directly into linear memory.
     /// Returns raw pointer in Wasm memory to avoid intermediate copies.
-    pub fn decompress_deflate(&mut self, compressed: &[u8], uncompressed_size: usize) -> Result<usize, JsValue> {
+    pub fn decompress_deflate(
+        &mut self,
+        compressed: &[u8],
+        uncompressed_size: usize,
+    ) -> Result<usize, JsValue> {
         self.output.clear();
         self.output.resize(uncompressed_size, 0);
 
         let config = zlib_rs::InflateConfig { window_bits: -15 };
         let (slice, rc) = zlib_rs::decompress_slice(&mut self.output, compressed, config);
 
-        if rc != zlib_rs::ReturnCode::Ok || slice.len() != uncompressed_size {
-            // Fallback to miniz_oxide
-            self.decomp.init();
-            let (status, _in_c, out_c) = miniz_oxide::inflate::core::decompress(
-                &mut self.decomp,
-                compressed,
-                &mut self.output,
-                0,
-                miniz_oxide::inflate::core::inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF,
-            );
-            if status != miniz_oxide::inflate::TINFLStatus::Done || out_c != uncompressed_size {
-                return Err(JsValue::from_str(&format!("Deflate decompression failed: {rc:?}")));
-            }
+        if (rc != zlib_rs::ReturnCode::Ok && rc != zlib_rs::ReturnCode::StreamEnd)
+            || slice.len() != uncompressed_size
+        {
+            return Err(JsValue::from_str(&format!(
+                "Deflate decompression failed: {rc:?}"
+            )));
         }
 
         // If decompressed data has gzip magic bytes (nested gzip), decompress it
         if self.output.len() >= 2 && self.output[0] == 0x1f && self.output[1] == 0x8b {
-            let mut gz = GzDecoder::new(&self.output[..]);
-            let mut nested = Vec::new();
-            gz.read_to_end(&mut nested)
-                .map_err(|e| JsValue::from_str(&format!("Nested gzip decompression failed: {e}")))?;
-            self.output = nested;
+            decompress_gzip_internal(&self.output, &mut self.nested_output)
+                .map_err(JsValue::from_str)?;
+            std::mem::swap(&mut self.output, &mut self.nested_output);
         }
 
         Ok(self.output.as_ptr() as usize)
@@ -255,27 +168,8 @@ impl FastDecompressor {
 
     /// Decompress Gzip bytes directly into linear memory.
     pub fn decompress_gzip(&mut self, gz_bytes: &[u8]) -> Result<usize, JsValue> {
-        let est_uncomp = if gz_bytes.len() >= 4 {
-            let n = gz_bytes.len();
-            u32::from_le_bytes([gz_bytes[n - 4], gz_bytes[n - 3], gz_bytes[n - 2], gz_bytes[n - 1]]) as usize
-        } else {
-            0
-        };
-
-        if est_uncomp > 0 && est_uncomp < 2 * 1024 * 1024 * 1024 {
-            self.output.clear();
-            self.output.resize(est_uncomp, 0);
-            let config = zlib_rs::InflateConfig { window_bits: 31 };
-            let (slice, rc) = zlib_rs::decompress_slice(&mut self.output, gz_bytes, config);
-            if rc == zlib_rs::ReturnCode::Ok && slice.len() == est_uncomp {
-                return Ok(self.output.as_ptr() as usize);
-            }
-        }
-
-        self.output.clear();
-        let mut gz = GzDecoder::new(gz_bytes);
-        gz.read_to_end(&mut self.output)
-            .map_err(|e| JsValue::from_str(&format!("Gzip decompression failed: {e}")))?;
+        decompress_gzip_internal(gz_bytes, &mut self.output)
+            .map_err(JsValue::from_str)?;
         Ok(self.output.as_ptr() as usize)
     }
 
@@ -290,17 +184,8 @@ impl FastDecompressor {
     /// Release linear memory allocated for output buffer immediately.
     pub fn clear(&mut self) {
         self.output = Vec::new();
+        self.nested_output = Vec::new();
     }
-}
-
-/// Standalone Gzip decompressor for dropped .gz files
-#[wasm_bindgen]
-pub fn decompress_gz_bytes(data: &[u8]) -> Result<js_sys::Uint8Array, JsValue> {
-    let mut gz = GzDecoder::new(data);
-    let mut decompressed = Vec::new();
-    gz.read_to_end(&mut decompressed)
-        .map_err(|e| JsValue::from_str(&format!("Gzip decompression failed: {e}")))?;
-    Ok(js_sys::Uint8Array::from(&decompressed[..]))
 }
 
 /// Fast classifier for standalone files or buffers
@@ -330,52 +215,28 @@ mod tests {
     }
 
     #[test]
-    fn test_strip_path_and_gz() {
-        assert_eq!(strip_path_and_gz("var/log/mongod.log.10.gz"), "mongod.log.10");
-        assert_eq!(strip_path_and_gz("api-out.log.1"), "api-out.log.1");
+    fn test_deflate_decompression() {
+        let raw_deflate = [
+            0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0x28, 0xcf, 0x2f, 0xca, 0x49, 0xe1, 0x02, 0x00,
+        ];
+        let mut out = Vec::new();
+        out.resize(12, 0);
+        let config = zlib_rs::InflateConfig { window_bits: -15 };
+        let (slice, rc) = zlib_rs::decompress_slice(&mut out, &raw_deflate, config);
+        assert!(rc == zlib_rs::ReturnCode::Ok || rc == zlib_rs::ReturnCode::StreamEnd);
+        assert_eq!(slice, b"hello world\n");
     }
 
     #[test]
-    fn test_all_entries_extraction() {
-        let zip_path = "C:/Users/My_Home/Downloads/methaq-api&mongodb-07-09.zip";
-        let Ok(bytes) = std::fs::read(zip_path) else { return; };
-        let cursor = Cursor::new(&bytes);
-        let mut archive = ZipArchive::new(cursor).unwrap();
-        println!("Archive len: {}", archive.len());
-
-        for i in 0..archive.len() {
-            let entry = archive.by_index(i).unwrap();
-            let name = entry.name().to_string();
-            let data_start = entry.data_start() as usize;
-            let comp_size = entry.compressed_size() as usize;
-            let uncomp_size = entry.size() as usize;
-            let is_deflated = entry.compression() == zip::CompressionMethod::Deflated;
-            println!("Entry {i}: {name}, comp: {comp_size}, uncomp: {uncomp_size}, deflated: {is_deflated}");
-
-            if is_deflated && uncomp_size > 0 {
-                let comp_slice = &bytes[data_start..data_start + comp_size];
-                let mut out = vec![0u8; uncomp_size];
-                let mut decomp = Box::<miniz_oxide::inflate::core::DecompressorOxide>::default();
-                let t0 = std::time::Instant::now();
-                let (_status, _in_c, _out_c) = miniz_oxide::inflate::core::decompress(
-                    &mut decomp,
-                    comp_slice,
-                    &mut out,
-                    0,
-                    miniz_oxide::inflate::core::inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF
-                );
-                let dur_miniz = t0.elapsed();
-
-                let t1 = std::time::Instant::now();
-                let mut out_zlib = vec![0u8; uncomp_size];
-                let config = zlib_rs::InflateConfig { window_bits: -15 };
-                let (slice, rc) = zlib_rs::decompress_slice(&mut out_zlib, comp_slice, config);
-                let dur_zlib = t1.elapsed();
-                assert_eq!(rc, zlib_rs::ReturnCode::Ok);
-                assert_eq!(slice.len(), uncomp_size);
-                println!("  -> miniz_oxide: {dur_miniz:?}, zlib-rs: {dur_zlib:?} (rc: {rc:?}, len: {})", slice.len());
-            }
-        }
+    fn test_gzip_decompression() {
+        let gz_bytes = [
+            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0xcb, 0x48, 0xcd,
+            0xc9, 0xc9, 0x57, 0x28, 0xcf, 0x2f, 0xca, 0x49, 0xe1, 0x02, 0x00, 0x2d, 0x3b,
+            0x08, 0xaf, 0x0c, 0x00, 0x00, 0x00,
+        ];
+        let mut out = Vec::new();
+        let res = decompress_gzip_internal(&gz_bytes, &mut out);
+        assert!(res.is_ok());
+        assert_eq!(&out, b"hello world\n");
     }
 }
-

@@ -265,66 +265,6 @@ function extractSingleGz(
   });
 }
 
-function extractZipFallback(
-  file: File,
-  fileBuffer: ArrayBuffer,
-  onProgress?: (p: { stage: string; percent: number }) => void,
-): Promise<ExtractedLogSet> {
-  const w = getWorker(0);
-  return new Promise<ExtractedLogSet>((resolve, reject) => {
-    const handleMessage = (e: MessageEvent<ZipWorkerResponse>) => {
-      const res = e.data;
-      if (res.type === "PROGRESS") {
-        onProgress?.(res.payload);
-      } else if (res.type === "RESULT") {
-        cleanup();
-        // SAFETY: res.type === "RESULT" discriminates ExtractedArchiveResult payload
-        const payload = res.payload as ExtractedArchiveResult;
-        const pm2Files: File[] = [];
-        const mongoFiles: File[] = [];
-        for (const item of payload.files) {
-          const extractedFile = new File([item.buffer], item.name, {
-            type: "text/plain",
-            lastModified: file.lastModified,
-          });
-          if (item.category === "mongo") {
-            mongoFiles.push(extractedFile);
-          } else {
-            pm2Files.push(extractedFile);
-          }
-        }
-        resolve({
-          pm2Files,
-          mongoFiles,
-          skipped: payload.skipped,
-          totalBytes: payload.totalBytes,
-          durationMs: payload.durationMs,
-        });
-      } else if (res.type === "ERROR") {
-        cleanup();
-        reject(new Error(res.payload.message));
-      }
-    };
-    const handleError = (err: ErrorEvent) => {
-      cleanup();
-      reject(new Error(err.message || "Archive worker error"));
-    };
-    const cleanup = () => {
-      w.removeEventListener("message", handleMessage);
-      w.removeEventListener("error", handleError);
-    };
-    w.addEventListener("message", handleMessage);
-    w.addEventListener("error", handleError);
-    w.postMessage(
-      {
-        type: "EXTRACT_ZIP",
-        payload: { fileBuffer, fileName: file.name },
-      } satisfies ZipWorkerMessage,
-      [fileBuffer],
-    );
-  });
-}
-
 export async function extractArchive(
   file: File,
   onProgress?: (p: { stage: string; percent: number }) => void,
@@ -338,8 +278,8 @@ export async function extractArchive(
   }
 
   const entries = parseZipCentralDirectory(fileBuffer);
-  if (!entries || entries.length === 0) {
-    return extractZipFallback(file, fileBuffer, onProgress);
+  if (!entries) {
+    throw new Error("Invalid or unsupported ZIP archive: central directory not found");
   }
 
   const skipped: string[] = [];

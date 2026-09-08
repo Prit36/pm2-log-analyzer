@@ -2,20 +2,7 @@ import { compileZipCoreModule } from "../wasm/loadZipCore";
 import init, {
   classify_log_name_or_content,
   FastDecompressor,
-  ZipExtractor,
 } from "../wasm/pkg_zip/zip_core.js";
-
-export type ZipEntryMeta = {
-  index: number;
-  name: string;
-  clean_name: string;
-  uncompressed_size: number;
-  compressed_size: number;
-  data_start: number;
-  is_deflated: boolean;
-  is_dir: boolean;
-  category: "pm2" | "mongo" | "unknown" | "skip";
-};
 
 export type ExtractedFileItem = {
   name: string;
@@ -51,7 +38,6 @@ export type ExtractedEntryResponse = {
 };
 
 export type ZipWorkerMessage =
-  | { type: "EXTRACT_ZIP"; payload: { fileBuffer: ArrayBuffer; fileName: string } }
   | { type: "EXTRACT_ENTRY"; payload: EntryExtractJob }
   | { type: "DECOMPRESS_GZ"; payload: { fileBuffer: ArrayBuffer; fileName: string } };
 
@@ -124,109 +110,6 @@ async function handleExtractEntry(job: EntryExtractJob): Promise<void> {
   self.postMessage({ type: "ENTRY_RESULT", payload }, [buffer]);
 }
 
-async function handleExtractZip(fileBuffer: ArrayBuffer, fileName: string): Promise<void> {
-  const t0 = performance.now();
-  await ensureWasm();
-
-  const zipBytes = new Uint8Array(fileBuffer);
-  let extractor: ZipExtractor | null = null;
-
-  try {
-    extractor = new ZipExtractor(zipBytes);
-    // SAFETY: inspect returns an array of ZipEntryMeta objects serialized from Rust
-    const entries = extractor.inspect() as ZipEntryMeta[];
-    const totalEntries = entries.length;
-
-    const files: ExtractedFileItem[] = [];
-    const skipped: string[] = [];
-    let totalBytes = 0;
-
-    for (let i = 0; i < totalEntries; i++) {
-      const entry = entries[i];
-      if (!entry || entry.is_dir) continue;
-
-      const stageMsg = `Extracting ${entry.clean_name}`;
-      const percent = Math.round(((i + 1) / totalEntries) * 100);
-      self.postMessage({
-        type: "PROGRESS",
-        payload: { stage: stageMsg, percent },
-      } satisfies ZipWorkerResponse);
-
-      // Skip error logs (no timing metrics), system files, and empty entries
-      if (
-        entry.category === "skip" ||
-        entry.name.startsWith("__MACOSX") ||
-        entry.name.endsWith(".DS_Store") ||
-        entry.uncompressed_size === 0
-      ) {
-        skipped.push(entry.name);
-        continue;
-      }
-
-      let decompressedBuffer: ArrayBuffer;
-      if (
-        entry.is_deflated &&
-        entry.uncompressed_size > 0 &&
-        entry.data_start + entry.compressed_size <= zipBytes.byteLength
-      ) {
-        const compSlice = zipBytes.subarray(
-          entry.data_start,
-          entry.data_start + entry.compressed_size,
-        );
-        decompressedBuffer = decompressSliceToBuffer(
-          compSlice,
-          entry.uncompressed_size,
-          entry.is_deflated,
-        );
-      } else {
-        const u8 = extractor.extract_entry(entry.index);
-        const copy = new Uint8Array(u8.length);
-        copy.set(u8);
-        decompressedBuffer = copy.buffer;
-      }
-
-      let cat = entry.category;
-      if (cat === "unknown") {
-        const sample = new Uint8Array(
-          decompressedBuffer,
-          0,
-          Math.min(decompressedBuffer.byteLength, 4096),
-        );
-        const sniffed = classify_log_name_or_content(entry.clean_name, sample);
-        if (sniffed === "pm2" || sniffed === "mongo") {
-          cat = sniffed;
-        }
-      }
-
-      if (cat === "pm2" || cat === "mongo") {
-        files.push({
-          name: entry.clean_name,
-          category: cat,
-          buffer: decompressedBuffer,
-          size: decompressedBuffer.byteLength,
-        });
-        totalBytes += decompressedBuffer.byteLength;
-      } else {
-        skipped.push(entry.name);
-      }
-    }
-
-    const durationMs = Math.round(performance.now() - t0);
-    const result: ExtractedArchiveResult = {
-      fileName,
-      files,
-      skipped,
-      totalBytes,
-      durationMs,
-    };
-
-    const transferList = files.map((f) => f.buffer);
-    self.postMessage({ type: "RESULT", payload: result } satisfies ZipWorkerResponse, transferList);
-  } finally {
-    extractor?.free();
-  }
-}
-
 async function handleDecompressGz(fileBuffer: ArrayBuffer, fileName: string): Promise<void> {
   const t0 = performance.now();
   await ensureWasm();
@@ -269,8 +152,6 @@ self.onmessage = async (e: MessageEvent<ZipWorkerMessage>) => {
   try {
     if (msg.type === "EXTRACT_ENTRY") {
       await handleExtractEntry(msg.payload);
-    } else if (msg.type === "EXTRACT_ZIP") {
-      await handleExtractZip(msg.payload.fileBuffer, msg.payload.fileName);
     } else if (msg.type === "DECOMPRESS_GZ") {
       await handleDecompressGz(msg.payload.fileBuffer, msg.payload.fileName);
     }
@@ -289,4 +170,3 @@ self.onmessage = async (e: MessageEvent<ZipWorkerMessage>) => {
     }
   }
 };
-
