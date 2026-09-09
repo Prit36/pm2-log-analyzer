@@ -31,7 +31,8 @@ export type ExtractedEntryResponse = {
   id: number;
   name: string;
   category: "pm2" | "mongo";
-  file: File;
+  file?: File;
+  buffer?: ArrayBuffer;
   size: number;
 };
 
@@ -124,19 +125,40 @@ async function handleExtractEntry(job: EntryExtractJob): Promise<void> {
     }
   }
 
-  // SAFETY: wasmMemory is a non-shared linear memory backed by a standard ArrayBuffer matching BlobPart.
-  const file = new File([view as BlobPart], job.cleanName, { type: "text/plain" });
-  decompressor!.clear();
+  const finalCategory: "pm2" | "mongo" = category === "mongo" ? "mongo" : "pm2";
 
-  const payload: ExtractedEntryResponse = {
-    id: job.id,
-    name: job.cleanName,
-    category: category === "mongo" ? "mongo" : "pm2",
-    file,
-    size: file.size,
-  };
+  if (finalCategory === "mongo") {
+    // Zero-copy path for Mongo: slice linear memory into a transferable ArrayBuffer
+    // SAFETY: view.byteOffset and view.byteLength point to the decompressed output in wasmMemory
+    const standaloneBuf = wasmMemory!.buffer.slice(
+      view.byteOffset,
+      view.byteOffset + view.byteLength,
+    );
+    decompressor!.clear();
 
-  self.postMessage({ type: "ENTRY_RESULT", payload });
+    const payload: ExtractedEntryResponse = {
+      id: job.id,
+      name: job.cleanName,
+      category: "mongo",
+      buffer: standaloneBuf,
+      size: standaloneBuf.byteLength,
+    };
+    self.postMessage({ type: "ENTRY_RESULT", payload }, [standaloneBuf]);
+  } else {
+    // Multi-shard path for PM2: Blob/File allows 4 shard workers to slice concurrently
+    // SAFETY: wasmMemory is a non-shared linear memory backed by a standard ArrayBuffer matching BlobPart.
+    const file = new File([view as BlobPart], job.cleanName, { type: "text/plain" });
+    decompressor!.clear();
+
+    const payload: ExtractedEntryResponse = {
+      id: job.id,
+      name: job.cleanName,
+      category: "pm2",
+      file,
+      size: file.size,
+    };
+    self.postMessage({ type: "ENTRY_RESULT", payload });
+  }
 }
 
 async function handleDecompressGz(fileBuffer: ArrayBuffer, fileName: string): Promise<void> {

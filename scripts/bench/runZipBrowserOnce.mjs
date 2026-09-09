@@ -148,6 +148,8 @@ try {
       { timeout: 180_000 },
     );
     await page.waitForSelector('[data-testid="kpi-row"]', { timeout: 30_000 });
+    const pm2Bench = await page.evaluate(() => window.__PM2_BENCH__);
+    log(`PM2 parsed in ${pm2Bench?.parseWallMs}ms`);
   }
 
   if (zipBench.mongoFilesCount > 0) {
@@ -159,6 +161,8 @@ try {
       undefined,
       { timeout: 180_000 },
     );
+    const mongoBench = await page.evaluate(() => window.__MONGO_BENCH__);
+    log(`Mongo parsed in ${mongoBench?.parseWallMs}ms`);
   }
 
   clearInterval(poll);

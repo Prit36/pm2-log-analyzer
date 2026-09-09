@@ -8,7 +8,7 @@ import { useAnalysisStore } from "../store/analysisStore";
 import { useMongoStore } from "../store/mongoStore";
 import { useAppModeStore } from "../store/appModeStore";
 import { parseFiles } from "../hooks/useParserWorker";
-import { parseMongoFiles } from "../hooks/useMongoParserWorker";
+import { parseMongoBuffer, parseMongoFiles } from "../hooks/useMongoParserWorker";
 
 const {
   appendLoadedFiles: appendPm2Files,
@@ -74,8 +74,8 @@ export function terminateWorkerPool(): void {
   }
 }
 
-// Prewarm extraction workers eagerly at module load
-for (let i = 0; i < POOL_CAP; i++) {
+// Prewarm extraction workers eagerly at module load (capped to 2 to minimize idle RSS)
+for (let i = 0; i < Math.min(POOL_CAP, 2); i++) {
   getWorker(i);
 }
 
@@ -284,10 +284,15 @@ function extractSingleGz(
   });
 }
 
+export type MongoReadyPayload = {
+  files: File[];
+  directBuffer?: { buffer: ArrayBuffer; fileName: string; size: number } | undefined;
+};
+
 export type ExtractArchiveCallbacks = {
   onProgress?: (p: { stage: string; percent: number }) => void;
   onPm2Ready?: (files: File[]) => void;
-  onMongoReady?: (files: File[]) => void;
+  onMongoReady?: (payload: MongoReadyPayload) => void;
 };
 
 export async function extractArchive(
@@ -336,20 +341,33 @@ export async function extractArchive(
   let pm2Dispatched = false;
   let mongoDispatched = false;
 
+  validEntries.sort((a, b) => b.compressedSize - a.compressedSize);
+
   const concurrency = Math.min(
     navigator.hardwareConcurrency ? Math.max(1, navigator.hardwareConcurrency) : 4,
     validEntries.length,
   );
+
+  // Terminate any excess prewarmed workers immediately to free memory
+  while (workerPool.length > concurrency) {
+    const w = workerPool.pop();
+    w?.terminate();
+  }
 
   let completedCount = 0;
   const pm2Files: File[] = [];
   const mongoFiles: File[] = [];
   let totalBytes = 0;
 
-  const tasks = validEntries.map((entry, idx) => {
-    const workerIndex = idx % concurrency;
-    const worker = getWorker(workerIndex);
+  const queue = validEntries.map((entry, idx) => ({ entry, idx }));
 
+  let mongoDirectBuffer: { buffer: ArrayBuffer; fileName: string; size: number } | undefined;
+
+  const extractSingleEntry = (
+    worker: Worker,
+    entry: (typeof validEntries)[number],
+    jobId: number,
+  ): Promise<void> => {
     const sliceEnd = Math.min(
       file.size,
       entry.localHeaderOffset + 30 + entry.nameLen + entry.extraLen + entry.compressedSize + 1024,
@@ -359,14 +377,22 @@ export async function extractArchive(
     return new Promise<void>((resolve, reject) => {
       const handleMessage = (e: MessageEvent<ZipWorkerResponse>) => {
         const res = e.data;
-        if (res.type === "ENTRY_RESULT" && res.payload.id === idx) {
+        if (res.type === "ENTRY_RESULT" && res.payload.id === jobId) {
           cleanup();
           const item = res.payload;
-          const extractedFile = item.file;
 
           if (item.category === "mongo") {
+            const extractedFile = item.file ?? new File([], item.name, { type: "text/plain" });
+            if (!item.file) {
+              Object.defineProperty(extractedFile, "size", { value: item.size });
+            }
             mongoFiles.push(extractedFile);
+            if (item.buffer) {
+              mongoDirectBuffer = { buffer: item.buffer, fileName: item.name, size: item.size };
+            }
           } else {
+            // PM2 files always have item.file
+            const extractedFile = item.file!;
             pm2Files.push(extractedFile);
           }
           totalBytes += item.size;
@@ -383,11 +409,14 @@ export async function extractArchive(
             }
             if (!mongoDispatched && mongoFiles.length === expectedMongo && expectedMongo > 0) {
               mongoDispatched = true;
-              cbOptions.onMongoReady?.([...mongoFiles]);
+              cbOptions.onMongoReady?.({
+                files: [...mongoFiles],
+                directBuffer: mongoDirectBuffer,
+              });
             }
           }
           resolve();
-        } else if (res.type === "ERROR" && res.payload.id === idx) {
+        } else if (res.type === "ERROR" && res.payload.id === jobId) {
           cleanup();
           reject(new Error(res.payload.message));
         }
@@ -409,7 +438,7 @@ export async function extractArchive(
       worker.postMessage({
         type: "EXTRACT_ENTRY",
         payload: {
-          id: idx,
+          id: jobId,
           name: entry.name,
           cleanName: entry.cleanName,
           category: entry.category,
@@ -420,10 +449,24 @@ export async function extractArchive(
         },
       } satisfies ZipWorkerMessage);
     });
+  };
+
+  const workerTasks = Array.from({ length: concurrency }, async (_, workerIndex) => {
+    const worker = getWorker(workerIndex);
+    try {
+      while (queue.length > 0) {
+        const item = queue.shift();
+        if (!item) break;
+        await extractSingleEntry(worker, item.entry, item.idx);
+      }
+    } finally {
+      // Worker has completed all assigned tasks; terminate immediately to free Wasm memory & thread
+      worker.terminate();
+    }
   });
 
-  await Promise.all(tasks);
-  terminateWorkerPool();
+  await Promise.all(workerTasks);
+  workerPool.length = 0;
 
   const durationMs = Math.round(performance.now() - t0);
   return {
@@ -460,14 +503,21 @@ export async function handleArchiveUpload(
     }
   };
 
-  const startMongo = (files: File[]) => {
-    if (mongoStarted || files.length === 0) return;
+  const startMongo = (payload: MongoReadyPayload) => {
+    if (mongoStarted || payload.files.length === 0) return;
     mongoStarted = true;
-    if (uploadMode === "append") {
-      const combined = appendMongoFiles(files);
+    if (payload.directBuffer && uploadMode === "replace") {
+      setMongoFiles(payload.files);
+      void parseMongoBuffer(
+        payload.directBuffer.buffer,
+        payload.directBuffer.fileName,
+        payload.directBuffer.size,
+      );
+    } else if (uploadMode === "append") {
+      const combined = appendMongoFiles(payload.files);
       void parseMongoFiles(combined);
     } else {
-      const unique = setMongoFiles(files);
+      const unique = setMongoFiles(payload.files);
       void parseMongoFiles(unique);
     }
   };
@@ -517,7 +567,7 @@ export async function handleArchiveUpload(
     }
 
     if (hasMongo && !mongoStarted) {
-      startMongo(logSet.mongoFiles);
+      startMongo({ files: logSet.mongoFiles });
     } else if (!hasMongo) {
       setMongoParsing(false);
     }

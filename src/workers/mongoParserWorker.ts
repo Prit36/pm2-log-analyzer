@@ -9,6 +9,10 @@ import {
 export type MongoWorkerMessage =
   | { type: "PARSE_FILE"; payload: { file: File; filters: MongoFilters } }
   | { type: "PARSE_FILES"; payload: { files: File[]; filters: MongoFilters } }
+  | {
+      type: "PARSE_BUFFER";
+      payload: { buffer: ArrayBuffer; fileName: string; filters: MongoFilters };
+    }
   | { type: "PARSE_TEXT"; payload: { text: string; filters: MongoFilters } }
   | { type: "REAGGREGATE"; payload: { filters: MongoFilters } }
   | { type: "CLEAR" }
@@ -133,6 +137,47 @@ async function streamParseFile(file: File, bytesOffset: number, totalAllBytes: n
   eng.end_shard();
 }
 
+function streamParseBuffer(
+  buffer: ArrayBuffer,
+  bytesOffset: number,
+  totalAllBytes: number,
+  eng: MongoEngine,
+) {
+  const bytes = new Uint8Array(buffer);
+  const CHUNK_SIZE = 16 * 1024 * 1024;
+  let offset = 0;
+  let lastProgressTime = 0;
+
+  while (offset < bytes.length) {
+    if (isCancelled) return;
+    const take = Math.min(CHUNK_SIZE, bytes.length - offset);
+    const chunk = bytes.subarray(offset, offset + take);
+
+    writeIngest(eng, chunk);
+    eng.feed(chunk.length, offset);
+
+    offset += take;
+    const currentTotalBytes = bytesOffset + offset;
+
+    const now = performance.now();
+    if (now - lastProgressTime > 100 || offset >= bytes.length) {
+      lastProgressTime = now;
+      const percent = Math.min(95, Math.round((currentTotalBytes / totalAllBytes) * 95));
+      self.postMessage({
+        type: "PROGRESS",
+        payload: {
+          stage: "parsing",
+          processed: currentTotalBytes,
+          total: totalAllBytes,
+          percent,
+        },
+      } satisfies MongoWorkerResponse);
+    }
+  }
+
+  eng.end_shard();
+}
+
 self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
   const msg = e.data;
 
@@ -202,6 +247,28 @@ self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
     writeIngest(eng, bytes);
     eng.feed(bytes.length, 0);
     eng.end_shard();
+
+    if (isCancelled) return;
+
+    const result = runReaggregate(eng, currentFilters);
+
+    self.postMessage({ type: "RESULT", payload: result } satisfies MongoWorkerResponse);
+    self.postMessage({
+      type: "PERF",
+      payload: { kind: "parse", totalMs: Math.round(performance.now() - t0) },
+    } satisfies MongoWorkerResponse);
+    return;
+  }
+
+  if (msg.type === "PARSE_BUFFER") {
+    isCancelled = false;
+    currentFilters = msg.payload.filters;
+    const eng = await ensureEngine();
+    eng.clear();
+
+    const t0 = performance.now();
+    const { buffer } = msg.payload;
+    streamParseBuffer(buffer, 0, buffer.byteLength, eng);
 
     if (isCancelled) return;
 

@@ -98,7 +98,10 @@ export function getOrCreateMongoWorker(): Worker {
   return worker;
 }
 
-export function runMongoParse(message: MongoWorkerMessage): Promise<void> {
+export function runMongoParse(
+  message: MongoWorkerMessage,
+  transfer?: Transferable[],
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const w = getOrCreateMongoWorker();
     setParsing(true);
@@ -106,8 +109,45 @@ export function runMongoParse(message: MongoWorkerMessage): Promise<void> {
     setProgress({ stage: "parsing", processed: 0, total: 100, percent: 0 });
     resolveFn = resolve;
     rejectFn = reject;
-    w.postMessage(message);
+    if (transfer && transfer.length > 0) {
+      w.postMessage(message, transfer);
+    } else {
+      w.postMessage(message);
+    }
   });
+}
+
+export async function parseMongoBuffer(
+  buffer: ArrayBuffer,
+  fileName: string,
+  fileBytes: number,
+): Promise<void> {
+  const filters = useMongoStore.getState().filters;
+  ensureMongoBench({
+    at: new Date().toISOString(),
+    source: "buffer",
+    fileName,
+    fileBytes,
+    parseWallMs: 0,
+    reaggTimes: [],
+  });
+  const t0 = performance.now();
+  await runMongoParse({ type: "PARSE_BUFFER", payload: { buffer, fileName, filters } }, [buffer]);
+  const ms = Math.round(performance.now() - t0);
+  const result = useMongoStore.getState().result;
+  const count = result?.summary.slowQueryCount ?? 0;
+  const collscans = result?.summary.collscanCount ?? 0;
+  ensureMongoBench({
+    parseWallMs: ms,
+    slowQueryCount: count,
+    collscanCount: collscans,
+    patternsCount: result?.patterns.length ?? 0,
+    collectionsCount: result?.collections.length ?? 0,
+    p95DurationMs: result?.summary.p95DurationMs ?? 0,
+  });
+  showToast(
+    `Parsed ${count.toLocaleString()} slow queries (${collscans.toLocaleString()} COLLSCANs) in ${ms}ms`,
+  );
 }
 
 export function runMongoReagg(message: MongoWorkerMessage): Promise<void> {
