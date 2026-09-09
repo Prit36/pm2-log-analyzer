@@ -79,6 +79,10 @@ export type ReaggPerfStages = {
 export type WorkerMessage =
   | { type: "PARSE_FILE"; payload: { file: File; options: ParseOptions } }
   | { type: "PARSE_FILES"; payload: { files: File[]; options: ParseOptions } }
+  | {
+      type: "PARSE_BUFFER";
+      payload: { buffer: ArrayBuffer; fileName: string; options: ParseOptions };
+    }
   | { type: "PARSE_TEXT"; payload: { text: string; options: ParseOptions } }
   | { type: "REAGGREGATE"; payload: { options: ParseOptions } }
   | { type: "CLEAR" }
@@ -211,9 +215,11 @@ function clearShards(ep: number) {
   }
 }
 
+const LINE_EXTEND = 256 * 1024;
+
 function runShardParsed(
   worker: Worker,
-  req: Extract<ShardRequest, { type: "PARSE_SHARD" | "PARSE_BYTES" }>,
+  req: Extract<ShardRequest, { type: "PARSE_SHARD" | "PARSE_BYTES" | "PARSE_SHARD_BUFFER" }>,
 ): Promise<ShardParsed> {
   return new Promise((resolve, reject) => {
     const onMsg = (e: MessageEvent<ShardParsed | ShardError>) => {
@@ -227,8 +233,11 @@ function runShardParsed(
       resolve(data);
     };
     worker.addEventListener("message", onMsg);
-    if (req.type === "PARSE_BYTES") worker.postMessage(req, [req.buf]);
-    else worker.postMessage(req);
+    if (req.type === "PARSE_BYTES" || req.type === "PARSE_SHARD_BUFFER") {
+      worker.postMessage(req, [req.buf]);
+    } else {
+      worker.postMessage(req);
+    }
   });
 }
 
@@ -572,6 +581,102 @@ async function parseFilesSharded(input: File | File[], normalizeMode: NormalizeM
   }
 }
 
+async function parseBufferSharded(buffer: ArrayBuffer, normalizeMode: NormalizeMode) {
+  epoch++;
+  const ep = epoch;
+  resetMeta();
+  parseWallOrigin = performance.now();
+  const total = buffer.byteLength || 1;
+  const n = shardCountFor(total);
+  const { wasmCompileMs, shardPoolInitMs } = await ensureShardPool(n);
+  clearShards(ep);
+
+  const ranges: { start: number; end: number }[] = [];
+  if (n === 1) {
+    ranges.push({ start: 0, end: total });
+  } else {
+    const chunk = Math.ceil(total / n);
+    for (let i = 0; i < n; i++) {
+      const start = i * chunk;
+      const end = i === n - 1 ? total : Math.min(total, (i + 1) * chunk);
+      if (start >= total) break;
+      ranges.push({ start, end });
+    }
+  }
+
+  if (cancelled) throw new Error("Cancelled");
+  const defaultOptions: ParseOptions = {
+    normalizeMode,
+    statusFamily: "all",
+    minMs: 0,
+    methodFilter: null,
+    cronQuery: "",
+    cronMinMs: 0,
+    cronShowFailedOnly: false,
+  };
+  const prekickedTasks: Promise<ShardPartial>[] = Array.from({ length: ranges.length });
+  prekickedPartials = { epoch: ep, options: defaultOptions, tasks: prekickedTasks };
+
+  const results = await Promise.all(
+    ranges.map(async (r, i) => {
+      const readStart = r.start > 0 ? r.start - 1 : r.start;
+      const readEnd = Math.min(total, r.end + LINE_EXTEND);
+      const shardBuf = buffer.slice(readStart, readEnd);
+      const parsed = await runShardParsed(shardPool[i]!, {
+        type: "PARSE_SHARD_BUFFER",
+        epoch: ep,
+        shardIndex: i,
+        start: r.start,
+        end: r.end,
+        totalSize: total,
+        readStart,
+        normalizeMode,
+        buf: shardBuf,
+      });
+      if (parsed.partialWire) {
+        prekickedTasks[i] = Promise.resolve({
+          type: "SHARD_PARTIAL",
+          shardIndex: i,
+          epoch: ep,
+          partial: parsed.partialWire,
+          reaggMs: 0,
+        });
+      }
+      return parsed;
+    }),
+  );
+
+  if (ep !== epoch) throw new Error("Cancelled");
+  results.sort((a, b) => a.shardIndex - b.shardIndex);
+  const mt = maxTiming(results);
+  absorbMeta(results);
+  activeShardCount = results.length;
+  const wasmHeapMB = results.reduce((s, r) => s + (r.wasmHeapBytes ?? 0), 0) / (1024 * 1024);
+  const perShardEntryMB = results.reduce((s, r) => s + (r.hitCount * 12) / (1024 * 1024), 0);
+  self.postMessage({
+    type: "PROGRESS",
+    payload: { stage: "parsing", processed: total, total, percent: 100 },
+  } satisfies WorkerResponse);
+  const pathCount = results.reduce((s, r) => s + (r.pathCount ?? 0), 0);
+  console.info(
+    `[memprobe] shards=${results.length} wasmTotal=${wasmHeapMB.toFixed(1)}MB entriesMB=${perShardEntryMB.toFixed(1)} paths=${pathCount}`,
+  );
+  lastParsePartial = {
+    wasmCompileMs,
+    shardPoolInitMs,
+    readMs: mt.readMs,
+    copyIngestMs: mt.copyIngestMs,
+    feedMs: mt.feedMs,
+    endShardMs: mt.endShardMs,
+    metaWireMs: mt.metaWireMs,
+    shardWallMaxMs: mt.shardWallMs,
+    mergeMetaMs: 0,
+    shardCount: results.length,
+    workerWasmHeapMB: wasmHeapMB,
+    paths: pathCount,
+  };
+}
+
 async function parseText(text: string, normalizeMode: NormalizeMode) {
   epoch++;
   const ep = epoch;
@@ -640,6 +745,24 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
     if (msg.type === "PARSE_FILE" || msg.type === "PARSE_FILES") {
       const files = "files" in msg.payload ? msg.payload.files : [msg.payload.file];
       await parseFilesSharded(files, msg.payload.options.normalizeMode);
+      if (cancelled) throw new Error("Cancelled");
+      const { result, timing } = await reaggregateShards(msg.payload.options);
+      if (lastParsePartial) {
+        self.postMessage({
+          type: "PERF",
+          payload: buildParsePerf(timing),
+        } satisfies WorkerResponse);
+      }
+      self.postMessage({ type: "RESULT", payload: result } satisfies WorkerResponse);
+      const heapMB = lastParsePartial?.workerWasmHeapMB;
+      const doneResponse: WorkerResponse =
+        heapMB != null ? { type: "DONE", payload: { workerWasmHeapMB: heapMB } } : { type: "DONE" };
+      self.postMessage(doneResponse);
+      return;
+    }
+
+    if (msg.type === "PARSE_BUFFER") {
+      await parseBufferSharded(msg.payload.buffer, msg.payload.options.normalizeMode);
       if (cancelled) throw new Error("Cancelled");
       const { result, timing } = await reaggregateShards(msg.payload.options);
       if (lastParsePartial) {

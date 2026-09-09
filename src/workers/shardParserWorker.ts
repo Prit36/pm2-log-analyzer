@@ -19,6 +19,17 @@ export type ShardRequest =
       normalizeMode?: string;
     }
   | {
+      type: "PARSE_SHARD_BUFFER";
+      epoch: number;
+      shardIndex: number;
+      buf: ArrayBuffer;
+      start: number;
+      end: number;
+      totalSize: number;
+      readStart: number;
+      normalizeMode?: string;
+    }
+  | {
       type: "PARSE_BYTES";
       epoch: number;
       buf: ArrayBuffer;
@@ -281,6 +292,81 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         pathCount: engine.path_count(),
         timing,
       };
+      self.postMessage(result, [
+        cronWire,
+        unmatchedWire,
+        hourlyWire,
+        datesWire,
+        dailyWire,
+        partialWire,
+      ]);
+      return;
+    }
+
+    if (msg.type === "PARSE_SHARD_BUFFER") {
+      const { buf, start, end, totalSize, readStart, shardIndex, epoch, normalizeMode } = msg;
+      engine.clear();
+      const bytes = new Uint8Array(buf);
+      let copyIngestMs = 0;
+      let feedMs = 0;
+
+      engine.begin_shard(start, end, totalSize);
+      let off = readStart;
+      let bufOff = 0;
+      while (bufOff < bytes.length) {
+        const take = Math.min(CHUNK, bytes.length - bufOff);
+        const tCopy = performance.now();
+        const n = writeIngest(bytes.subarray(bufOff, bufOff + take));
+        copyIngestMs += performance.now() - tCopy;
+
+        const tFeed = performance.now();
+        engine.feed(n, off);
+        feedMs += performance.now() - tFeed;
+
+        bufOff += take;
+        off += take;
+      }
+
+      const tEnd = performance.now();
+      engine.end_shard();
+      const endShardMs = performance.now() - tEnd;
+
+      const modeCode = normalizeModeCode(normalizeMode ?? "collapseIds");
+      engine.ensure_mode(modeCode);
+      const partialWireU8 = engine.reaggregate(modeCode, 0, 0, new Uint8Array(), true);
+      const partialWire = transferableBuffer(partialWireU8);
+
+      const tMeta = performance.now();
+      const { cronWire, unmatchedWire, hourlyWire, datesWire, dailyWire } = metaBuffers();
+      const metaWireMs = performance.now() - tMeta;
+
+      const timing: ShardTiming = {
+        readMs: 0,
+        copyIngestMs,
+        feedMs,
+        endShardMs,
+        metaWireMs,
+        shardWallMs: copyIngestMs + feedMs + endShardMs + metaWireMs,
+      };
+
+      const result: ShardParsed = {
+        type: "SHARD_PARSED",
+        shardIndex,
+        epoch,
+        hitCount: engine.hit_count(),
+        unmatchedCount: engine.unmatched_count(),
+        methodsMask: engine.methods_mask(),
+        cronWire,
+        unmatchedWire,
+        hourlyWire,
+        datesWire,
+        dailyWire,
+        partialWire,
+        wasmHeapBytes: wasmMemory!.buffer.byteLength,
+        pathCount: engine.path_count(),
+        timing,
+      };
+
       self.postMessage(result, [
         cronWire,
         unmatchedWire,

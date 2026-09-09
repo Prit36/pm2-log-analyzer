@@ -7,7 +7,7 @@ import type {
 import { useAnalysisStore } from "../store/analysisStore";
 import { useMongoStore } from "../store/mongoStore";
 import { useAppModeStore } from "../store/appModeStore";
-import { parseFiles } from "../hooks/useParserWorker";
+import { parseFiles, parsePm2Buffer } from "../hooks/useParserWorker";
 import { parseMongoBuffer, parseMongoFiles } from "../hooks/useMongoParserWorker";
 
 const {
@@ -284,6 +284,11 @@ function extractSingleGz(
   });
 }
 
+export type Pm2ReadyPayload = {
+  files: File[];
+  directBuffer?: { buffer: ArrayBuffer; fileName: string; size: number } | undefined;
+};
+
 export type MongoReadyPayload = {
   files: File[];
   directBuffer?: { buffer: ArrayBuffer; fileName: string; size: number } | undefined;
@@ -291,7 +296,7 @@ export type MongoReadyPayload = {
 
 export type ExtractArchiveCallbacks = {
   onProgress?: (p: { stage: string; percent: number }) => void;
-  onPm2Ready?: (files: File[]) => void;
+  onPm2Ready?: (payload: Pm2ReadyPayload) => void;
   onMongoReady?: (payload: MongoReadyPayload) => void;
 };
 
@@ -362,6 +367,7 @@ export async function extractArchive(
   const queue = validEntries.map((entry, idx) => ({ entry, idx }));
 
   let mongoDirectBuffer: { buffer: ArrayBuffer; fileName: string; size: number } | undefined;
+  let pm2DirectBuffer: { buffer: ArrayBuffer; fileName: string; size: number } | undefined;
 
   const extractSingleEntry = (
     worker: Worker,
@@ -382,18 +388,29 @@ export async function extractArchive(
           const item = res.payload;
 
           if (item.category === "mongo") {
-            const extractedFile = item.file ?? new File([], item.name, { type: "text/plain" });
-            if (!item.file) {
+            const extractedFile =
+              expectedMongo === 1
+                ? new File([], item.name, { type: "text/plain" })
+                : new File([item.buffer ?? item.file!], item.name, { type: "text/plain" });
+            if (expectedMongo === 1) {
               Object.defineProperty(extractedFile, "size", { value: item.size });
             }
             mongoFiles.push(extractedFile);
-            if (item.buffer) {
+            if (item.buffer && expectedMongo === 1) {
               mongoDirectBuffer = { buffer: item.buffer, fileName: item.name, size: item.size };
             }
           } else {
-            // PM2 files always have item.file
-            const extractedFile = item.file!;
+            const extractedFile =
+              expectedPm2 === 1
+                ? new File([], item.name, { type: "text/plain" })
+                : new File([item.buffer ?? item.file!], item.name, { type: "text/plain" });
+            if (expectedPm2 === 1) {
+              Object.defineProperty(extractedFile, "size", { value: item.size });
+            }
             pm2Files.push(extractedFile);
+            if (item.buffer && expectedPm2 === 1) {
+              pm2DirectBuffer = { buffer: item.buffer, fileName: item.name, size: item.size };
+            }
           }
           totalBytes += item.size;
 
@@ -405,13 +422,16 @@ export async function extractArchive(
           if (!hasUnknown) {
             if (!pm2Dispatched && pm2Files.length === expectedPm2 && expectedPm2 > 0) {
               pm2Dispatched = true;
-              cbOptions.onPm2Ready?.([...pm2Files]);
+              cbOptions.onPm2Ready?.({
+                files: [...pm2Files],
+                directBuffer: expectedPm2 === 1 ? pm2DirectBuffer : undefined,
+              });
             }
             if (!mongoDispatched && mongoFiles.length === expectedMongo && expectedMongo > 0) {
               mongoDispatched = true;
               cbOptions.onMongoReady?.({
                 files: [...mongoFiles],
-                directBuffer: mongoDirectBuffer,
+                directBuffer: expectedMongo === 1 ? mongoDirectBuffer : undefined,
               });
             }
           }
@@ -491,14 +511,21 @@ export async function handleArchiveUpload(
   let pm2Started = false;
   let mongoStarted = false;
 
-  const startPm2 = (files: File[]) => {
-    if (pm2Started || files.length === 0) return;
+  const startPm2 = (payload: Pm2ReadyPayload) => {
+    if (pm2Started || payload.files.length === 0) return;
     pm2Started = true;
-    if (uploadMode === "append") {
-      const combined = appendPm2Files(files);
+    if (payload.directBuffer && uploadMode === "replace") {
+      setPm2Files(payload.files);
+      void parsePm2Buffer(
+        payload.directBuffer.buffer,
+        payload.directBuffer.fileName,
+        payload.directBuffer.size,
+      );
+    } else if (uploadMode === "append") {
+      const combined = appendPm2Files(payload.files);
       void parseFiles(combined);
     } else {
-      const unique = setPm2Files(files);
+      const unique = setPm2Files(payload.files);
       void parseFiles(unique);
     }
   };
@@ -561,7 +588,7 @@ export async function handleArchiveUpload(
 
     // In case eager dispatch didn't trigger (e.g. unknown categories)
     if (hasPm2 && !pm2Started) {
-      startPm2(logSet.pm2Files);
+      startPm2({ files: logSet.pm2Files });
     } else if (!hasPm2) {
       setPm2Parsing(false);
     }

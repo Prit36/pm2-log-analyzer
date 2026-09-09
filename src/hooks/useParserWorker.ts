@@ -160,7 +160,7 @@ export function getOrCreateWorker(): Worker {
   return worker;
 }
 
-export function runParse(message: WorkerMessage): Promise<void> {
+export function runParse(message: WorkerMessage, transfer?: Transferable[]): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const w = getOrCreateWorker();
     setParsing(true);
@@ -168,7 +168,11 @@ export function runParse(message: WorkerMessage): Promise<void> {
     setProgress({ stage: "parsing", processed: 0, total: 100, percent: 0 });
     resolveFn = resolve;
     rejectFn = reject;
-    w.postMessage(message);
+    if (transfer && transfer.length > 0) {
+      w.postMessage(message, transfer);
+    } else {
+      w.postMessage(message);
+    }
   });
 }
 
@@ -180,6 +184,20 @@ export function runReagg(message: WorkerMessage): Promise<void> {
     rejectFn = reject;
     w.postMessage(message);
   });
+}
+
+export async function parsePm2Buffer(
+  buffer: ArrayBuffer,
+  fileName: string,
+  fileBytes: number,
+): Promise<void> {
+  const options = workerParseOptions(useAnalysisStore.getState().filters);
+  createBenchForParse("buffer", fileName, fileBytes);
+  const t0 = performance.now();
+  await runParse({ type: "PARSE_BUFFER", payload: { buffer, fileName, options } }, [buffer]);
+  const ms = Math.round(performance.now() - t0);
+  const result = finalizeBench(ms);
+  showToast(`Parsed ${result?.summary.matched.toLocaleString() ?? 0} requests in ${ms}ms`);
 }
 
 export async function parseFile(file: File): Promise<void> {
