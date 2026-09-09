@@ -23,9 +23,15 @@ const {
   setLoadedFiles: setMongoFiles,
   setProgress: setMongoProgress,
   setParsing: setMongoParsing,
+  showToast: showMongoToast,
 } = useMongoStore.getState();
 
 const { setMode } = useAppModeStore.getState();
+
+function notify(message: string): void {
+  showPm2Toast(message);
+  showMongoToast(message);
+}
 
 export type ExtractedLogSet = {
   pm2Files: File[];
@@ -109,7 +115,22 @@ function stripPathAndGz(name: string): string {
   return fileName.replace(/\.gz$/i, "");
 }
 
-function classifyByName(name: string): "pm2" | "mongo" | "unknown" | "skip" {
+export function filterValidFiles(fileList: FileList | File[] | null | undefined): File[] {
+  if (!fileList || fileList.length === 0) return [];
+  return Array.from(fileList).filter(
+    (f) =>
+      isArchiveFile(f) ||
+      /\.log(?:\.\d+)?$/i.test(f.name) ||
+      /\.log\d*$/i.test(f.name) ||
+      /\.(?:txt|json|out|err|\d+)$/i.test(f.name) ||
+      f.name.endsWith(".txt") ||
+      f.name.endsWith(".json") ||
+      f.type === "text/plain" ||
+      f.type === "",
+  );
+}
+
+export function classifyByName(name: string): "pm2" | "mongo" | "unknown" | "skip" {
   const lower = name.toLowerCase().replace(/\\/g, "/");
   const fileName = lower.split("/").pop() || lower;
 
@@ -117,13 +138,14 @@ function classifyByName(name: string): "pm2" | "mongo" | "unknown" | "skip" {
     return "skip";
   }
   if (
-    fileName.startsWith("mongod") ||
-    fileName.startsWith("mongodb") ||
+    fileName.includes("mongod") ||
+    fileName.includes("mongodb") ||
     fileName.startsWith("mongo.") ||
     fileName.startsWith("mongo-") ||
     fileName.startsWith("mongo_") ||
-    fileName.includes("mongod.log") ||
-    fileName.includes("mongodb.log")
+    fileName.includes(".mongo.") ||
+    fileName.includes("-mongo-") ||
+    fileName.includes("_mongo_")
   ) {
     return "mongo";
   }
@@ -601,17 +623,17 @@ export async function handleArchiveUpload(
 
     // Tab switching and toast notification
     if (hasPm2 && hasMongo) {
-      showPm2Toast(
+      notify(
         `Extracted ${logSet.pm2Files.length} API log(s) and ${logSet.mongoFiles.length} MongoDB log(s) in ${logSet.durationMs}ms! Both tabs populated.`,
       );
     } else if (hasMongo) {
       setMode("mongo");
-      showPm2Toast(
+      notify(
         `Extracted ${logSet.mongoFiles.length} MongoDB log(s) in ${logSet.durationMs}ms into MongoDB Analyzer`,
       );
     } else {
       setMode("pm2");
-      showPm2Toast(
+      notify(
         `Extracted ${logSet.pm2Files.length} API log(s) in ${logSet.durationMs}ms into PM2 Analyzer`,
       );
     }
@@ -619,6 +641,51 @@ export async function handleArchiveUpload(
     setPm2Parsing(false);
     setMongoParsing(false);
     const errMessage = err instanceof Error ? err.message : String(err);
-    showPm2Toast(`Extraction failed: ${errMessage}`);
+    notify(`Extraction failed: ${errMessage}`);
+  }
+}
+
+export async function handleLogFilesUpload(
+  files: File[],
+  uploadMode: "replace" | "append" = "replace",
+): Promise<void> {
+  const archive = files.find(isArchiveFile);
+  if (archive) {
+    return handleArchiveUpload(archive, uploadMode);
+  }
+
+  const pm2Files: File[] = [];
+  const mongoFiles: File[] = [];
+  const activeMode = useAppModeStore.getState().mode;
+
+  for (const file of files) {
+    const cat = classifyByName(file.name);
+    if (cat === "mongo") {
+      mongoFiles.push(file);
+    } else if (cat === "pm2") {
+      pm2Files.push(file);
+    } else if (cat === "unknown") {
+      if (activeMode === "mongo") mongoFiles.push(file);
+      else pm2Files.push(file);
+    }
+  }
+
+  if (pm2Files.length > 0) {
+    const res = uploadMode === "append" ? appendPm2Files(pm2Files) : setPm2Files(pm2Files);
+    if (res.length > 0) void parseFiles(res);
+  }
+  if (mongoFiles.length > 0) {
+    const res = uploadMode === "append" ? appendMongoFiles(mongoFiles) : setMongoFiles(mongoFiles);
+    if (res.length > 0) void parseMongoFiles(res);
+  }
+
+  if (pm2Files.length > 0 && mongoFiles.length > 0) {
+    notify(
+      `Classified ${pm2Files.length} API log(s) and ${mongoFiles.length} MongoDB log(s). Both tabs populated.`,
+    );
+  } else if (mongoFiles.length > 0) {
+    setMode("mongo");
+  } else if (pm2Files.length > 0) {
+    setMode("pm2");
   }
 }

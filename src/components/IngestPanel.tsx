@@ -2,37 +2,21 @@ import { useRef, useState, type DragEvent } from "react";
 import { ClipboardPaste, FilePlus, Plus, RefreshCw, Upload, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useAnalysisStore } from "../store/analysisStore";
-import { cancel, parseFiles, parseText } from "../hooks/useParserWorker";
+import { cancel, parseText } from "../hooks/useParserWorker";
 import { formatBytes } from "../utils/format";
 import { cn } from "../utils/cn";
 
-import { isArchiveFile, handleArchiveUpload } from "../utils/zipExtractor";
+import { handleLogFilesUpload, filterValidFiles } from "../utils/zipExtractor";
 
 export const PASTE_WARN_BYTES = 8 * 1024 * 1024;
 
-const { appendLoadedFiles, setLoadedFiles, setPasteOpen, setSourcePaste, showToast } =
-  useAnalysisStore.getState();
-
-function filterValidFiles(fileList: FileList | File[] | null | undefined): File[] {
-  if (!fileList || fileList.length === 0) return [];
-  return Array.from(fileList).filter(
-    (f) =>
-      isArchiveFile(f) ||
-      /\.log(?:\.\d+)?$/i.test(f.name) ||
-      /\.log\d*$/i.test(f.name) ||
-      /\.(?:txt|out|err|\d+)$/i.test(f.name) ||
-      f.name.endsWith(".txt") ||
-      f.type === "text/plain" ||
-      f.type === "",
-  );
-}
+const { setPasteOpen, setSourcePaste, showToast } = useAnalysisStore.getState();
 
 function useIngestHandlers(params: {
   busy: boolean;
   hasData: boolean;
   loadedFiles: File[];
   uploadMode: "replace" | "append";
-  pendingDrop: File[] | null;
   setPendingDrop: (v: File[] | null) => void;
   setDragOver: (v: boolean) => void;
   inputRef: React.RefObject<HTMLInputElement | null>;
@@ -51,27 +35,12 @@ function useIngestHandlers(params: {
 
   const executeAppend = (files: File[]) => {
     setPendingDrop(null);
-    const archive = files.find(isArchiveFile);
-    if (archive) {
-      void handleArchiveUpload(archive, "append");
-      return;
-    }
-    const existingCount = useAnalysisStore.getState().loadedFiles.length;
-    const combined = appendLoadedFiles(files);
-    if (combined.length === existingCount) return;
-    void parseFiles(combined);
+    void handleLogFilesUpload(files, "append");
   };
 
   const executeReplace = (files: File[]) => {
     setPendingDrop(null);
-    const archive = files.find(isArchiveFile);
-    if (archive) {
-      void handleArchiveUpload(archive, "replace");
-      return;
-    }
-    const unique = setLoadedFiles(files);
-    if (unique.length === 0) return;
-    void parseFiles(unique);
+    void handleLogFilesUpload(files, "replace");
   };
 
   const onDrop = (e: DragEvent) => {
@@ -83,8 +52,11 @@ function useIngestHandlers(params: {
       showToast("Please upload log, text, or archive files (.log, .zip, .gz, .txt, etc.)");
       return;
     }
-    if (hasData && loadedFiles.length > 0) setPendingDrop(validFiles);
-    else executeReplace(validFiles);
+    if (hasData && loadedFiles.length > 0) {
+      setPendingDrop(validFiles);
+    } else {
+      executeReplace(validFiles);
+    }
   };
 
   const handleAppendClick = () => {
@@ -97,14 +69,16 @@ function useIngestHandlers(params: {
   };
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const validFiles = filterValidFiles(e.target.files);
+    e.target.value = "";
     if (validFiles.length === 0) {
       showToast("Please upload log, text, or archive files (.log, .zip, .gz, .txt, etc.)");
-      e.target.value = "";
       return;
     }
-    if (uploadMode === "append" && hasData && loadedFiles.length > 0) executeAppend(validFiles);
-    else executeReplace(validFiles);
-    e.target.value = "";
+    if (uploadMode === "append" && hasData && loadedFiles.length > 0) {
+      executeAppend(validFiles);
+    } else {
+      executeReplace(validFiles);
+    }
   };
 
   return {
@@ -492,7 +466,6 @@ export function IngestPanel() {
     hasData,
     loadedFiles,
     uploadMode,
-    pendingDrop,
     setPendingDrop,
     setDragOver,
     inputRef,
