@@ -11,7 +11,10 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 wasm-bindgen = "=0.2.126"
 js-sys = "0.3.73"
-zlib-rs = { version = "0.6", default-features = false, features = ["rust-allocator"] }
+zlib-rs = { version = "0.6", default-features = false, features = [
+  "rust-allocator",
+  "__internal-api",
+] }
 
 [profile.release]
 opt-level = 3

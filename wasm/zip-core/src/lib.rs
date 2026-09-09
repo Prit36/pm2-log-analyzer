@@ -90,12 +90,18 @@ fn decompress_gzip_internal(gz_bytes: &[u8], output: &mut Vec<u8>) -> Result<(),
 
     for _ in 0..10 {
         output.clear();
-        output.resize(target_size, 0);
-        let (slice, rc) = zlib_rs::decompress_slice(output, gz_bytes, config);
+        output.reserve_exact(target_size);
+        let dest = unsafe {
+            core::slice::from_raw_parts_mut(
+                output.as_mut_ptr() as *mut core::mem::MaybeUninit<u8>,
+                target_size,
+            )
+        };
+        let (slice, rc) = zlib_rs::inflate::uncompress(dest, gz_bytes, config);
         match rc {
             zlib_rs::ReturnCode::Ok | zlib_rs::ReturnCode::StreamEnd => {
                 let actual_len = slice.len();
-                output.truncate(actual_len);
+                unsafe { output.set_len(actual_len) };
                 return Ok(());
             }
             zlib_rs::ReturnCode::BufError => {
@@ -143,10 +149,16 @@ impl FastDecompressor {
         uncompressed_size: usize,
     ) -> Result<usize, JsValue> {
         self.output.clear();
-        self.output.resize(uncompressed_size, 0);
+        self.output.reserve_exact(uncompressed_size);
 
         let config = zlib_rs::InflateConfig { window_bits: -15 };
-        let (slice, rc) = zlib_rs::decompress_slice(&mut self.output, compressed, config);
+        let dest = unsafe {
+            core::slice::from_raw_parts_mut(
+                self.output.as_mut_ptr() as *mut core::mem::MaybeUninit<u8>,
+                uncompressed_size,
+            )
+        };
+        let (slice, rc) = zlib_rs::inflate::uncompress(dest, compressed, config);
 
         if (rc != zlib_rs::ReturnCode::Ok && rc != zlib_rs::ReturnCode::StreamEnd)
             || slice.len() != uncompressed_size
@@ -155,6 +167,8 @@ impl FastDecompressor {
                 "Deflate decompression failed: {rc:?}"
             )));
         }
+
+        unsafe { self.output.set_len(uncompressed_size) };
 
         // If decompressed data has gzip magic bytes (nested gzip), decompress it
         if self.output.len() >= 2 && self.output[0] == 0x1f && self.output[1] == 0x8b {

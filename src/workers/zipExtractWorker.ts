@@ -1,8 +1,5 @@
 import { compileZipCoreModule } from "../wasm/loadZipCore";
-import init, {
-  classify_log_name_or_content,
-  FastDecompressor,
-} from "../wasm/pkg_zip/zip_core.js";
+import init, { classify_log_name_or_content, FastDecompressor } from "../wasm/pkg_zip/zip_core.js";
 
 export type ExtractedFileItem = {
   name: string;
@@ -24,7 +21,8 @@ export type EntryExtractJob = {
   name: string;
   cleanName: string;
   category: "pm2" | "mongo" | "unknown";
-  compressedBuffer: ArrayBuffer;
+  entryBlob: Blob;
+  compressedSize: number;
   uncompressedSize: number;
   isDeflated: boolean;
 };
@@ -33,7 +31,7 @@ export type ExtractedEntryResponse = {
   id: number;
   name: string;
   category: "pm2" | "mongo";
-  buffer: ArrayBuffer;
+  file: File;
   size: number;
 };
 
@@ -48,8 +46,12 @@ export type ZipWorkerResponse =
   | { type: "ERROR"; payload: { message: string; id?: number } };
 
 interface WorkerGlobal {
-  postMessage(message: ZipWorkerResponse, transfer?: Transferable[]): void;
+  postMessage: (message: ZipWorkerResponse, transfer?: Transferable[]) => void;
   onmessage: ((e: MessageEvent<ZipWorkerMessage>) => Promise<void> | void) | null;
+  addEventListener: (
+    type: "message",
+    listener: (e: MessageEvent<ZipWorkerMessage>) => void,
+  ) => void;
 }
 declare const self: WorkerGlobal;
 
@@ -67,47 +69,74 @@ async function ensureWasm(): Promise<void> {
 // Eagerly initialize Wasm when worker starts
 void ensureWasm();
 
-function decompressSliceToBuffer(
+type DecompressViewResult = {
+  view: Uint8Array;
+  decMs: number;
+};
+
+function decompressToView(
   compBytes: Uint8Array,
   uncompressedSize: number,
   isDeflated: boolean,
-): ArrayBuffer {
+): DecompressViewResult {
   if (!isDeflated || uncompressedSize === 0) {
-    const copy = new Uint8Array(compBytes.byteLength);
-    copy.set(compBytes);
-    return copy.buffer;
+    return { view: compBytes, decMs: 0 };
   }
+  const tDec0 = performance.now();
   const ptr = decompressor!.decompress_deflate(compBytes, uncompressedSize);
   const len = decompressor!.output_len();
-  // SAFETY: Native C++ slice from Wasm linear memory into transferable ArrayBuffer
-  const buf = wasmMemory!.buffer.slice(ptr, ptr + len);
-  decompressor!.clear();
-  return buf;
+  const decMs = performance.now() - tDec0;
+
+  // SAFETY: Direct zero-copy view into Wasm linear memory. File constructor snapshots directly.
+  const view = new Uint8Array(wasmMemory!.buffer, ptr, len);
+  return { view, decMs };
 }
 
 async function handleExtractEntry(job: EntryExtractJob): Promise<void> {
   await ensureWasm();
-  const compBytes = new Uint8Array(job.compressedBuffer);
-  const buffer = decompressSliceToBuffer(compBytes, job.uncompressedSize, job.isDeflated);
+
+  const sliceBuffer = await job.entryBlob.arrayBuffer();
+
+  // Read local file header (30 bytes)
+  let compBytes: Uint8Array;
+  if (sliceBuffer.byteLength >= 30) {
+    const view = new DataView(sliceBuffer);
+    const lhNameLen = view.getUint16(26, true);
+    const lhExtraLen = view.getUint16(28, true);
+    const dataStart = 30 + lhNameLen + lhExtraLen;
+    if (dataStart + job.compressedSize <= sliceBuffer.byteLength) {
+      compBytes = new Uint8Array(sliceBuffer, dataStart, job.compressedSize);
+    } else {
+      compBytes = new Uint8Array(sliceBuffer, dataStart);
+    }
+  } else {
+    compBytes = new Uint8Array(sliceBuffer);
+  }
+
+  const { view } = decompressToView(compBytes, job.uncompressedSize, job.isDeflated);
   let category = job.category;
 
   if (category === "unknown") {
-    const sample = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 4096));
+    const sample = view.subarray(0, Math.min(view.byteLength, 4096));
     const sniffed = classify_log_name_or_content(job.name, sample);
     if (sniffed === "pm2" || sniffed === "mongo") {
       category = sniffed;
     }
   }
 
+  // SAFETY: wasmMemory is a non-shared linear memory backed by a standard ArrayBuffer matching BlobPart.
+  const file = new File([view as BlobPart], job.cleanName, { type: "text/plain" });
+  decompressor!.clear();
+
   const payload: ExtractedEntryResponse = {
     id: job.id,
     name: job.cleanName,
     category: category === "mongo" ? "mongo" : "pm2",
-    buffer,
-    size: buffer.byteLength,
+    file,
+    size: file.size,
   };
 
-  self.postMessage({ type: "ENTRY_RESULT", payload }, [buffer]);
+  self.postMessage({ type: "ENTRY_RESULT", payload });
 }
 
 async function handleDecompressGz(fileBuffer: ArrayBuffer, fileName: string): Promise<void> {

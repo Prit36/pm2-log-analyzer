@@ -67,6 +67,13 @@ function getWorker(index: number): Worker {
   return workerPool[index]!;
 }
 
+export function terminateWorkerPool(): void {
+  while (workerPool.length > 0) {
+    const w = workerPool.pop();
+    w?.terminate();
+  }
+}
+
 // Prewarm extraction workers eagerly at module load
 for (let i = 0; i < POOL_CAP; i++) {
   getWorker(i);
@@ -86,7 +93,9 @@ export function isArchiveFile(file: File): boolean {
 interface ZipCentralEntry {
   name: string;
   cleanName: string;
-  dataStart: number;
+  localHeaderOffset: number;
+  nameLen: number;
+  extraLen: number;
   compressedSize: number;
   uncompressedSize: number;
   isDeflated: boolean;
@@ -131,67 +140,76 @@ function classifyByName(name: string): "pm2" | "mongo" | "unknown" | "skip" {
   return "unknown";
 }
 
-function parseZipCentralDirectory(buffer: ArrayBuffer): ZipCentralEntry[] | null {
-  const bytes = new Uint8Array(buffer);
-  const len = bytes.length;
-  if (len < 22) return null;
+async function parseZipCentralDirectoryFromFile(file: File): Promise<ZipCentralEntry[] | null> {
+  const fileSize = file.size;
+  if (fileSize < 22) return null;
 
-  // Search for EOCD signature (0x06054b50) in last 65KB
-  const searchStart = Math.max(0, len - 65557);
-  let eocdOffset = -1;
-  for (let i = len - 22; i >= searchStart; i--) {
+  const tailSize = Math.min(fileSize, 65557);
+  const tailBuffer = await file.slice(fileSize - tailSize, fileSize).arrayBuffer();
+  const tailBytes = new Uint8Array(tailBuffer);
+
+  let eocdOffsetInTail = -1;
+  for (let i = tailSize - 22; i >= 0; i--) {
     if (
-      bytes[i] === 0x50 &&
-      bytes[i + 1] === 0x4b &&
-      bytes[i + 2] === 0x05 &&
-      bytes[i + 3] === 0x06
+      tailBytes[i] === 0x50 &&
+      tailBytes[i + 1] === 0x4b &&
+      tailBytes[i + 2] === 0x05 &&
+      tailBytes[i + 3] === 0x06
     ) {
-      eocdOffset = i;
+      eocdOffsetInTail = i;
       break;
     }
   }
-  if (eocdOffset < 0) return null;
 
-  const view = new DataView(buffer);
-  const numEntries = view.getUint16(eocdOffset + 10, true);
-  const cdOffset = view.getUint32(eocdOffset + 16, true);
-  if (cdOffset >= len) return null;
+  if (eocdOffsetInTail < 0) return null;
 
+  const tailView = new DataView(tailBuffer);
+  const numEntries = tailView.getUint16(eocdOffsetInTail + 10, true);
+  const cdSize = tailView.getUint32(eocdOffsetInTail + 12, true);
+  const cdOffset = tailView.getUint32(eocdOffsetInTail + 16, true);
+
+  if (cdOffset + cdSize > fileSize) return null;
+
+  let cdBuffer: ArrayBuffer;
+  let cdOffsetInBuffer = 0;
+  const tailStartOffset = fileSize - tailSize;
+
+  if (cdOffset >= tailStartOffset) {
+    cdBuffer = tailBuffer;
+    cdOffsetInBuffer = cdOffset - tailStartOffset;
+  } else {
+    cdBuffer = await file.slice(cdOffset, cdOffset + cdSize).arrayBuffer();
+    cdOffsetInBuffer = 0;
+  }
+
+  const cdView = new DataView(cdBuffer);
+  const cdBytes = new Uint8Array(cdBuffer);
   const entries: ZipCentralEntry[] = [];
   const textDecoder = new TextDecoder("utf-8");
-  let offset = cdOffset;
+  let offset = cdOffsetInBuffer;
 
-  for (let i = 0; i < numEntries && offset + 46 <= len; i++) {
-    const sig = view.getUint32(offset, true);
+  for (let i = 0; i < numEntries && offset + 46 <= cdBuffer.byteLength; i++) {
+    const sig = cdView.getUint32(offset, true);
     if (sig !== 0x02014b50) break;
 
-    const method = view.getUint16(offset + 10, true);
-    const compSize = view.getUint32(offset + 20, true);
-    const uncompSize = view.getUint32(offset + 24, true);
-    const nameLen = view.getUint16(offset + 28, true);
-    const extraLen = view.getUint16(offset + 30, true);
-    const commentLen = view.getUint16(offset + 32, true);
-    const localHeaderOffset = view.getUint32(offset + 42, true);
+    const method = cdView.getUint16(offset + 10, true);
+    const compSize = cdView.getUint32(offset + 20, true);
+    const uncompSize = cdView.getUint32(offset + 24, true);
+    const nameLen = cdView.getUint16(offset + 28, true);
+    const extraLen = cdView.getUint16(offset + 30, true);
+    const commentLen = cdView.getUint16(offset + 32, true);
+    const localHeaderOffset = cdView.getUint32(offset + 42, true);
 
-    const nameBytes = bytes.subarray(offset + 46, offset + 46 + nameLen);
+    const nameBytes = cdBytes.subarray(offset + 46, offset + 46 + nameLen);
     const name = textDecoder.decode(nameBytes);
     const isDir = name.endsWith("/") || uncompSize === 0;
-
-    let dataStart = localHeaderOffset + 30;
-    if (localHeaderOffset + 30 <= len) {
-      const lhNameLen = view.getUint16(localHeaderOffset + 26, true);
-      const lhExtraLen = view.getUint16(localHeaderOffset + 28, true);
-      dataStart = localHeaderOffset + 30 + lhNameLen + lhExtraLen;
-    }
-
-    if (dataStart + compSize > len) {
-      return null;
-    }
 
     entries.push({
       name,
       cleanName: stripPathAndGz(name),
-      dataStart,
+      localHeaderOffset,
+      nameLen,
+      extraLen,
       compressedSize: compSize,
       uncompressedSize: uncompSize,
       isDeflated: method === 8,
@@ -207,7 +225,6 @@ function parseZipCentralDirectory(buffer: ArrayBuffer): ZipCentralEntry[] | null
 
 function extractSingleGz(
   file: File,
-  fileBuffer: ArrayBuffer,
   onProgress?: (p: { stage: string; percent: number }) => void,
 ): Promise<ExtractedLogSet> {
   const w = getWorker(0);
@@ -255,29 +272,37 @@ function extractSingleGz(
     };
     w.addEventListener("message", handleMessage);
     w.addEventListener("error", handleError);
-    w.postMessage(
-      {
-        type: "DECOMPRESS_GZ",
-        payload: { fileBuffer, fileName: file.name },
-      } satisfies ZipWorkerMessage,
-      [fileBuffer],
-    );
+    void file.arrayBuffer().then((fileBuffer) => {
+      w.postMessage(
+        {
+          type: "DECOMPRESS_GZ",
+          payload: { fileBuffer, fileName: file.name },
+        } satisfies ZipWorkerMessage,
+        [fileBuffer],
+      );
+    });
   });
 }
 
+export type ExtractArchiveCallbacks = {
+  onProgress?: (p: { stage: string; percent: number }) => void;
+  onPm2Ready?: (files: File[]) => void;
+  onMongoReady?: (files: File[]) => void;
+};
+
 export async function extractArchive(
   file: File,
-  onProgress?: (p: { stage: string; percent: number }) => void,
+  callbacks?: ExtractArchiveCallbacks,
 ): Promise<ExtractedLogSet> {
+  const cbOptions = callbacks ?? {};
   const t0 = performance.now();
-  const fileBuffer = await file.arrayBuffer();
 
   const isGz = file.name.endsWith(".gz");
   if (isGz) {
-    return extractSingleGz(file, fileBuffer, onProgress);
+    return extractSingleGz(file, cbOptions.onProgress);
   }
 
-  const entries = parseZipCentralDirectory(fileBuffer);
+  const entries = await parseZipCentralDirectoryFromFile(file);
   if (!entries) {
     throw new Error("Invalid or unsupported ZIP archive: central directory not found");
   }
@@ -305,6 +330,12 @@ export async function extractArchive(
     return { pm2Files: [], mongoFiles: [], skipped, totalBytes: 0, durationMs };
   }
 
+  const expectedPm2 = validEntries.filter((e) => e.category === "pm2").length;
+  const expectedMongo = validEntries.filter((e) => e.category === "mongo").length;
+  const hasUnknown = validEntries.some((e) => e.category === "unknown");
+  let pm2Dispatched = false;
+  let mongoDispatched = false;
+
   const concurrency = Math.min(
     navigator.hardwareConcurrency ? Math.max(1, navigator.hardwareConcurrency) : 4,
     validEntries.length,
@@ -319,10 +350,11 @@ export async function extractArchive(
     const workerIndex = idx % concurrency;
     const worker = getWorker(workerIndex);
 
-    const compressedBuffer = fileBuffer.slice(
-      entry.dataStart,
-      entry.dataStart + entry.compressedSize,
+    const sliceEnd = Math.min(
+      file.size,
+      entry.localHeaderOffset + 30 + entry.nameLen + entry.extraLen + entry.compressedSize + 1024,
     );
+    const entryBlob = file.slice(entry.localHeaderOffset, sliceEnd);
 
     return new Promise<void>((resolve, reject) => {
       const handleMessage = (e: MessageEvent<ZipWorkerResponse>) => {
@@ -330,10 +362,7 @@ export async function extractArchive(
         if (res.type === "ENTRY_RESULT" && res.payload.id === idx) {
           cleanup();
           const item = res.payload;
-          const extractedFile = new File([item.buffer], item.name, {
-            type: "text/plain",
-            lastModified: file.lastModified,
-          });
+          const extractedFile = item.file;
 
           if (item.category === "mongo") {
             mongoFiles.push(extractedFile);
@@ -344,7 +373,19 @@ export async function extractArchive(
 
           completedCount++;
           const percent = Math.round((completedCount / validEntries.length) * 100);
-          onProgress?.({ stage: `Extracted ${item.name}`, percent });
+          cbOptions.onProgress?.({ stage: `Extracted ${item.name}`, percent });
+
+          // Eager dispatch when all files of a known category are ready
+          if (!hasUnknown) {
+            if (!pm2Dispatched && pm2Files.length === expectedPm2 && expectedPm2 > 0) {
+              pm2Dispatched = true;
+              cbOptions.onPm2Ready?.([...pm2Files]);
+            }
+            if (!mongoDispatched && mongoFiles.length === expectedMongo && expectedMongo > 0) {
+              mongoDispatched = true;
+              cbOptions.onMongoReady?.([...mongoFiles]);
+            }
+          }
           resolve();
         } else if (res.type === "ERROR" && res.payload.id === idx) {
           cleanup();
@@ -365,25 +406,24 @@ export async function extractArchive(
       worker.addEventListener("message", handleMessage);
       worker.addEventListener("error", handleError);
 
-      worker.postMessage(
-        {
-          type: "EXTRACT_ENTRY",
-          payload: {
-            id: idx,
-            name: entry.name,
-            cleanName: entry.cleanName,
-            category: entry.category,
-            compressedBuffer,
-            uncompressedSize: entry.uncompressedSize,
-            isDeflated: entry.isDeflated,
-          },
-        } satisfies ZipWorkerMessage,
-        [compressedBuffer],
-      );
+      worker.postMessage({
+        type: "EXTRACT_ENTRY",
+        payload: {
+          id: idx,
+          name: entry.name,
+          cleanName: entry.cleanName,
+          category: entry.category,
+          entryBlob,
+          compressedSize: entry.compressedSize,
+          uncompressedSize: entry.uncompressedSize,
+          isDeflated: entry.isDeflated,
+        },
+      } satisfies ZipWorkerMessage);
     });
   });
 
   await Promise.all(tasks);
+  terminateWorkerPool();
 
   const durationMs = Math.round(performance.now() - t0);
   return {
@@ -405,10 +445,46 @@ export async function handleArchiveUpload(
   setMongoParsing(true);
   setMongoProgress({ stage: "reading", processed: 10, total: 100, percent: 10 });
 
+  let pm2Started = false;
+  let mongoStarted = false;
+
+  const startPm2 = (files: File[]) => {
+    if (pm2Started || files.length === 0) return;
+    pm2Started = true;
+    if (uploadMode === "append") {
+      const combined = appendPm2Files(files);
+      void parseFiles(combined);
+    } else {
+      const unique = setPm2Files(files);
+      void parseFiles(unique);
+    }
+  };
+
+  const startMongo = (files: File[]) => {
+    if (mongoStarted || files.length === 0) return;
+    mongoStarted = true;
+    if (uploadMode === "append") {
+      const combined = appendMongoFiles(files);
+      void parseMongoFiles(combined);
+    } else {
+      const unique = setMongoFiles(files);
+      void parseMongoFiles(unique);
+    }
+  };
+
   try {
-    const logSet = await extractArchive(file, (p) => {
-      setPm2Progress({ stage: "reading", processed: p.percent, total: 100, percent: p.percent });
-      setMongoProgress({ stage: "reading", processed: p.percent, total: 100, percent: p.percent });
+    const logSet = await extractArchive(file, {
+      onProgress: (p) => {
+        setPm2Progress({ stage: "reading", processed: p.percent, total: 100, percent: p.percent });
+        setMongoProgress({
+          stage: "reading",
+          processed: p.percent,
+          total: 100,
+          percent: p.percent,
+        });
+      },
+      onPm2Ready: startPm2,
+      onMongoReady: startMongo,
     });
 
     const hasPm2 = logSet.pm2Files.length > 0;
@@ -433,29 +509,16 @@ export async function handleArchiveUpload(
       return;
     }
 
-    // Ingest PM2 files if present
-    if (hasPm2) {
-      if (uploadMode === "append") {
-        const combined = appendPm2Files(logSet.pm2Files);
-        void parseFiles(combined);
-      } else {
-        const unique = setPm2Files(logSet.pm2Files);
-        void parseFiles(unique);
-      }
-    } else {
+    // In case eager dispatch didn't trigger (e.g. unknown categories)
+    if (hasPm2 && !pm2Started) {
+      startPm2(logSet.pm2Files);
+    } else if (!hasPm2) {
       setPm2Parsing(false);
     }
 
-    // Ingest Mongo files if present
-    if (hasMongo) {
-      if (uploadMode === "append") {
-        const combined = appendMongoFiles(logSet.mongoFiles);
-        void parseMongoFiles(combined);
-      } else {
-        const unique = setMongoFiles(logSet.mongoFiles);
-        void parseMongoFiles(unique);
-      }
-    } else {
+    if (hasMongo && !mongoStarted) {
+      startMongo(logSet.mongoFiles);
+    } else if (!hasMongo) {
       setMongoParsing(false);
     }
 
