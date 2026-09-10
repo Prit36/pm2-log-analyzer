@@ -6,6 +6,7 @@ import {
   ExternalLink,
   Flame,
   Globe,
+  RotateCcw,
   Search,
   ShieldAlert,
   Terminal,
@@ -17,8 +18,8 @@ import {
 import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useMongoStore } from "../../store/mongoStore";
-import { reaggregateMongo } from "../../hooks/useMongoParserWorker";
-import type { MongoUserActivity } from "../../mongo/types";
+import { reaggregateMongo, resetMongoFilters } from "../../hooks/useMongoParserWorker";
+import { countActiveMongoFilters, type MongoUserActivity } from "../../mongo/types";
 import { cn } from "../../utils/cn";
 import { formatDateTime, formatMs, formatNum } from "../../utils/format";
 
@@ -26,16 +27,18 @@ const { setActiveUserDetail, setActiveView, setCollectionFilter, setUserFilter }
   useMongoStore.getState();
 
 export function MongoUserActivityPanel() {
-  const { users, activeUserDetail, currentFilterUser, connections } = useMongoStore(
+  const { users, activeUserDetail, currentFilterUser, connections, filters } = useMongoStore(
     useShallow((s) => ({
       users: s.result?.users ?? [],
       activeUserDetail: s.activeUserDetail,
       currentFilterUser: s.filters.userFilter,
       connections: s.result?.connections,
+      filters: s.filters,
     })),
   );
 
   const [search, setSearch] = useState("");
+  const activeFilterCount = countActiveMongoFilters(filters);
 
   const filteredUsers = useMemo(() => {
     if (!search.trim()) return users;
@@ -189,24 +192,55 @@ export function MongoUserActivityPanel() {
               </h2>
             </div>
 
-            <div className="relative min-w-[200px]">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Filter users, IPs, apps..."
-                className="w-full rounded-lg border border-slate-200 bg-slate-50/50 py-1 pl-8 pr-7 text-xs text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:outline-hidden dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-900"
-              />
-              {search && (
+            <div className="flex flex-wrap items-center gap-2">
+              {currentFilterUser !== "all" && (
+                <div className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50/80 px-2 py-1 text-xs font-medium text-emerald-800 dark:border-emerald-800/60 dark:bg-emerald-950/40 dark:text-emerald-300">
+                  <span>
+                    User: <strong>{currentFilterUser}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleFilterToUser(currentFilterUser)}
+                    title="Remove user filter"
+                    className="hover:text-emerald-950 dark:hover:text-emerald-100"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              )}
+
+              {activeFilterCount > 0 && (
                 <button
                   type="button"
-                  onClick={() => setSearch("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  data-testid="mongo-user-reset-filters"
+                  onClick={() => void resetMongoFilters()}
+                  className="flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
+                  title="Reset all MongoDB filters"
                 >
-                  <X className="size-3" />
+                  <RotateCcw className="size-3" />
+                  <span>Reset filters ({activeFilterCount})</span>
                 </button>
               )}
+
+              <div className="relative min-w-[200px]">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Filter users, IPs, apps..."
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50/50 py-1 pl-8 pr-7 text-xs text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:outline-hidden dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-900"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  >
+                    <X className="size-3" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -227,7 +261,20 @@ export function MongoUserActivityPanel() {
                 {filteredUsers.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-8 text-center text-slate-400">
-                      No matching user activities found.
+                      <div>No matching user activities found.</div>
+                      {(search || activeFilterCount > 0) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearch("");
+                            void resetMongoFilters();
+                          }}
+                          className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-rose-600 hover:underline dark:text-rose-400"
+                        >
+                          <RotateCcw className="size-3" />
+                          <span>Reset all filters</span>
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ) : (

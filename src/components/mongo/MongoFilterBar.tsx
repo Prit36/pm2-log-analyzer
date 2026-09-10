@@ -4,6 +4,7 @@ import {
   FileText,
   Filter,
   Flame,
+  RotateCcw,
   Search,
   ShieldAlert,
   User,
@@ -11,8 +12,8 @@ import {
 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useMongoStore, type MongoActiveView } from "../../store/mongoStore";
-import { reaggregateMongo } from "../../hooks/useMongoParserWorker";
-import type { MongoPlanFilter } from "../../mongo/types";
+import { reaggregateMongo, resetMongoFilters } from "../../hooks/useMongoParserWorker";
+import { countActiveMongoFilters, type MongoPlanFilter } from "../../mongo/types";
 import { cn } from "../../utils/cn";
 import { formatNum } from "../../utils/format";
 
@@ -69,6 +70,8 @@ export function MongoFilterBar() {
       totalErrors: s.result?.errors.reduce((sum, e) => sum + e.count, 0) ?? 0,
     })),
   );
+
+  const activeFilterCount = countActiveMongoFilters(filters);
 
   const handleOpChange = (op: string) => {
     setOperationFilter(op);
@@ -329,6 +332,31 @@ export function MongoFilterBar() {
           <Filter className="size-3" />
           Scan Ratio &gt;100x
         </button>
+
+        {/* Reset All Filters Button */}
+        <div className="ml-auto flex items-center">
+          <button
+            type="button"
+            data-testid="mongo-reset-filters"
+            onClick={() => void resetMongoFilters()}
+            disabled={activeFilterCount === 0}
+            className={cn(
+              "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-all",
+              activeFilterCount > 0
+                ? "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 hover:text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
+                : "border border-transparent text-slate-400 opacity-40 cursor-not-allowed dark:text-slate-500",
+            )}
+            title={activeFilterCount > 0 ? "Reset all filters to defaults" : "No active filters to reset"}
+          >
+            <RotateCcw className="size-3" />
+            <span>Reset all filters</span>
+            {activeFilterCount > 0 && (
+              <span className="rounded-full bg-rose-200/80 px-1.5 py-0.2 text-[10px] font-bold text-rose-800 dark:bg-rose-900 dark:text-rose-200">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

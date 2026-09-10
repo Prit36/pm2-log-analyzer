@@ -7,12 +7,14 @@ import {
   ExternalLink,
   Flame,
   Lightbulb,
+  RotateCcw,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
 import { useShallow } from "zustand/react/shallow";
-import type { MongoQueryPattern, MongoSortField } from "../../mongo/types";
+import { countActiveMongoFilters, type MongoQueryPattern, type MongoSortField } from "../../mongo/types";
 import { useMongoStore } from "../../store/mongoStore";
+import { resetMongoFilters } from "../../hooks/useMongoParserWorker";
 import { formatMs, formatNum } from "../../utils/format";
 import { cn } from "../../utils/cn";
 
@@ -182,13 +184,16 @@ function PatternRow({
 export function MongoPatternTable() {
   const [copiedIndex, setCopiedIndex] = useState<string | null>(null);
 
-  const { patterns, sortField, sortDirection } = useMongoStore(
+  const { patterns, sortField, sortDirection, filters } = useMongoStore(
     useShallow((s) => ({
       patterns: s.result?.patterns ?? [],
       sortField: s.filters.sortField,
       sortDirection: s.filters.sortDirection,
+      filters: s.filters,
     })),
   );
+
+  const activeFilterCount = countActiveMongoFilters(filters);
 
   const sortedPatterns = useMemo(() => {
     if (!patterns.length) return [];
@@ -245,6 +250,17 @@ export function MongoPatternTable() {
         <p className="text-xs text-slate-500 dark:text-slate-400">
           Try adjusting the search query, duration, or plan filters.
         </p>
+        {activeFilterCount > 0 && (
+          <button
+            type="button"
+            data-testid="mongo-pattern-empty-reset"
+            onClick={() => void resetMongoFilters()}
+            className="mt-3 flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
+          >
+            <RotateCcw className="size-3.5" />
+            <span>Reset all filters ({activeFilterCount})</span>
+          </button>
+        )}
       </div>
     );
   }

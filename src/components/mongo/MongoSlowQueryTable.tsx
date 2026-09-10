@@ -1,9 +1,10 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Flame, Info } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Flame, Info, RotateCcw } from "lucide-react";
 import { useMemo } from "react";
 import { List, type RowComponentProps } from "react-window";
 import { useShallow } from "zustand/react/shallow";
-import type { MongoSlowQuery, MongoSlowQuerySortField } from "../../mongo/types";
+import { countActiveMongoFilters, type MongoSlowQuery, type MongoSlowQuerySortField } from "../../mongo/types";
 import { useMongoStore } from "../../store/mongoStore";
+import { resetMongoFilters } from "../../hooks/useMongoParserWorker";
 import { formatMs, formatNum } from "../../utils/format";
 import { cn } from "../../utils/cn";
 
@@ -155,13 +156,16 @@ function SlowQueryRow({ index, style, queries }: RowComponentProps<SlowQueryRowP
 }
 
 export function MongoSlowQueryTable() {
-  const { queries, slowSortField, slowSortDirection } = useMongoStore(
+  const { queries, slowSortField, slowSortDirection, filters } = useMongoStore(
     useShallow((s) => ({
       queries: s.result?.slowQueries ?? [],
       slowSortField: s.filters.slowSortField,
       slowSortDirection: s.filters.slowSortDirection,
+      filters: s.filters,
     })),
   );
+
+  const activeFilterCount = countActiveMongoFilters(filters);
 
   const sortedQueries = useMemo(() => {
     if (!queries.length) return [];
@@ -216,6 +220,17 @@ export function MongoSlowQueryTable() {
         <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
           No slow query occurrences match filters
         </p>
+        {activeFilterCount > 0 && (
+          <button
+            type="button"
+            data-testid="mongo-slow-empty-reset"
+            onClick={() => void resetMongoFilters()}
+            className="mt-3 flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
+          >
+            <RotateCcw className="size-3.5" />
+            <span>Reset all filters ({activeFilterCount})</span>
+          </button>
+        )}
       </div>
     );
   }

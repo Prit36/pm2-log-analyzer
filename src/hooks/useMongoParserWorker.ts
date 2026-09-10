@@ -257,6 +257,11 @@ export async function reaggregateMongo(): Promise<void> {
   bench.reaggTimes = [...bench.reaggTimes, ms];
 }
 
+export async function resetMongoFilters(): Promise<void> {
+  useMongoStore.getState().resetFilters();
+  await reaggregateMongo();
+}
+
 export function cancelMongo(): void {
   worker?.postMessage({ type: "CANCEL" } satisfies MongoWorkerMessage);
   setParsing(false);

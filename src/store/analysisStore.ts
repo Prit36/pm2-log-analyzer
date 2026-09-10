@@ -120,6 +120,7 @@ type AnalysisState = {
   showToast: (message: string) => void;
   clearToast: () => void;
   setPasteOpen: (open: boolean) => void;
+  resetFilters: () => void;
   clearAnalysis: () => void;
 };
 
@@ -293,6 +294,7 @@ export const useAnalysisStore = create<AnalysisState>()(
         set({ toast: null });
       },
       setPasteOpen: (open) => set({ pasteOpen: open }),
+      resetFilters: () => set({ filters: { ...DEFAULT_FILTERS } }),
       clearAnalysis: () =>
         set({
           sourceKind: "none",
@@ -326,6 +328,22 @@ export function workerParseOptions(filters: AnalysisFilters): ParseOptions {
     cronShowFailedOnly: filters.cronShowFailedOnly,
     dateFilter: filters.dateFilter === "all" ? null : filters.dateFilter,
   };
+}
+
+export function countActiveAnalysisFilters(filters: AnalysisFilters): number {
+  let count = 0;
+  if (filters.query.trim()) count++;
+  if (filters.normalizeMode !== "collapseIds") count++;
+  if (filters.statusFamily !== "all") count++;
+  if (filters.minMs > 0) count++;
+  if (filters.methods.length > 0) count++;
+  if (filters.dateFilter !== "all") count++;
+  if (filters.topN !== 50) count++;
+  if (filters.sortKey !== "p95Ms" || filters.sortDir !== "desc") count++;
+  if (filters.cronQuery.trim()) count++;
+  if (filters.cronMinMs > 0) count++;
+  if (filters.cronShowFailedOnly) count++;
+  return count;
 }
 
 export { DEFAULT_FILTERS, EMPTY_RESULT };

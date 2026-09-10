@@ -59,6 +59,7 @@ type MongoStoreState = {
   showToast: (message: string) => void;
   clearToast: () => void;
   setPasteOpen: (open: boolean) => void;
+  resetFilters: () => void;
   clearAnalysis: () => void;
 };
 
@@ -240,6 +241,12 @@ export const useMongoStore = create<MongoStoreState>()(
       },
 
       setPasteOpen: (open) => set({ pasteOpen: open }),
+
+      resetFilters: () =>
+        set({
+          filters: { ...DEFAULT_MONGO_FILTERS },
+          activeSlowQuery: null,
+        }),
 
       clearAnalysis: () =>
         set({

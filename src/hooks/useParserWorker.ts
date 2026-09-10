@@ -245,6 +245,11 @@ export async function reaggregate(): Promise<void> {
   b.reaggTimes = [...(b.reaggTimes ?? []), ms];
 }
 
+export async function resetPm2Filters(): Promise<void> {
+  useAnalysisStore.getState().resetFilters();
+  await reaggregate();
+}
+
 export function cancel(): void {
   worker?.postMessage({ type: "CANCEL" } satisfies WorkerMessage);
   setParsing(false);

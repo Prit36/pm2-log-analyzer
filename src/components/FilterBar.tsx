@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
+import { RotateCcw } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import {
+  countActiveAnalysisFilters,
   EMPTY_DATES,
   EMPTY_METHODS,
   useAnalysisStore,
   type ApiSortKey,
 } from "../store/analysisStore";
-import { reaggregate } from "../hooks/useParserWorker";
+import { reaggregate, resetPm2Filters } from "../hooks/useParserWorker";
 import type { NormalizeMode, StatusFamily } from "../parser";
 import { formatDate } from "../utils/format";
 import { cn } from "../utils/cn";
@@ -180,6 +182,7 @@ function TopFilterRow(props: {
   minMs: number;
   sortKey: ApiSortKey;
   topN: number;
+  activeFilterCount: number;
 }) {
   return (
     <div className="flex flex-wrap items-end gap-3">
@@ -189,6 +192,29 @@ function TopFilterRow(props: {
       <MinMsField value={props.minMs} />
       <SortSelect value={props.sortKey} />
       <TopNField value={props.topN} />
+      <div className="ml-auto flex items-center">
+        <button
+          type="button"
+          data-testid="pm2-reset-filters"
+          disabled={props.activeFilterCount === 0}
+          onClick={() => void resetPm2Filters()}
+          className={cn(
+            "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-all",
+            props.activeFilterCount > 0
+              ? "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 hover:text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
+              : "border border-transparent text-slate-400 opacity-40 cursor-not-allowed dark:text-slate-500",
+          )}
+          title={props.activeFilterCount > 0 ? "Reset all filters to defaults" : "No active filters to reset"}
+        >
+          <RotateCcw className="size-3" />
+          <span>Reset all filters</span>
+          {props.activeFilterCount > 0 && (
+            <span className="rounded-full bg-rose-200/80 px-1.5 py-0.2 text-[10px] font-bold text-rose-800 dark:bg-rose-900 dark:text-rose-200">
+              {props.activeFilterCount}
+            </span>
+          )}
+        </button>
+      </div>
     </div>
   );
 }
@@ -281,26 +307,14 @@ function SecondaryFilterRow(props: {
 
 export function FilterBar() {
   const {
-    query,
-    normalizeMode,
-    statusFamily,
-    minMs,
-    sortKey,
-    topN,
-    dateFilter,
+    filters,
     allSelected,
     methods,
     dates,
     hasData,
   } = useAnalysisStore(
     useShallow((s) => ({
-      query: s.filters.query,
-      normalizeMode: s.filters.normalizeMode,
-      statusFamily: s.filters.statusFamily,
-      minMs: s.filters.minMs,
-      sortKey: s.filters.sortKey,
-      topN: s.filters.topN,
-      dateFilter: s.filters.dateFilter,
+      filters: s.filters,
       allSelected: s.filters.methods.length === 0,
       methods: s.result?.methods ?? EMPTY_METHODS,
       dates: s.result?.dates ?? EMPTY_DATES,
@@ -308,21 +322,24 @@ export function FilterBar() {
     })),
   );
 
+  const activeFilterCount = countActiveAnalysisFilters(filters);
+
   if (!hasData) return null;
 
   return (
     <section className="rounded border border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
       <TopFilterRow
-        query={query}
-        normalizeMode={normalizeMode}
-        statusFamily={statusFamily}
-        minMs={minMs}
-        sortKey={sortKey}
-        topN={topN}
+        query={filters.query}
+        normalizeMode={filters.normalizeMode}
+        statusFamily={filters.statusFamily}
+        minMs={filters.minMs}
+        sortKey={filters.sortKey}
+        topN={filters.topN}
+        activeFilterCount={activeFilterCount}
       />
       <SecondaryFilterRow
         dates={dates}
-        dateFilter={dateFilter}
+        dateFilter={filters.dateFilter}
         methods={methods}
         allSelected={allSelected}
       />
