@@ -31,8 +31,7 @@ export type ExtractedEntryResponse = {
   id: number;
   name: string;
   category: "pm2" | "mongo";
-  file?: File;
-  buffer?: ArrayBuffer;
+  buffer: ArrayBuffer;
   size: number;
 };
 

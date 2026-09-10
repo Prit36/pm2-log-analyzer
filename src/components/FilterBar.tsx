@@ -38,22 +38,20 @@ function isApiSortKey(value: string): value is ApiSortKey {
 
 const { setFilters, setMethodFilter, toggleMethod } = useAnalysisStore.getState();
 
-function useSlashShortcut(): void {
-  window.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
-    const t = e.target;
-    if (
-      t instanceof HTMLElement &&
-      (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)
-    )
-      return;
-    const input = document.querySelector<HTMLInputElement>("input[data-filter-search]");
-    if (input) {
-      e.preventDefault();
-      input.focus();
-    }
-  });
-}
+window.addEventListener("keydown", (e: KeyboardEvent) => {
+  if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target;
+  if (
+    t instanceof HTMLElement &&
+    (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)
+  )
+    return;
+  const input = document.querySelector<HTMLInputElement>("input[data-filter-search]");
+  if (input) {
+    e.preventDefault();
+    input.focus();
+  }
+});
 
 function SearchField({ value }: { value: string }) {
   return (
@@ -282,7 +280,6 @@ function SecondaryFilterRow(props: {
 }
 
 export function FilterBar() {
-  useSlashShortcut();
   const {
     query,
     normalizeMode,

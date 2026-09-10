@@ -11,17 +11,24 @@ export const PASTE_WARN_BYTES = 8 * 1024 * 1024;
 
 const { setPasteOpen, setSourcePaste, showToast } = useMongoStore.getState();
 
-function useMongoIngestHandlers(params: {
-  busy: boolean;
-  hasData: boolean;
-  loadedFiles: File[];
-  setPendingDrop: (v: File[] | null) => void;
-  setDragOver: (v: boolean) => void;
-  inputRef: React.RefObject<HTMLInputElement | null>;
-  setUploadMode: (v: "replace" | "append") => void;
-}) {
-  const { busy, hasData, loadedFiles, setPendingDrop, setDragOver, inputRef, setUploadMode } =
-    params;
+export function MongoIngestPanel() {
+  const [dragOver, setDragOver] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [uploadMode, setUploadMode] = useState<"replace" | "append">("replace");
+  const [pendingDrop, setPendingDrop] = useState<File[] | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const { isParsing, progress, hasData, loadedFiles, pasteOpen } = useMongoStore(
+    useShallow((s) => ({
+      isParsing: s.isParsing,
+      progress: s.progress,
+      hasData: s.hasData,
+      loadedFiles: s.loadedFiles,
+      pasteOpen: s.pasteOpen,
+    })),
+  );
+
+  const busy = isParsing;
 
   const executeAppend = (files: File[]) => {
     setPendingDrop(null);
@@ -58,45 +65,6 @@ function useMongoIngestHandlers(params: {
     setUploadMode("replace");
     inputRef.current?.click();
   };
-
-  return {
-    onDrop,
-    executeAppend,
-    executeReplace,
-    handleAppendClick,
-    handleReplaceClick,
-  };
-}
-
-export function MongoIngestPanel() {
-  const [dragOver, setDragOver] = useState(false);
-  const [pasteText, setPasteText] = useState("");
-  const [uploadMode, setUploadMode] = useState<"replace" | "append">("replace");
-  const [pendingDrop, setPendingDrop] = useState<File[] | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const { isParsing, progress, hasData, loadedFiles, pasteOpen } = useMongoStore(
-    useShallow((s) => ({
-      isParsing: s.isParsing,
-      progress: s.progress,
-      hasData: s.hasData,
-      loadedFiles: s.loadedFiles,
-      pasteOpen: s.pasteOpen,
-    })),
-  );
-
-  const busy = isParsing;
-
-  const { onDrop, executeAppend, executeReplace, handleAppendClick, handleReplaceClick } =
-    useMongoIngestHandlers({
-      busy,
-      hasData,
-      loadedFiles,
-      setPendingDrop,
-      setDragOver,
-      inputRef,
-      setUploadMode,
-    });
 
   const onDragOver = (e: DragEvent) => {
     e.preventDefault();

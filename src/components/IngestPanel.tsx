@@ -12,85 +12,6 @@ export const PASTE_WARN_BYTES = 8 * 1024 * 1024;
 
 const { setPasteOpen, setSourcePaste, showToast } = useAnalysisStore.getState();
 
-function useIngestHandlers(params: {
-  busy: boolean;
-  hasData: boolean;
-  loadedFiles: File[];
-  uploadMode: "replace" | "append";
-  setPendingDrop: (v: File[] | null) => void;
-  setDragOver: (v: boolean) => void;
-  inputRef: React.RefObject<HTMLInputElement | null>;
-  setUploadMode: (v: "replace" | "append") => void;
-}) {
-  const {
-    busy,
-    hasData,
-    loadedFiles,
-    uploadMode,
-    setPendingDrop,
-    setDragOver,
-    inputRef,
-    setUploadMode,
-  } = params;
-
-  const executeAppend = (files: File[]) => {
-    setPendingDrop(null);
-    void handleLogFilesUpload(files, "append");
-  };
-
-  const executeReplace = (files: File[]) => {
-    setPendingDrop(null);
-    void handleLogFilesUpload(files, "replace");
-  };
-
-  const onDrop = (e: DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    if (busy) return;
-    const validFiles = filterValidFiles(e.dataTransfer.files);
-    if (validFiles.length === 0) {
-      showToast("Please upload log, text, or archive files (.log, .zip, .gz, .txt, etc.)");
-      return;
-    }
-    if (hasData && loadedFiles.length > 0) {
-      setPendingDrop(validFiles);
-    } else {
-      executeReplace(validFiles);
-    }
-  };
-
-  const handleAppendClick = () => {
-    setUploadMode("append");
-    inputRef.current?.click();
-  };
-  const handleReplaceClick = () => {
-    setUploadMode("replace");
-    inputRef.current?.click();
-  };
-  const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const validFiles = filterValidFiles(e.target.files);
-    e.target.value = "";
-    if (validFiles.length === 0) {
-      showToast("Please upload log, text, or archive files (.log, .zip, .gz, .txt, etc.)");
-      return;
-    }
-    if (uploadMode === "append" && hasData && loadedFiles.length > 0) {
-      executeAppend(validFiles);
-    } else {
-      executeReplace(validFiles);
-    }
-  };
-
-  return {
-    executeAppend,
-    executeReplace,
-    onDrop,
-    handleAppendClick,
-    handleReplaceClick,
-    onInputChange,
-  };
-}
-
 function LoadedFilesDisplay({ files }: { files: File[] }) {
   if (files.length === 0)
     return (
@@ -454,23 +375,55 @@ export function IngestPanel() {
     })),
   );
 
-  const {
-    executeAppend,
-    executeReplace,
-    onDrop,
-    handleAppendClick,
-    handleReplaceClick,
-    onInputChange,
-  } = useIngestHandlers({
-    busy,
-    hasData,
-    loadedFiles,
-    uploadMode,
-    setPendingDrop,
-    setDragOver,
-    inputRef,
-    setUploadMode,
-  });
+  const executeAppend = (files: File[]) => {
+    setPendingDrop(null);
+    void handleLogFilesUpload(files, "append");
+  };
+
+  const executeReplace = (files: File[]) => {
+    setPendingDrop(null);
+    void handleLogFilesUpload(files, "replace");
+  };
+
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (busy) return;
+    const validFiles = filterValidFiles(e.dataTransfer.files);
+    if (validFiles.length === 0) {
+      showToast("Please upload log, text, or archive files (.log, .zip, .gz, .txt, etc.)");
+      return;
+    }
+    if (hasData && loadedFiles.length > 0) {
+      setPendingDrop(validFiles);
+    } else {
+      executeReplace(validFiles);
+    }
+  };
+
+  const handleAppendClick = () => {
+    setUploadMode("append");
+    inputRef.current?.click();
+  };
+
+  const handleReplaceClick = () => {
+    setUploadMode("replace");
+    inputRef.current?.click();
+  };
+
+  const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const validFiles = filterValidFiles(e.target.files);
+    e.target.value = "";
+    if (validFiles.length === 0) {
+      showToast("Please upload log, text, or archive files (.log, .zip, .gz, .txt, etc.)");
+      return;
+    }
+    if (uploadMode === "append" && hasData && loadedFiles.length > 0) {
+      executeAppend(validFiles);
+    } else {
+      executeReplace(validFiles);
+    }
+  };
 
   return (
     <section className="rounded border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">

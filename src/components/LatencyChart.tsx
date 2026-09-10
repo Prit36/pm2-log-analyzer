@@ -22,6 +22,8 @@ import { EMPTY_DAILY, EMPTY_HOURLY, useAnalysisStore } from "../store/analysisSt
 
 type ChartMode = "dailyTrend" | "timeOfDay" | "throughput" | "distribution" | "topP95";
 
+const { toggleChartLayout } = useAnalysisStore.getState();
+
 export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
   const { hourlyStats, dailyStats, isDark, dateFilter, chartLayout } = useAnalysisStore(
     useShallow((s) => ({
@@ -33,8 +35,6 @@ export function LatencyChart({ rows }: { rows: AggregatedEndpoint[] }) {
     })),
   );
   const [mode, setMode] = useState<ChartMode>(dailyStats.length > 1 ? "dailyTrend" : "timeOfDay");
-
-  const { toggleChartLayout } = useAnalysisStore.getState();
 
   const gridStroke = isDark ? PALETTE.grid.dark : PALETTE.grid.light;
   const tickColor = isDark ? PALETTE.tick.dark : PALETTE.tick.light;

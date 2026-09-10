@@ -73,13 +73,6 @@ function getWorker(index: number): Worker {
   return workerPool[index]!;
 }
 
-export function terminateWorkerPool(): void {
-  while (workerPool.length > 0) {
-    const w = workerPool.pop();
-    w?.terminate();
-  }
-}
-
 // Prewarm extraction workers eagerly at module load (capped to 2 to minimize idle RSS)
 for (let i = 0; i < Math.min(POOL_CAP, 2); i++) {
   getWorker(i);
@@ -120,11 +113,7 @@ export function filterValidFiles(fileList: FileList | File[] | null | undefined)
   return Array.from(fileList).filter(
     (f) =>
       isArchiveFile(f) ||
-      /\.log(?:\.\d+)?$/i.test(f.name) ||
-      /\.log\d*$/i.test(f.name) ||
-      /\.(?:txt|json|out|err|\d+)$/i.test(f.name) ||
-      f.name.endsWith(".txt") ||
-      f.name.endsWith(".json") ||
+      /\.(?:log(?:\.\d+)?|txt|json|out|err|\d+)$/i.test(f.name) ||
       f.type === "text/plain" ||
       f.type === "",
   );
@@ -137,26 +126,10 @@ export function classifyByName(name: string): "pm2" | "mongo" | "unknown" | "ski
   if (fileName.startsWith(".") || fileName.startsWith("__macosx") || fileName.includes("error")) {
     return "skip";
   }
-  if (
-    fileName.includes("mongod") ||
-    fileName.includes("mongodb") ||
-    fileName.startsWith("mongo.") ||
-    fileName.startsWith("mongo-") ||
-    fileName.startsWith("mongo_") ||
-    fileName.includes(".mongo.") ||
-    fileName.includes("-mongo-") ||
-    fileName.includes("_mongo_")
-  ) {
+  if (/(?:^|[._-])mongo(?:[._-]|\d|$)|mongod/i.test(fileName)) {
     return "mongo";
   }
-  if (
-    fileName.includes("api-out") ||
-    fileName.includes("api_out") ||
-    fileName.startsWith("api.") ||
-    fileName.startsWith("api-") ||
-    fileName.includes("pm2") ||
-    fileName.startsWith("out.log")
-  ) {
+  if (/(?:^|[._-])(?:api[._-]out|pm2)|out\.log/i.test(fileName) || /^api[.-]/.test(fileName)) {
     return "pm2";
   }
   return "unknown";
@@ -413,7 +386,7 @@ export async function extractArchive(
             const extractedFile =
               expectedMongo === 1
                 ? new File([], item.name, { type: "text/plain" })
-                : new File([item.buffer ?? item.file!], item.name, { type: "text/plain" });
+                : new File([item.buffer], item.name, { type: "text/plain" });
             if (expectedMongo === 1) {
               Object.defineProperty(extractedFile, "size", { value: item.size });
             }
@@ -425,7 +398,7 @@ export async function extractArchive(
             const extractedFile =
               expectedPm2 === 1
                 ? new File([], item.name, { type: "text/plain" })
-                : new File([item.buffer ?? item.file!], item.name, { type: "text/plain" });
+                : new File([item.buffer], item.name, { type: "text/plain" });
             if (expectedPm2 === 1) {
               Object.defineProperty(extractedFile, "size", { value: item.size });
             }
