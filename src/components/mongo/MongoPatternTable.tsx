@@ -66,7 +66,12 @@ function PatternRow({
   };
 
   const handleInspect = () => {
-    setActiveSlowQuery(p.exampleQuery);
+    const { userFilter } = useMongoStore.getState().filters;
+    const exampleQuery =
+      userFilter !== "all" && !p.exampleQuery.user
+        ? { ...p.exampleQuery, user: userFilter }
+        : p.exampleQuery;
+    setActiveSlowQuery(exampleQuery);
   };
 
   return (
