@@ -10,8 +10,8 @@ use wasm_bindgen::prelude::*;
 pub use relhist::RelHist;
 pub use store::{
     decode_pm2_partial, encode_cron_vec, encode_daily_vec, encode_dates_vec, encode_hourly_vec,
-    encode_unmatched_vec, merge_pm2_partials, CronEv, DailyAcc, DecodedEndpoint, DecodedPartial,
-    DecodedSummary, Engine, HourlyAcc,
+    encode_unmatched_vec, merge_decoded_partials, merge_pm2_partials, merge_two_decoded, CronEv,
+    DailyAcc, DecodedEndpoint, DecodedPartial, DecodedSummary, Engine, HourlyAcc,
 };
 
 /// Opaque engine handle for JS.
@@ -27,6 +27,18 @@ impl Pm2Engine {
 
     pub fn inner_mut(&mut self) -> &mut Engine {
         &mut self.inner
+    }
+
+    pub fn reaggregate_decoded(
+        &mut self,
+        normalize_mode: u8,
+        status_family: u8,
+        min_ms: f32,
+        date_filter: &[u8],
+        need_summary: bool,
+    ) -> DecodedPartial {
+        self.inner
+            .reaggregate_decoded(normalize_mode, status_family, min_ms, date_filter, need_summary)
     }
 }
 

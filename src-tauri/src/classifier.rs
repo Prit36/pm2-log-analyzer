@@ -93,7 +93,9 @@ pub fn classify_content(data: &[u8]) -> LogCategory {
     // Check for HTTP / PM2 log lines
     if sample.windows(4).any(|w| w == b"GET " || w == b"POST")
         || sample.windows(4).any(|w| w == b"PUT " || w == b"HEAD")
-        || sample.windows(7).any(|w| w == b"DELETE " || w == b"OPTIONS")
+        || sample
+            .windows(7)
+            .any(|w| w == b"DELETE " || w == b"OPTIONS")
         || sample.windows(6).any(|w| w == b"[cron]")
         || sample.windows(5).any(|w| w == b"[PM2]")
     {

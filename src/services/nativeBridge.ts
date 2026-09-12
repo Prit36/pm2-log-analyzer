@@ -8,9 +8,9 @@ import { useMongoStore } from "../store/mongoStore";
 import { useAppModeStore } from "../store/appModeStore";
 import type { MongoAggregationResult } from "../mongo/types";
 
-/** `parse_pm2_files`: all aggregation already done natively, `json` is the result. */
 export type Pm2NativeResult = {
-  json: string;
+  data?: AggregatedResult;
+  json?: string;
   hit_count: number;
   unmatched_count: number;
   methods_mask: number;
@@ -19,12 +19,14 @@ export type Pm2NativeResult = {
 };
 
 export type Pm2ReaggNativeResult = {
-  json: string;
+  data?: AggregatedResult;
+  json?: string;
   reagg_wall_ms: number;
 };
 
 export type MongoNativeResult = {
-  json: string;
+  data?: MongoAggregationResult;
+  json?: string;
   parse_wall_ms: number;
   slow_query_count: number;
   total_lines: number;
@@ -143,8 +145,8 @@ export async function parsePm2FilesNative(paths: string[]): Promise<Pm2ParseStat
     const invokeMs = performance.now() - t0;
 
     const t1 = performance.now();
-    // SAFETY: json is the AggregatedResult schema emitted by the Rust finalizer
-    const result = JSON.parse(res.json) as AggregatedResult;
+    // SAFETY: data or parsed json conforms to AggregatedResult schema emitted by Rust finalizer
+    const result = (res.data ?? (res.json ? JSON.parse(res.json) : null)) as AggregatedResult;
     setResult(result);
     const assembleMs = performance.now() - t1;
 
@@ -175,8 +177,8 @@ export async function reaggregatePm2Native(): Promise<void> {
 
   try {
     const res = await invoke<Pm2ReaggNativeResult>("reaggregate_pm2", { options });
-    // SAFETY: json is the AggregatedResult schema emitted by the Rust finalizer
-    const result = JSON.parse(res.json) as AggregatedResult;
+    // SAFETY: data or parsed json conforms to AggregatedResult schema emitted by Rust finalizer
+    const result = (res.data ?? (res.json ? JSON.parse(res.json) : null)) as AggregatedResult;
     setResult(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -211,8 +213,8 @@ export async function parseMongoFilesNative(paths: string[]): Promise<MongoParse
     const invokeMs = performance.now() - t0;
 
     const t1 = performance.now();
-    // SAFETY: json is guaranteed MongoAggregationResult JSON schema emitted by mongo_core reaggregate
-    const parsed = JSON.parse(res.json) as MongoAggregationResult;
+    // SAFETY: data or parsed json conforms to MongoAggregationResult schema emitted by mongo_core
+    const parsed = (res.data ?? (res.json ? JSON.parse(res.json) : null)) as MongoAggregationResult;
     setResult(parsed);
     const assembleMs = performance.now() - t1;
 
@@ -384,8 +386,9 @@ export async function handleNativePathsUpload(
 
     if (res.pm2) {
       nativePm2Active = true;
-      // SAFETY: json is AggregatedResult schema emitted by the Rust finalizer
-      const result = JSON.parse(res.pm2.json) as AggregatedResult;
+      // SAFETY: data or parsed json conforms to AggregatedResult schema emitted by Rust finalizer
+      const result = (res.pm2.data ??
+        (res.pm2.json ? JSON.parse(res.pm2.json) : null)) as AggregatedResult;
       setPm2Result(result);
       pm2Matched = result.summary.matched;
       pm2WallMs = res.pm2.parse_wall_ms;
@@ -399,8 +402,9 @@ export async function handleNativePathsUpload(
 
     if (res.mongo) {
       nativeMongoActive = true;
-      // SAFETY: json is guaranteed MongoAggregationResult JSON schema emitted by mongo_core
-      const parsed = JSON.parse(res.mongo.json) as MongoAggregationResult;
+      // SAFETY: data or parsed json conforms to MongoAggregationResult schema emitted by mongo_core
+      const parsed = (res.mongo.data ??
+        (res.mongo.json ? JSON.parse(res.mongo.json) : null)) as MongoAggregationResult;
       setMongoResult(parsed);
       mongoTotalLines = res.mongo.total_lines;
       mongoSlowQueries = res.mongo.slow_query_count;

@@ -8,11 +8,10 @@ use rayon::prelude::*;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Instant;
 use tauri::{Emitter, State};
 
-const CHUNK_SIZE: usize = 32 * 1024 * 1024;
 const LINE_EXTEND: usize = 256 * 1024;
 
 #[derive(serde::Serialize, Clone, Debug)]
@@ -41,10 +40,15 @@ pub struct Pm2ParseOptions {
     pub cron_show_failed_only: Option<bool>,
 }
 
+fn to_raw_value(json: String) -> Box<serde_json::value::RawValue> {
+    serde_json::value::RawValue::from_string(json)
+        .unwrap_or_else(|_| serde_json::value::RawValue::from_string("{}".to_string()).unwrap())
+}
+
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct Pm2ParseResult {
-    /// Ready-to-render `AggregatedResult` JSON (all aggregation done natively).
-    pub json: String,
+    /// Raw unescaped JSON object for zero-copy direct IPC delivery
+    pub data: Box<serde_json::value::RawValue>,
     pub hit_count: u32,
     pub unmatched_count: u32,
     pub methods_mask: u8,
@@ -54,7 +58,7 @@ pub struct Pm2ParseResult {
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct Pm2ReaggResult {
-    pub json: String,
+    pub data: Box<serde_json::value::RawValue>,
     pub reagg_wall_ms: u64,
 }
 
@@ -75,7 +79,7 @@ pub struct MongoFilterOptions {
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct MongoParseResult {
-    pub json: String,
+    pub data: Box<serde_json::value::RawValue>,
     pub parse_wall_ms: u64,
     pub slow_query_count: u32,
     pub total_lines: u32,
@@ -124,7 +128,7 @@ pub(crate) fn status_code(family: Option<&str>) -> u8 {
 
 enum LogData {
     Mmap(memmap2::Mmap),
-    Buffer(Arc<[u8]>),
+    Buffer(Vec<u8>),
 }
 
 impl std::ops::Deref for LogData {
@@ -266,7 +270,8 @@ fn expand_log_sources(
                             .into_par_iter()
                             .filter_map(|entry| {
                                 let entry_name = entry.name.clone();
-                                let clean_name = entry_name.rsplit('/').next().unwrap_or(&entry_name);
+                                let clean_name =
+                                    entry_name.rsplit('/').next().unwrap_or(&entry_name);
                                 if let Ok(cow) = archive::extract_zip_entry(&mmap, &entry) {
                                     let mut inner_cat = classifier::classify_name(&entry_name);
                                     if inner_cat == LogCategory::Unknown {
@@ -276,7 +281,7 @@ fn expand_log_sources(
                                         return None;
                                     }
                                     let size = cow.len();
-                                    let data = Arc::from(cow.into_owned());
+                                    let data = cow.into_owned();
                                     Some(LogSourceItem {
                                         name: clean_name.to_string(),
                                         path: format!("{}/{}", path_str, entry_name),
@@ -300,7 +305,10 @@ fn expand_log_sources(
             LogCategory::Gzip => {
                 let mut out = Vec::new();
                 if let Ok(()) = archive::decompress_gzip(&mmap, &mut out) {
-                    let clean_name = file_name.strip_suffix(".gz").unwrap_or(&file_name).to_string();
+                    let clean_name = file_name
+                        .strip_suffix(".gz")
+                        .unwrap_or(&file_name)
+                        .to_string();
                     let mut inner_cat = classifier::classify_name(&clean_name);
                     if inner_cat == LogCategory::Unknown {
                         inner_cat = classifier::classify_content(&out);
@@ -310,7 +318,7 @@ fn expand_log_sources(
                         items.push(LogSourceItem {
                             name: clean_name,
                             path: path_str,
-                            data: LogData::Buffer(Arc::from(out)),
+                            data: LogData::Buffer(out),
                             size,
                             category: inner_cat,
                         });
@@ -383,7 +391,9 @@ fn parse_pm2_raw_mmaps(
     app_handle: Option<&tauri::AppHandle>,
 ) -> Result<(Vec<pm2_core::Pm2Engine>, Pm2ParseResult), String> {
     let t0 = Instant::now();
-    let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    let cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
     let mut mmaps = Vec::with_capacity(mmaps_with_paths.len());
     let mut tasks = Vec::new();
 
@@ -426,7 +436,13 @@ fn parse_pm2_raw_mmaps(
                 } else {
                     99
                 };
-                emit_progress(Some(app), "parsing", done as usize, total_bytes as usize, percent);
+                emit_progress(
+                    Some(app),
+                    "parsing",
+                    done as usize,
+                    total_bytes as usize,
+                    percent,
+                );
             }
 
             engine
@@ -437,7 +453,13 @@ fn parse_pm2_raw_mmaps(
     std::thread::spawn(move || drop(mmaps));
 
     let shard_count = shards.len();
-    emit_progress(app_handle, "complete", total_bytes as usize, total_bytes as usize, 100);
+    emit_progress(
+        app_handle,
+        "complete",
+        total_bytes as usize,
+        total_bytes as usize,
+        100,
+    );
 
     let json = finalize::finalize_pm2(&mut shards, options)?;
     let total_hits: u32 = shards.iter().map(|s| s.hit_count()).sum();
@@ -448,7 +470,7 @@ fn parse_pm2_raw_mmaps(
     Ok((
         shards,
         Pm2ParseResult {
-            json,
+            data: to_raw_value(json),
             hit_count: total_hits,
             unmatched_count: total_unmatched,
             methods_mask: combined_methods_mask,
@@ -464,15 +486,17 @@ fn parse_pm2_items(
     app_handle: Option<&tauri::AppHandle>,
 ) -> Result<(Vec<pm2_core::Pm2Engine>, Pm2ParseResult), String> {
     let t0 = Instant::now();
-    let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    let cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
     let mut tasks = Vec::new();
 
     for item in &items {
         let file_size = item.size;
-        let n_shards = if file_size <= 16 * 1024 * 1024 {
+        let n_shards = if file_size <= 8 * 1024 * 1024 {
             1
         } else {
-            ((file_size + 32 * 1024 * 1024 - 1) / (32 * 1024 * 1024)).clamp(1, cpus.min(16))
+            ((file_size + 16 * 1024 * 1024 - 1) / (16 * 1024 * 1024)).clamp(1, cpus.min(16))
         };
         let chunk_size = (file_size + n_shards - 1) / n_shards;
         for i in 0..n_shards {
@@ -491,7 +515,7 @@ fn parse_pm2_items(
     }
 
     let total_bytes: u64 = items.iter().map(|i| i.size as u64).sum();
-    let completed_bytes = AtomicU64::new(0);
+    emit_progress(app_handle, "parsing", 0, total_bytes as usize, 50);
 
     let mut shards: Vec<pm2_core::Pm2Engine> = tasks
         .into_par_iter()
@@ -499,19 +523,12 @@ fn parse_pm2_items(
             let mut engine = pm2_core::Pm2Engine::new();
             let read_end = (task.end + LINE_EXTEND).min(task.file_size);
             let slice = &task.data[task.start..read_end];
-            engine.parse_shard(slice, task.start as f64, task.end as f64, task.file_size as f64);
-
-            if let Some(app) = app_handle {
-                let task_bytes = (task.end - task.start) as u64;
-                let done = completed_bytes.fetch_add(task_bytes, Ordering::Relaxed) + task_bytes;
-                let percent = if total_bytes > 0 {
-                    ((done * 100) / total_bytes).min(99) as u32
-                } else {
-                    99
-                };
-                emit_progress(Some(app), "parsing", done as usize, total_bytes as usize, percent);
-            }
-
+            engine.parse_shard(
+                slice,
+                task.start as f64,
+                task.end as f64,
+                task.file_size as f64,
+            );
             engine
         })
         .collect();
@@ -520,7 +537,13 @@ fn parse_pm2_items(
     std::thread::spawn(move || drop(items));
 
     let shard_count = shards.len();
-    emit_progress(app_handle, "complete", total_bytes as usize, total_bytes as usize, 100);
+    emit_progress(
+        app_handle,
+        "complete",
+        total_bytes as usize,
+        total_bytes as usize,
+        100,
+    );
 
     let json = finalize::finalize_pm2(&mut shards, options)?;
     let total_hits: u32 = shards.iter().map(|s| s.hit_count()).sum();
@@ -531,7 +554,7 @@ fn parse_pm2_items(
     Ok((
         shards,
         Pm2ParseResult {
-            json,
+            data: to_raw_value(json),
             hit_count: total_hits,
             unmatched_count: total_unmatched,
             methods_mask: combined_methods_mask,
@@ -573,33 +596,12 @@ fn parse_mongo_items(
     let mut engine = existing_engine.unwrap_or_else(mongo_core::MongoEngine::new);
 
     let total_bytes: usize = items.iter().map(|i| i.size).sum();
-    let mut processed_bytes = 0usize;
-
     for item in &items {
-        let slice = &item.data[..];
-        let mut offset = 0usize;
-        while offset < slice.len() {
-            let take = CHUNK_SIZE.min(slice.len() - offset);
-            engine.write_slice(&slice[offset..offset + take]);
-            engine.feed(take as u32, offset as f64);
-            offset += take;
-            processed_bytes += take;
-
-            if let Some(app) = app_handle {
-                let percent = if total_bytes > 0 {
-                    ((processed_bytes * 100) / total_bytes).min(99) as u32
-                } else {
-                    99
-                };
-                emit_progress(Some(app), "parsing", processed_bytes, total_bytes, percent);
-            }
-        }
+        engine.feed_slice(&item.data);
         engine.end_shard();
     }
-
     emit_progress(app_handle, "complete", total_bytes, total_bytes, 100);
 
-    let elapsed = t0.elapsed().as_millis() as u64;
     let json = engine.reaggregate(
         options.op.as_deref().unwrap_or("all"),
         options.plan_filter.unwrap_or(0),
@@ -612,11 +614,12 @@ fn parse_mongo_items(
 
     let slow_query_count = engine.slow_query_count();
     let total_lines = engine.total_lines();
+    let elapsed = t0.elapsed().as_millis() as u64;
 
     Ok((
         engine,
         MongoParseResult {
-            json,
+            data: to_raw_value(json),
             parse_wall_ms: elapsed,
             slow_query_count,
             total_lines,
@@ -669,7 +672,7 @@ fn ingest_single_zip(
             let cat = classifier::classify_content(&cow);
             let clean = entry.name.rsplit('/').next().unwrap_or(&entry.name);
             let size = cow.len();
-            let data = Arc::from(cow.into_owned());
+            let data = cow.into_owned();
             let item = LogSourceItem {
                 name: clean.to_string(),
                 path: format!("{}/{}", zip_path, entry.name),
@@ -685,7 +688,11 @@ fn ingest_single_zip(
         }
     }
 
-    if pm2_entries.is_empty() && mongo_entries.is_empty() && extra_pm2.is_empty() && extra_mongo.is_empty() {
+    if pm2_entries.is_empty()
+        && mongo_entries.is_empty()
+        && extra_pm2.is_empty()
+        && extra_mongo.is_empty()
+    {
         return Err("No valid log files found in ZIP archive".into());
     }
 
@@ -708,7 +715,7 @@ fn ingest_single_zip(
                     Some(LogSourceItem {
                         name: clean.to_string(),
                         path: format!("{}/{}", zip_path, entry.name),
-                        data: LogData::Buffer(Arc::from(cow.into_owned())),
+                        data: LogData::Buffer(cow.into_owned()),
                         size,
                         category: LogCategory::Pm2,
                     })
@@ -748,7 +755,7 @@ fn ingest_single_zip(
                     Some(LogSourceItem {
                         name: clean.to_string(),
                         path: format!("{}/{}", zip_path, entry.name),
-                        data: LogData::Buffer(Arc::from(cow.into_owned())),
+                        data: LogData::Buffer(cow.into_owned()),
                         size,
                         category: LogCategory::Mongo,
                     })
@@ -803,7 +810,7 @@ fn ingest_single_zip(
             let methods_mask = lock.iter().fold(0, |acc, s| acc | s.methods_mask());
             let shard_count = lock.len();
             Some(Pm2ParseResult {
-                json: combined_json,
+                data: to_raw_value(combined_json),
                 hit_count,
                 unmatched_count,
                 methods_mask,
@@ -873,7 +880,10 @@ pub fn ingest_native_internal(
                 );
             }
 
-            if !path.ends_with(".zip") && !path.ends_with(".gz") && (mmap.len() < 2 || &mmap[..2] != b"\x1f\x8b") {
+            if !path.ends_with(".zip")
+                && !path.ends_with(".gz")
+                && (mmap.len() < 2 || &mmap[..2] != b"\x1f\x8b")
+            {
                 let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or(path);
                 let cat = classifier::classify_file_or_entry(file_name, &mmap);
                 let size = mmap.len() as u64;
@@ -909,22 +919,20 @@ pub fn ingest_native_internal(
                         parse_wall_ms: t0.elapsed().as_millis() as u64,
                     });
                 } else if cat == LogCategory::Pm2 || cat == LogCategory::Unknown {
-                    let (shards, res) = parse_pm2_raw_mmaps(
-                        vec![(path.clone(), mmap)],
-                        pm2_options,
-                        app_handle,
-                    )?;
+                    let (shards, res) =
+                        parse_pm2_raw_mmaps(vec![(path.clone(), mmap)], pm2_options, app_handle)?;
                     let mut lock = state.pm2_shards.lock().unwrap();
                     if upload_mode == Some("append") {
                         lock.extend(shards);
-                        let combined_json = finalize::finalize_pm2(lock.as_mut_slice(), pm2_options)?;
+                        let combined_json =
+                            finalize::finalize_pm2(lock.as_mut_slice(), pm2_options)?;
                         let hit_count = lock.iter().map(|s| s.hit_count()).sum();
                         let unmatched_count = lock.iter().map(|s| s.unmatched_count()).sum();
                         let methods_mask = lock.iter().fold(0, |acc, s| acc | s.methods_mask());
                         let shard_count = lock.len();
                         return Ok(NativeIngestResult {
                             pm2: Some(Pm2ParseResult {
-                                json: combined_json,
+                                data: to_raw_value(combined_json),
                                 hit_count,
                                 unmatched_count,
                                 methods_mask,
@@ -1028,7 +1036,7 @@ pub fn ingest_native_internal(
             let methods_mask = lock.iter().fold(0, |acc, s| acc | s.methods_mask());
             let shard_count = lock.len();
             Some(Pm2ParseResult {
-                json: combined_json,
+                data: to_raw_value(combined_json),
                 hit_count,
                 unmatched_count,
                 methods_mask,
@@ -1086,7 +1094,7 @@ fn reaggregate_pm2(
     }
     let json = finalize::finalize_pm2(lock.as_mut_slice(), &options)?;
     Ok(Pm2ReaggResult {
-        json,
+        data: to_raw_value(json),
         reagg_wall_ms: t0.elapsed().as_millis() as u64,
     })
 }
@@ -1196,7 +1204,10 @@ mod tests {
             v["api"].as_array().is_some_and(|a| !a.is_empty()),
             "Expected api rows"
         );
-        assert_eq!(v["summary"]["matched"].as_u64().unwrap(), res.hit_count as u64);
+        assert_eq!(
+            v["summary"]["matched"].as_u64().unwrap(),
+            res.hit_count as u64
+        );
         assert!(!v["dailyStats"].as_array().unwrap().is_empty());
         println!(
             "PM2 Native parsed {} hits in {}ms ({} shards), result JSON {} KB",
@@ -1394,7 +1405,11 @@ mod tests {
         assert!(res.mongo.is_some(), "Expected Mongo result from zip");
         assert_eq!(res.pm2.as_ref().unwrap().hit_count, 2);
         assert_eq!(res.mongo.as_ref().unwrap().slow_query_count, 1);
-        assert_eq!(res.files.len(), 2, "Error and metadata files should be skipped");
+        assert_eq!(
+            res.files.len(),
+            2,
+            "Error and metadata files should be skipped"
+        );
         println!(
             "ZIP ingest verified: PM2 hits {}, Mongo slow {}, valid files {}",
             res.pm2.as_ref().unwrap().hit_count,
@@ -1434,7 +1449,11 @@ mod tests {
             "FULL INGEST NATIVE: wall {}ms (pm2 hits: {}, mongo lines: {})",
             ingest_wall,
             ingest_res.pm2.as_ref().map(|p| p.hit_count).unwrap_or(0),
-            ingest_res.mongo.as_ref().map(|m| m.total_lines).unwrap_or(0),
+            ingest_res
+                .mongo
+                .as_ref()
+                .map(|m| m.total_lines)
+                .unwrap_or(0),
         );
     }
 }

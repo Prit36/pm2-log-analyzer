@@ -4,8 +4,8 @@
 //! cron aggregation, dates, unmatched sample) is computed here. JS only parses this
 //! JSON and hands it to the store.
 
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use hashbrown::hash_map::Entry;
+use hashbrown::{HashMap, HashSet};
 
 use pm2_core::{CronEv, DailyAcc, HourlyAcc, Pm2Engine};
 use rayon::prelude::*;
@@ -123,110 +123,139 @@ pub fn finalize_pm2(shards: &mut [Pm2Engine], options: &Pm2ParseOptions) -> Resu
     let min_ms = options.min_ms.unwrap_or(0.0);
     let date_filter = options.date_filter.clone().unwrap_or_default();
 
-    let partial_wires: Vec<Vec<u8>> = shards
+    let partials: Vec<pm2_core::DecodedPartial> = shards
         .par_iter_mut()
-        .map(|e| e.reaggregate(mode, status, min_ms, date_filter.as_bytes(), true))
+        .map(|e| e.reaggregate_decoded(mode, status, min_ms, date_filter.as_bytes(), true))
         .collect();
-    let merged = pm2_core::merge_pm2_partials(&partial_wires);
-    drop(partial_wires);
-    let decoded = pm2_core::decode_pm2_partial(&merged)
-        .ok_or_else(|| "corrupt PM2 partial wire".to_string())?;
 
-    let total_unmatched: u32 = shards.iter().map(|s| s.unmatched_count()).sum();
-    let methods_mask: u8 = shards.iter().fold(0u8, |acc, s| acc | s.methods_mask());
+    let (
+        decoded,
+        (
+            total_unmatched,
+            methods_mask,
+            active_hourly,
+            daily_stats,
+            dates,
+            cron,
+            cron_summary,
+            unmatched_sample,
+        ),
+    ) = rayon::join(
+        || pm2_core::merge_decoded_partials(partials),
+        || {
+            let total_unmatched: u32 = shards.iter().map(|s| s.unmatched_count()).sum();
+            let methods_mask: u8 = shards.iter().fold(0u8, |acc, s| acc | s.methods_mask());
 
-    // Hour-of-day and per-date/hour accumulators (filter-independent, built at parse time).
-    let mut hourly: [HourlyAcc; 24] = std::array::from_fn(|_| HourlyAcc::new());
-    for s in shards.iter() {
-        for (i, h) in s.inner().hourly_accs().iter().enumerate() {
-            hourly[i].merge(h);
-        }
-    }
-
-    let mut daily_map: HashMap<[u8; 10], DailyAcc> = HashMap::new();
-    for s in shards.iter() {
-        for da in s.inner().daily_accs() {
-            match daily_map.entry(da.date) {
-                Entry::Vacant(e) => {
-                    e.insert(da.clone());
-                }
-                Entry::Occupied(mut e) => {
-                    e.get_mut().merge(da);
+            let mut hourly: [HourlyAcc; 24] = std::array::from_fn(|_| HourlyAcc::new());
+            for s in shards.iter() {
+                for (i, h) in s.inner().hourly_accs().iter().enumerate() {
+                    hourly[i].merge(h);
                 }
             }
-        }
-    }
-    let mut daily: Vec<DailyAcc> = daily_map.into_values().collect();
-    daily.sort_unstable_by(|a, b| a.date.cmp(&b.date));
 
-    let mut dates_set: HashSet<[u8; 10]> = HashSet::new();
-    for s in shards.iter() {
-        for &d in s.inner().dates() {
-            dates_set.insert(d);
-        }
-    }
-    let mut dates: Vec<[u8; 10]> = dates_set.into_iter().collect();
-    dates.sort_unstable();
-
-    let mut cron_events: Vec<CronEv> = Vec::new();
-    for s in shards.iter() {
-        cron_events.extend_from_slice(s.inner().cron_events());
-    }
-
-    let mut unmatched_sample: Vec<String> = Vec::new();
-    'sample: for s in shards.iter() {
-        for sample in s.inner().unmatched_sample() {
-            if unmatched_sample.len() >= UNMATCHED_SAMPLE_CAP {
-                break 'sample;
+            let mut daily_map: HashMap<[u8; 10], DailyAcc> = HashMap::with_capacity(32);
+            for s in shards.iter() {
+                for da in s.inner().daily_accs() {
+                    match daily_map.entry(da.date) {
+                        Entry::Vacant(e) => {
+                            e.insert(da.clone());
+                        }
+                        Entry::Occupied(mut e) => {
+                            e.get_mut().merge(da);
+                        }
+                    }
+                }
             }
-            unmatched_sample.push(String::from_utf8_lossy(sample).into_owned());
-        }
-    }
+            let mut daily: Vec<DailyAcc> = daily_map.into_values().collect();
+            daily.sort_unstable_by(|a, b| a.date.cmp(&b.date));
 
-    let hourly_stats = finalize_hourly(&hourly);
-    let daily_stats: Vec<DaySummary> = daily.iter().map(finalize_day).collect();
-    let active_hourly = if date_filter.is_empty() {
-        hourly_stats
-    } else {
-        daily_stats
-            .iter()
-            .find(|d| d.date == date_filter)
-            .map(|d| d.hourly_stats.clone())
-            .unwrap_or(hourly_stats)
-    };
+            let mut dates_set: HashSet<[u8; 10]> = HashSet::with_capacity(32);
+            for s in shards.iter() {
+                for &d in s.inner().dates() {
+                    dates_set.insert(d);
+                }
+            }
+            let mut dates: Vec<[u8; 10]> = dates_set.into_iter().collect();
+            dates.sort_unstable();
 
-    let cron = aggregate_cron(&cron_events, options);
-    let cron_summary = build_cron_summary(&cron_events, &date_filter, &cron);
+            let mut cron_events: Vec<CronEv> = Vec::new();
+            for s in shards.iter() {
+                cron_events.extend_from_slice(s.inner().cron_events());
+            }
+
+            let mut unmatched_sample: Vec<String> = Vec::new();
+            'sample: for s in shards.iter() {
+                for sample in s.inner().unmatched_sample() {
+                    if unmatched_sample.len() >= UNMATCHED_SAMPLE_CAP {
+                        break 'sample;
+                    }
+                    unmatched_sample.push(String::from_utf8_lossy(sample).into_owned());
+                }
+            }
+
+            let hourly_stats = finalize_hourly(&hourly);
+            let daily_stats: Vec<DaySummary> = daily.iter().map(finalize_day).collect();
+            let active_hourly = if date_filter.is_empty() {
+                hourly_stats
+            } else {
+                daily_stats
+                    .iter()
+                    .find(|d| d.date == date_filter)
+                    .map(|d| d.hourly_stats.clone())
+                    .unwrap_or(hourly_stats)
+            };
+
+            let cron = aggregate_cron(&cron_events, options);
+            let cron_summary = build_cron_summary(&cron_events, &date_filter, &cron);
+
+            (
+                total_unmatched,
+                methods_mask,
+                active_hourly,
+                daily_stats,
+                dates,
+                cron,
+                cron_summary,
+                unmatched_sample,
+            )
+        },
+    );
     let summary = build_summary(&decoded, total_unmatched);
 
+    let api: Vec<ApiRow> = decoded
+        .endpoints
+        .into_par_iter()
+        .map(|e| {
+            let method = METHODS[e.method as usize % METHODS.len()];
+            let path = String::from_utf8_lossy(&e.path).into_owned();
+            let [p50_ms, p90_ms, p95_ms, p99_ms] = e.sketch.quantiles4_ms();
+            let mut key = String::with_capacity(method.len() + 1 + path.len());
+            key.push_str(method);
+            key.push(' ');
+            key.push_str(&path);
+            ApiRow {
+                key,
+                method,
+                path,
+                count: e.count,
+                avg_ms: if e.count > 0 {
+                    e.sum / e.count as f64
+                } else {
+                    0.0
+                },
+                p50_ms,
+                p90_ms,
+                p95_ms,
+                p99_ms,
+                max_ms: if e.count > 0 { e.max } else { 0.0 },
+                min_ms: if e.count > 0 { e.min } else { 0.0 },
+                error_count: e.error_count,
+            }
+        })
+        .collect();
+
     let result = AggregatedResult {
-        api: decoded
-            .endpoints
-            .iter()
-            .map(|e| {
-                let method = METHODS[e.method as usize % METHODS.len()];
-                let path = String::from_utf8_lossy(&e.path).into_owned();
-                let [p50_ms, p90_ms, p95_ms, p99_ms] = e.sketch.quantiles4_ms();
-                ApiRow {
-                    key: format!("{method} {path}"),
-                    method,
-                    path,
-                    count: e.count,
-                    avg_ms: if e.count > 0 {
-                        e.sum / e.count as f64
-                    } else {
-                        0.0
-                    },
-                    p50_ms,
-                    p90_ms,
-                    p95_ms,
-                    p99_ms,
-                    max_ms: if e.count > 0 { e.max } else { 0.0 },
-                    min_ms: if e.count > 0 { e.min } else { 0.0 },
-                    error_count: e.error_count,
-                }
-            })
-            .collect(),
+        api,
         cron,
         summary,
         cron_summary,
@@ -251,7 +280,11 @@ fn build_summary(decoded: &pm2_core::DecodedPartial, total_unmatched: u32) -> Lo
             matched,
             unmatched: total_unmatched,
             max: s.max,
-            avg: if matched > 0 { s.sum / matched as f64 } else { 0.0 },
+            avg: if matched > 0 {
+                s.sum / matched as f64
+            } else {
+                0.0
+            },
             p95_ms: s.sketch.quantile_ms(0.95),
             errors: s.errors,
             slow: s.slow,
@@ -355,19 +388,24 @@ fn aggregate_cron(events: &[CronEv], options: &Pm2ParseOptions) -> Vec<CronRow> 
                 }
             }
         }
-        if !query.is_empty() && !String::from_utf8_lossy(&ev.name).to_ascii_lowercase().contains(&query)
+        if !query.is_empty()
+            && !String::from_utf8_lossy(&ev.name)
+                .to_ascii_lowercase()
+                .contains(&query)
         {
             continue;
         }
 
-        let bucket = buckets.entry(ev.name.clone()).or_insert_with(|| CronBucket {
-            name: String::from_utf8_lossy(&ev.name).into_owned(),
-            starts: 0,
-            durations: Vec::new(),
-            fails: 0,
-            last_run_ts: None,
-            last_duration_ms: None,
-        });
+        let bucket = buckets
+            .entry(ev.name.clone())
+            .or_insert_with(|| CronBucket {
+                name: String::from_utf8_lossy(&ev.name).into_owned(),
+                starts: 0,
+                durations: Vec::new(),
+                fails: 0,
+                last_run_ts: None,
+                last_duration_ms: None,
+            });
 
         if ev.event == 0 {
             bucket.starts += 1;
@@ -516,8 +554,14 @@ mod tests {
     fn ts_and_civil_math() {
         assert_eq!(days_from_civil(1970, 1, 1), 0);
         assert_eq!(days_from_civil(2026, 7, 24), 20658);
-        assert_eq!(parse_ts_seconds(b"2026-07-24T00:00:10"), Some(20658 * 86_400 + 10));
-        assert_eq!(parse_ts_seconds(b"2026-07-24 00:01:10"), Some(20658 * 86_400 + 70));
+        assert_eq!(
+            parse_ts_seconds(b"2026-07-24T00:00:10"),
+            Some(20658 * 86_400 + 10)
+        );
+        assert_eq!(
+            parse_ts_seconds(b"2026-07-24 00:01:10"),
+            Some(20658 * 86_400 + 70)
+        );
         assert_eq!(parse_ts_seconds(b"nope"), None);
     }
 

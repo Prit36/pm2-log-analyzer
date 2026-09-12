@@ -74,6 +74,10 @@ impl MongoEngine {
         reagg::reaggregate(&self.inner, params)
     }
 
+    pub fn feed_slice(&mut self, data: &[u8]) -> u32 {
+        self.inner.feed_slice(data)
+    }
+
     pub fn write_slice(&mut self, data: &[u8]) {
         let len = data.len();
         if self.inner.ingest.len() < len {

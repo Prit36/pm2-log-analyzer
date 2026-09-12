@@ -321,6 +321,39 @@ impl Engine {
         (self.durations_ms.len() - before) as u32
     }
 
+    pub fn feed_slice(&mut self, slice: &[u8]) -> u32 {
+        let before = self.durations_ms.len();
+        if self.carry.is_empty() {
+            let mut i = 0usize;
+            while let Some(pos) = memchr(b'\n', &slice[i..]) {
+                let line_end = i + pos;
+                let line = &slice[i..line_end];
+                self.accept_line(line);
+                i = line_end + 1;
+            }
+            if i < slice.len() {
+                self.carry.extend_from_slice(&slice[i..]);
+            }
+        } else if let Some(pos) = memchr(b'\n', slice) {
+            self.carry.extend_from_slice(&slice[..pos]);
+            let carry = std::mem::take(&mut self.carry);
+            self.accept_line(&carry);
+            let mut i = pos + 1;
+            while let Some(next_pos) = memchr(b'\n', &slice[i..]) {
+                let line_end = i + next_pos;
+                let line = &slice[i..line_end];
+                self.accept_line(line);
+                i = line_end + 1;
+            }
+            if i < slice.len() {
+                self.carry.extend_from_slice(&slice[i..]);
+            }
+        } else {
+            self.carry.extend_from_slice(slice);
+        }
+        (self.durations_ms.len() - before) as u32
+    }
+
     pub fn end_shard(&mut self) {
         if !self.carry.is_empty() {
             let carry = std::mem::take(&mut self.carry);

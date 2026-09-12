@@ -1227,6 +1227,252 @@ impl Engine {
         )
     }
 
+    pub fn reaggregate_decoded(
+        &mut self,
+        normalize_mode: u8,
+        status_family: u8,
+        min_ms: f32,
+        date_filter: &[u8],
+        need_summary: bool,
+    ) -> DecodedPartial {
+        self.ensure_mode(normalize_mode);
+        let mode = NormalizeMode::from_u8(normalize_mode) as usize;
+        let (status_min, status_max) = match status_family {
+            2 => (200u16, 299u16),
+            3 => (300u16, 399u16),
+            4 => (400u16, 499u16),
+            5 => (500u16, 599u16),
+            _ => (0u16, 0u16),
+        };
+        let filter_status = status_min != 0;
+        let target_date_id: u16 = if date_filter.is_empty() {
+            0
+        } else {
+            self.dates
+                .iter()
+                .position(|d| d == date_filter)
+                .map(|p| (p + 1) as u16)
+                .unwrap_or(u16::MAX)
+        };
+
+        let use_dense = mode != 0;
+        let n_norm = self.norm_off[mode].len();
+        let dense_len = if use_dense {
+            n_norm.saturating_mul(8).saturating_add(8)
+        } else {
+            0
+        };
+
+        let mut dense: Vec<Option<Box<EndpointAcc>>> = if use_dense {
+            let mut v = Vec::with_capacity(dense_len);
+            v.resize_with(dense_len, || None);
+            v
+        } else {
+            Vec::new()
+        };
+        let mut by_key: HashMap<u64, EndpointAcc> = if use_dense {
+            HashMap::new()
+        } else {
+            HashMap::with_capacity((self.path_off.len() / 4).max(64))
+        };
+
+        let mut custom_summary = RelHist::new();
+        let mut sum_max = 0.0f32;
+        let mut sum_sum = 0.0f64;
+        let mut sum_errors = 0u32;
+        let mut sum_slow = 0u32;
+        let use_cached_summary = target_date_id == 0 && need_summary && self.summary_ready;
+        if use_cached_summary {
+            sum_sum = self.summary_sum;
+            sum_max = self.summary_max;
+            sum_errors = self.summary_errors;
+            sum_slow = self.summary_slow;
+        }
+
+        let n = self.entries.len();
+        let path_to_norm = &self.path_to_norm[mode];
+        let hist_keys = &self.hist_keys;
+        let mut matched_count = 0u32;
+
+        for i in 0..n {
+            let e = self.entries[i];
+            if target_date_id != 0 && e.date_id() != target_date_id {
+                continue;
+            }
+            matched_count += 1;
+
+            let duration_ms = e.duration;
+            let status = e.status();
+
+            if !use_cached_summary && need_summary {
+                sum_sum += duration_ms as f64;
+                if duration_ms > sum_max {
+                    sum_max = duration_ms;
+                }
+                if status >= 400 {
+                    sum_errors += 1;
+                }
+                if duration_ms >= 3000.0 {
+                    sum_slow += 1;
+                }
+                let hist_key = hist_keys[i];
+                if hist_key != INVALID_RELHIST_KEY {
+                    custom_summary.accept_key(hist_key as i32);
+                }
+            }
+
+            if filter_status && (status < status_min || status > status_max) {
+                continue;
+            }
+            if min_ms > 0.0 && duration_ms < min_ms {
+                continue;
+            }
+
+            let method_code = e.method();
+            let path_id = e.path_id as usize;
+            let norm_id = if mode == NormalizeMode::Exact as usize {
+                e.path_id
+            } else {
+                path_to_norm[path_id]
+            };
+            let key = ((norm_id as u64) << 3) | (method_code as u64);
+
+            if use_dense {
+                let idx = key as usize;
+                if idx >= dense.len() {
+                    continue;
+                }
+                let slot = &mut dense[idx];
+                let entry = slot.get_or_insert_with(|| {
+                    Box::new(EndpointAcc {
+                        method: method_code,
+                        sketch: RelHist::new(),
+                        count: 0,
+                        sum: 0.0,
+                        min: f32::INFINITY,
+                        max: f32::NEG_INFINITY,
+                        error_count: 0,
+                    })
+                });
+                let hist_key = hist_keys[i];
+                if hist_key != INVALID_RELHIST_KEY {
+                    entry.sketch.accept_key(hist_key as i32);
+                }
+                entry.count += 1;
+                entry.sum += duration_ms as f64;
+                if duration_ms < entry.min {
+                    entry.min = duration_ms;
+                }
+                if duration_ms > entry.max {
+                    entry.max = duration_ms;
+                }
+                if status >= 400 {
+                    entry.error_count += 1;
+                }
+            } else {
+                let entry = by_key.entry(key).or_insert_with(|| EndpointAcc {
+                    method: method_code,
+                    sketch: RelHist::new(),
+                    count: 0,
+                    sum: 0.0,
+                    min: f32::INFINITY,
+                    max: f32::NEG_INFINITY,
+                    error_count: 0,
+                });
+                let hist_key = hist_keys[i];
+                if hist_key != INVALID_RELHIST_KEY {
+                    entry.sketch.accept_key(hist_key as i32);
+                }
+                entry.count += 1;
+                entry.sum += duration_ms as f64;
+                if duration_ms < entry.min {
+                    entry.min = duration_ms;
+                }
+                if duration_ms > entry.max {
+                    entry.max = duration_ms;
+                }
+                if status >= 400 {
+                    entry.error_count += 1;
+                }
+            }
+        }
+
+        let (norm_bytes, norm_off, norm_len) = if mode == NormalizeMode::Exact as usize {
+            (&self.path_bytes, &self.path_off, &self.path_len)
+        } else {
+            (&self.norm_bytes[mode], &self.norm_off[mode], &self.norm_len[mode])
+        };
+
+        let mut endpoints = Vec::new();
+        if use_dense {
+            for (idx, slot) in dense.into_iter().enumerate() {
+                if let Some(e) = slot {
+                    let norm_id = (idx >> 3) as u32;
+                    let off = norm_off[norm_id as usize] as usize;
+                    let len = norm_len[norm_id as usize] as usize;
+                    endpoints.push(DecodedEndpoint {
+                        method: e.method,
+                        path: norm_bytes[off..off + len].to_vec(),
+                        count: e.count,
+                        sum: e.sum,
+                        min: if e.count > 0 { e.min } else { 0.0 },
+                        max: if e.count > 0 { e.max } else { 0.0 },
+                        error_count: e.error_count,
+                        sketch: e.sketch,
+                    });
+                }
+            }
+        } else {
+            for (key, e) in by_key {
+                let norm_id = (key >> 3) as u32;
+                let off = norm_off[norm_id as usize] as usize;
+                let len = norm_len[norm_id as usize] as usize;
+                endpoints.push(DecodedEndpoint {
+                    method: e.method,
+                    path: norm_bytes[off..off + len].to_vec(),
+                    count: e.count,
+                    sum: e.sum,
+                    min: if e.count > 0 { e.min } else { 0.0 },
+                    max: if e.count > 0 { e.max } else { 0.0 },
+                    error_count: e.error_count,
+                    sketch: e.sketch,
+                });
+            }
+        }
+
+        let summary = if !need_summary {
+            None
+        } else if use_cached_summary {
+            Some(DecodedSummary {
+                sum: sum_sum,
+                max: sum_max,
+                errors: sum_errors,
+                slow: sum_slow,
+                sketch: self.summary_sketch.clone(),
+            })
+        } else {
+            Some(DecodedSummary {
+                sum: sum_sum,
+                max: sum_max,
+                errors: sum_errors,
+                slow: sum_slow,
+                sketch: custom_summary,
+            })
+        };
+
+        DecodedPartial {
+            mode: mode as u8,
+            endpoints,
+            summary,
+            matched: matched_count,
+            unmatched: if target_date_id == 0 {
+                self.unmatched_count
+            } else {
+                0
+            },
+        }
+    }
+
     pub fn cron_wire(&self) -> Vec<u8> {
         encode_cron_vec(&self.cron_events)
     }
@@ -1575,6 +1821,206 @@ pub struct DecodedPartial {
     pub summary: Option<DecodedSummary>,
     pub matched: u32,
     pub unmatched: u32,
+}
+
+pub fn merge_two_decoded(a: DecodedPartial, b: DecodedPartial) -> DecodedPartial {
+    if a.endpoints.is_empty() && a.summary.is_none() && a.matched == 0 {
+        return b;
+    }
+    if b.endpoints.is_empty() && b.summary.is_none() && b.matched == 0 {
+        return a;
+    }
+
+    let mode = if a.mode != 0 { a.mode } else { b.mode };
+    let total_matched = a.matched + b.matched;
+    let total_unmatched = a.unmatched + b.unmatched;
+
+    let summary = match (a.summary, b.summary) {
+        (Some(mut sa), Some(sb)) => {
+            sa.sum += sb.sum;
+            if sb.max > sa.max {
+                sa.max = sb.max;
+            }
+            sa.errors += sb.errors;
+            sa.slow += sb.slow;
+            sa.sketch.merge(&sb.sketch);
+            Some(sa)
+        }
+        (Some(sa), None) => Some(sa),
+        (None, Some(sb)) => Some(sb),
+        (None, None) => None,
+    };
+
+    let mut map: hashbrown::HashMap<(u8, Vec<u8>), (u32, f64, f32, f32, u32, RelHist)> =
+        hashbrown::HashMap::with_capacity(a.endpoints.len() + b.endpoints.len());
+    for ep in a.endpoints {
+        map.insert((ep.method, ep.path), (ep.count, ep.sum, ep.min, ep.max, ep.error_count, ep.sketch));
+    }
+    for ep in b.endpoints {
+        match map.entry((ep.method, ep.path)) {
+            hashbrown::hash_map::Entry::Vacant(v) => {
+                v.insert((ep.count, ep.sum, ep.min, ep.max, ep.error_count, ep.sketch));
+            }
+            hashbrown::hash_map::Entry::Occupied(mut o) => {
+                let acc = o.get_mut();
+                acc.0 += ep.count;
+                acc.1 += ep.sum;
+                if ep.count > 0 && (acc.0 == ep.count || ep.min < acc.2) {
+                    acc.2 = ep.min;
+                }
+                if ep.max > acc.3 {
+                    acc.3 = ep.max;
+                }
+                acc.4 += ep.error_count;
+                acc.5.merge(&ep.sketch);
+            }
+        }
+    }
+
+    let endpoints = map
+        .into_iter()
+        .map(|((method, path), (count, sum, min, max, error_count, sketch))| DecodedEndpoint {
+            method,
+            path,
+            count,
+            sum,
+            min,
+            max,
+            error_count,
+            sketch,
+        })
+        .collect();
+
+    DecodedPartial {
+        mode,
+        endpoints,
+        summary,
+        matched: total_matched,
+        unmatched: total_unmatched,
+    }
+}
+
+pub fn merge_decoded_partials(partials: Vec<DecodedPartial>) -> DecodedPartial {
+    if partials.is_empty() {
+        return DecodedPartial {
+            mode: 0,
+            endpoints: Vec::new(),
+            summary: None,
+            matched: 0,
+            unmatched: 0,
+        };
+    }
+    if partials.len() == 1 {
+        return partials.into_iter().next().unwrap();
+    }
+
+    let mut mode = 0u8;
+    let mut total_matched = 0u32;
+    let mut total_unmatched = 0u32;
+    let mut sum_sum = 0.0f64;
+    let mut sum_max = 0.0f32;
+    let mut sum_errors = 0u32;
+    let mut sum_slow = 0u32;
+    let mut combined_summary_sketch = RelHist::new();
+    let mut has_summary = false;
+
+    struct MergedEndpoint {
+        count: u32,
+        sum: f64,
+        min: f32,
+        max: f32,
+        error_count: u32,
+        sketch: Box<RelHist>,
+    }
+
+    // Partition by method (GET=0, POST=1, etc.) for lower collision, no tuple overhead, and smaller cache footprint
+    let mut maps: [hashbrown::HashMap<Vec<u8>, MergedEndpoint>; 6] =
+        std::array::from_fn(|_| hashbrown::HashMap::with_capacity(2048));
+
+    for p in partials {
+        mode = p.mode;
+        total_matched += p.matched;
+        total_unmatched += p.unmatched;
+
+        if let Some(s) = p.summary {
+            has_summary = true;
+            sum_sum += s.sum;
+            if s.max > sum_max {
+                sum_max = s.max;
+            }
+            sum_errors += s.errors;
+            sum_slow += s.slow;
+            combined_summary_sketch.merge(&s.sketch);
+        }
+
+        for ep in p.endpoints {
+            let m = (ep.method as usize).min(5);
+            let map = &mut maps[m];
+            match map.entry(ep.path) {
+                hashbrown::hash_map::Entry::Vacant(v) => {
+                    v.insert(MergedEndpoint {
+                        count: ep.count,
+                        sum: ep.sum,
+                        min: ep.min,
+                        max: ep.max,
+                        error_count: ep.error_count,
+                        sketch: Box::new(ep.sketch),
+                    });
+                }
+                hashbrown::hash_map::Entry::Occupied(mut o) => {
+                    let acc = o.get_mut();
+                    acc.count += ep.count;
+                    acc.sum += ep.sum;
+                    if ep.count > 0 && (acc.count == ep.count || ep.min < acc.min) {
+                        acc.min = ep.min;
+                    }
+                    if ep.max > acc.max {
+                        acc.max = ep.max;
+                    }
+                    acc.error_count += ep.error_count;
+                    acc.sketch.merge(&ep.sketch);
+                }
+            }
+        }
+    }
+
+    let summary = if has_summary {
+        Some(DecodedSummary {
+            sum: sum_sum,
+            max: sum_max,
+            errors: sum_errors,
+            slow: sum_slow,
+            sketch: combined_summary_sketch,
+        })
+    } else {
+        None
+    };
+
+    let total_unique: usize = maps.iter().map(|m| m.len()).sum();
+    let mut endpoints: Vec<DecodedEndpoint> = Vec::with_capacity(total_unique);
+    for (m, map) in maps.into_iter().enumerate() {
+        let method = m as u8;
+        for (path, me) in map {
+            endpoints.push(DecodedEndpoint {
+                method,
+                path,
+                count: me.count,
+                sum: me.sum,
+                min: me.min,
+                max: me.max,
+                error_count: me.error_count,
+                sketch: *me.sketch,
+            });
+        }
+    }
+
+    DecodedPartial {
+        mode,
+        endpoints,
+        summary,
+        matched: total_matched,
+        unmatched: total_unmatched,
+    }
 }
 
 /// Bounds-checked cursor over a PM2P partial wire.

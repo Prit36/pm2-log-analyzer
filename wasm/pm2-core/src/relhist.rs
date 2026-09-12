@@ -23,6 +23,8 @@ pub struct RelHist {
     dense: [u32; DENSE_LIMIT],
     sparse: HashMap<i32, u32>,
     pub count: u32,
+    pub min_key: u16,
+    pub max_key: u16,
 }
 
 impl Default for RelHist {
@@ -31,6 +33,8 @@ impl Default for RelHist {
             dense: [0; DENSE_LIMIT],
             sparse: HashMap::new(),
             count: 0,
+            min_key: DENSE_LIMIT as u16,
+            max_key: 0,
         }
     }
 }
@@ -44,7 +48,15 @@ impl RelHist {
     pub fn accept_key(&mut self, key: i32) {
         self.count += 1;
         if key >= 0 && (key as usize) < DENSE_LIMIT {
-            self.dense[key as usize] += 1;
+            let u = key as usize;
+            self.dense[u] += 1;
+            let k16 = u as u16;
+            if k16 < self.min_key {
+                self.min_key = k16;
+            }
+            if k16 >= self.max_key {
+                self.max_key = k16 + 1;
+            }
         } else {
             *self.sparse.entry(key).or_insert(0) += 1;
         }
@@ -64,7 +76,9 @@ impl RelHist {
         high_keys.sort_unstable();
 
         let mut dense_count = 0usize;
-        for i in 0..DENSE_LIMIT {
+        let start = self.min_key as usize;
+        let end = (self.max_key as usize).min(DENSE_LIMIT);
+        for i in start..end {
             if self.dense[i] > 0 {
                 dense_count += 1;
             }
@@ -80,7 +94,7 @@ impl RelHist {
             out.extend_from_slice(&k.to_le_bytes());
             out.extend_from_slice(&c.to_le_bytes());
         }
-        for i in 0..DENSE_LIMIT {
+        for i in start..end {
             let c = self.dense[i];
             if c > 0 {
                 let k = i as i32;
@@ -97,8 +111,23 @@ impl RelHist {
     }
 
     pub fn merge(&mut self, other: &RelHist) {
+        if other.count == 0 {
+            return;
+        }
+        if self.count == 0 {
+            *self = other.clone();
+            return;
+        }
         self.count += other.count;
-        for i in 0..DENSE_LIMIT {
+        if other.min_key < self.min_key {
+            self.min_key = other.min_key;
+        }
+        if other.max_key > self.max_key {
+            self.max_key = other.max_key;
+        }
+        let start = other.min_key as usize;
+        let end = (other.max_key as usize).min(DENSE_LIMIT);
+        for i in start..end {
             self.dense[i] += other.dense[i];
         }
         for (&k, &v) in &other.sparse {
@@ -118,12 +147,22 @@ impl RelHist {
         let mut dense = [0u32; DENSE_LIMIT];
         let mut sparse = HashMap::new();
         let mut off = 8;
+        let mut min_k = DENSE_LIMIT as u16;
+        let mut max_k = 0u16;
         for _ in 0..n {
             let key = i32::from_le_bytes(buf[off..off + 4].try_into().ok()?);
             let cnt = u32::from_le_bytes(buf[off + 4..off + 8].try_into().ok()?);
             off += 8;
             if key >= 0 && (key as usize) < DENSE_LIMIT {
-                dense[key as usize] = cnt;
+                let u = key as usize;
+                dense[u] = cnt;
+                let k16 = u as u16;
+                if k16 < min_k {
+                    min_k = k16;
+                }
+                if k16 >= max_k {
+                    max_k = k16 + 1;
+                }
             } else {
                 sparse.insert(key, cnt);
             }
@@ -132,6 +171,8 @@ impl RelHist {
             dense,
             sparse,
             count,
+            min_key: min_k,
+            max_key: max_k,
         })
     }
 
@@ -149,7 +190,9 @@ impl RelHist {
 
         let mut keys = Vec::with_capacity(neg.len() + high.len() + 64);
         keys.extend_from_slice(&neg);
-        for i in 0..DENSE_LIMIT {
+        let start = self.min_key as usize;
+        let end = (self.max_key as usize).min(DENSE_LIMIT);
+        for i in start..end {
             if self.dense[i] > 0 {
                 keys.push(i as i32);
             }
