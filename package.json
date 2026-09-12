@@ -18,6 +18,7 @@
     "bench:mongo": "node scripts/bench/bench_mongo.mjs",
     "bench:zip": "node scripts/bench/bench_zip.mjs",
     "bench:native": "node scripts/bench/bench_native_tauri.mjs",
+    "bench:native:zip": "node scripts/bench/bench_native_tauri.mjs \"C:/Users/My_Home/Downloads/methaq-api&mongodb-07-09.zip\"",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",

@@ -124,17 +124,23 @@ pub fn extract_zip_entry<'a>(
             }
         }
         8 => {
-            // Raw Deflate (RFC 1951)
-            let mut out = Vec::new();
-            out.resize(entry.uncompressed_size, 0);
+            // Raw Deflate (RFC 1951) - zero-copy into uninitialized buffer
+            let mut out = Vec::with_capacity(entry.uncompressed_size);
+            let dest = unsafe {
+                core::slice::from_raw_parts_mut(
+                    out.as_mut_ptr() as *mut core::mem::MaybeUninit<u8>,
+                    entry.uncompressed_size,
+                )
+            };
 
             let config = zlib_rs::InflateConfig { window_bits: -15 };
-            let (slice, rc) = zlib_rs::decompress_slice(&mut out, raw_slice, config);
+            let (slice, rc) = zlib_rs::inflate::uncompress(dest, raw_slice, config);
             if (rc != zlib_rs::ReturnCode::Ok && rc != zlib_rs::ReturnCode::StreamEnd)
                 || slice.len() != entry.uncompressed_size
             {
                 return Err(format!("Deflate decompression failed for '{}': {:?}", entry.name, rc));
             }
+            unsafe { out.set_len(entry.uncompressed_size) };
 
             // Check if decompressed bytes have nested GZIP header
             if out.len() >= 2 && out[0] == 0x1f && out[1] == 0x8b {

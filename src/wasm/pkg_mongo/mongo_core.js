@@ -90,6 +90,14 @@ export class MongoEngine {
         const ret = wasm.mongoengine_total_lines(this.__wbg_ptr);
         return ret >>> 0;
     }
+    /**
+     * @param {Uint8Array} data
+     */
+    write_slice(data) {
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.mongoengine_write_slice(this.__wbg_ptr, ptr0, len0);
+    }
 }
 if (Symbol.dispose) MongoEngine.prototype[Symbol.dispose] = MongoEngine.prototype.free;
 function __wbg_get_imports() {
@@ -128,6 +136,13 @@ function getUint8ArrayMemory0() {
         cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
     }
     return cachedUint8ArrayMemory0;
+}
+
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
 }
 
 function passStringToWasm0(arg, malloc, realloc) {

@@ -247,36 +247,50 @@ fn expand_log_sources(
             LogCategory::Zip => {
                 match archive::parse_zip_entries(&mmap) {
                     Ok(entries) => {
-                        for entry in entries {
-                            let entry_name = entry.name.clone();
-                            let clean_name = entry_name.rsplit('/').next().unwrap_or(&entry_name);
-                            if clean_name.starts_with('.')
-                                || clean_name.starts_with("__macosx")
-                                || entry_name.ends_with('/')
-                                || clean_name.contains("error")
-                            {
-                                continue;
-                            }
+                        let mut valid_entries: Vec<_> = entries
+                            .into_iter()
+                            .filter(|entry| {
+                                let clean = entry.name.rsplit('/').next().unwrap_or(&entry.name);
+                                !clean.starts_with('.')
+                                    && !clean.starts_with("__macosx")
+                                    && !entry.name.ends_with('/')
+                                    && !clean.contains("error")
+                                    && entry.uncompressed_size > 0
+                            })
+                            .collect();
 
-                            if let Ok(cow) = archive::extract_zip_entry(&mmap, &entry) {
-                                let mut inner_cat = classifier::classify_name(&entry_name);
-                                if inner_cat == LogCategory::Unknown {
-                                    inner_cat = classifier::classify_content(&cow);
+                        // Sort descending by compressed size (Longest Processing Time first)
+                        valid_entries.sort_by_key(|b| std::cmp::Reverse(b.compressed_size));
+
+                        let extracted: Vec<LogSourceItem> = valid_entries
+                            .into_par_iter()
+                            .filter_map(|entry| {
+                                let entry_name = entry.name.clone();
+                                let clean_name = entry_name.rsplit('/').next().unwrap_or(&entry_name);
+                                if let Ok(cow) = archive::extract_zip_entry(&mmap, &entry) {
+                                    let mut inner_cat = classifier::classify_name(&entry_name);
+                                    if inner_cat == LogCategory::Unknown {
+                                        inner_cat = classifier::classify_content(&cow);
+                                    }
+                                    if inner_cat == LogCategory::Skip {
+                                        return None;
+                                    }
+                                    let size = cow.len();
+                                    let data = Arc::from(cow.into_owned());
+                                    Some(LogSourceItem {
+                                        name: clean_name.to_string(),
+                                        path: format!("{}/{}", path_str, entry_name),
+                                        data: LogData::Buffer(data),
+                                        size,
+                                        category: inner_cat,
+                                    })
+                                } else {
+                                    None
                                 }
-                                if inner_cat == LogCategory::Skip {
-                                    continue;
-                                }
-                                let size = cow.len();
-                                let data = Arc::from(cow.into_owned());
-                                items.push(LogSourceItem {
-                                    name: clean_name.to_string(),
-                                    path: format!("{}/{}", path_str, entry_name),
-                                    data: LogData::Buffer(data),
-                                    size,
-                                    category: inner_cat,
-                                });
-                            }
-                        }
+                            })
+                            .collect();
+
+                        items.extend(extracted);
                     }
                     Err(e) => {
                         log::warn!("Failed to parse ZIP archive '{}': {}", path_str, e);
@@ -610,6 +624,223 @@ fn parse_mongo_items(
     ))
 }
 
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn ingest_single_zip(
+    zip_path: &str,
+    mmap: &memmap2::Mmap,
+    pm2_options: &Pm2ParseOptions,
+    mongo_options: &MongoFilterOptions,
+    upload_mode: Option<&str>,
+    app_handle: Option<&tauri::AppHandle>,
+    state: &AppState,
+    t0: Instant,
+) -> Result<NativeIngestResult, String> {
+    let entries = archive::parse_zip_entries(mmap)?;
+
+    let mut pm2_entries = Vec::new();
+    let mut mongo_entries = Vec::new();
+    let mut unknown_entries = Vec::new();
+
+    for entry in entries {
+        let clean = entry.name.rsplit('/').next().unwrap_or(&entry.name);
+        if clean.starts_with('.')
+            || clean.starts_with("__macosx")
+            || entry.name.ends_with('/')
+            || clean.contains("error")
+            || entry.uncompressed_size == 0
+        {
+            continue;
+        }
+
+        let cat = classifier::classify_name(&entry.name);
+        match cat {
+            LogCategory::Pm2 => pm2_entries.push(entry),
+            LogCategory::Mongo => mongo_entries.push(entry),
+            LogCategory::Skip => {}
+            _ => unknown_entries.push(entry),
+        }
+    }
+
+    let mut extra_pm2 = Vec::new();
+    let mut extra_mongo = Vec::new();
+
+    for entry in unknown_entries {
+        if let Ok(cow) = archive::extract_zip_entry(mmap, &entry) {
+            let cat = classifier::classify_content(&cow);
+            let clean = entry.name.rsplit('/').next().unwrap_or(&entry.name);
+            let size = cow.len();
+            let data = Arc::from(cow.into_owned());
+            let item = LogSourceItem {
+                name: clean.to_string(),
+                path: format!("{}/{}", zip_path, entry.name),
+                data: LogData::Buffer(data),
+                size,
+                category: cat,
+            };
+            if cat == LogCategory::Pm2 {
+                extra_pm2.push(item);
+            } else if cat == LogCategory::Mongo {
+                extra_mongo.push(item);
+            }
+        }
+    }
+
+    if pm2_entries.is_empty() && mongo_entries.is_empty() && extra_pm2.is_empty() && extra_mongo.is_empty() {
+        return Err("No valid log files found in ZIP archive".into());
+    }
+
+    // Sort descending by compressed size for optimal LPT scheduling
+    pm2_entries.sort_by_key(|e| std::cmp::Reverse(e.compressed_size));
+    mongo_entries.sort_by_key(|e| std::cmp::Reverse(e.compressed_size));
+
+    let (pm2_outcome, mongo_outcome) = rayon::join(
+        || -> Result<Option<(Vec<pm2_core::Pm2Engine>, Pm2ParseResult, Vec<NativeFileInfo>)>, String> {
+            if pm2_entries.is_empty() && extra_pm2.is_empty() {
+                return Ok(None);
+            }
+
+            let mut items: Vec<LogSourceItem> = pm2_entries
+                .into_par_iter()
+                .filter_map(|entry| {
+                    let clean = entry.name.rsplit('/').next().unwrap_or(&entry.name);
+                    let cow = archive::extract_zip_entry(mmap, &entry).ok()?;
+                    let size = cow.len();
+                    Some(LogSourceItem {
+                        name: clean.to_string(),
+                        path: format!("{}/{}", zip_path, entry.name),
+                        data: LogData::Buffer(Arc::from(cow.into_owned())),
+                        size,
+                        category: LogCategory::Pm2,
+                    })
+                })
+                .collect();
+
+            items.extend(extra_pm2);
+
+            if items.is_empty() {
+                return Ok(None);
+            }
+
+            let file_infos: Vec<NativeFileInfo> = items
+                .iter()
+                .map(|it| NativeFileInfo {
+                    name: it.name.clone(),
+                    path: it.path.clone(),
+                    size: it.size as u64,
+                    category: "pm2".into(),
+                })
+                .collect();
+
+            let (shards, res) = parse_pm2_items(items, pm2_options, app_handle)?;
+            Ok(Some((shards, res, file_infos)))
+        },
+        || -> Result<Option<(mongo_core::MongoEngine, MongoParseResult, Vec<NativeFileInfo>)>, String> {
+            if mongo_entries.is_empty() && extra_mongo.is_empty() {
+                return Ok(None);
+            }
+
+            let mut items: Vec<LogSourceItem> = mongo_entries
+                .into_par_iter()
+                .filter_map(|entry| {
+                    let clean = entry.name.rsplit('/').next().unwrap_or(&entry.name);
+                    let cow = archive::extract_zip_entry(mmap, &entry).ok()?;
+                    let size = cow.len();
+                    Some(LogSourceItem {
+                        name: clean.to_string(),
+                        path: format!("{}/{}", zip_path, entry.name),
+                        data: LogData::Buffer(Arc::from(cow.into_owned())),
+                        size,
+                        category: LogCategory::Mongo,
+                    })
+                })
+                .collect();
+
+            items.extend(extra_mongo);
+
+            if items.is_empty() {
+                return Ok(None);
+            }
+
+            let file_infos: Vec<NativeFileInfo> = items
+                .iter()
+                .map(|it| NativeFileInfo {
+                    name: it.name.clone(),
+                    path: it.path.clone(),
+                    size: it.size as u64,
+                    category: "mongo".into(),
+                })
+                .collect();
+
+            let existing = if upload_mode == Some("append") {
+                state.mongo.lock().unwrap().take()
+            } else {
+                None
+            };
+
+            let (engine, res) = parse_mongo_items(items, mongo_options, app_handle, existing)?;
+            Ok(Some((engine, res, file_infos)))
+        },
+    );
+
+    let pm2_pair = pm2_outcome?;
+    let mongo_pair = mongo_outcome?;
+
+    let mut all_files = Vec::new();
+    let mut total_bytes = 0u64;
+
+    let pm2_result = if let Some((shards, res, files)) = pm2_pair {
+        for f in &files {
+            total_bytes += f.size;
+        }
+        all_files.extend(files);
+
+        let mut lock = state.pm2_shards.lock().unwrap();
+        if upload_mode == Some("append") {
+            lock.extend(shards);
+            let combined_json = finalize::finalize_pm2(lock.as_mut_slice(), pm2_options)?;
+            let hit_count = lock.iter().map(|s| s.hit_count()).sum();
+            let unmatched_count = lock.iter().map(|s| s.unmatched_count()).sum();
+            let methods_mask = lock.iter().fold(0, |acc, s| acc | s.methods_mask());
+            let shard_count = lock.len();
+            Some(Pm2ParseResult {
+                json: combined_json,
+                hit_count,
+                unmatched_count,
+                methods_mask,
+                shard_count,
+                parse_wall_ms: res.parse_wall_ms,
+            })
+        } else {
+            *lock = shards;
+            Some(res)
+        }
+    } else {
+        None
+    };
+
+    let mongo_result = if let Some((engine, res, files)) = mongo_pair {
+        for f in &files {
+            total_bytes += f.size;
+        }
+        all_files.extend(files);
+
+        *state.mongo.lock().unwrap() = Some(engine);
+        Some(res)
+    } else {
+        None
+    };
+
+    emit_progress(app_handle, "complete", 100, 100, 100);
+
+    Ok(NativeIngestResult {
+        pm2: pm2_result,
+        mongo: mongo_result,
+        files: all_files,
+        total_bytes,
+        parse_wall_ms: t0.elapsed().as_millis() as u64,
+    })
+}
+
 pub fn ingest_native_internal(
     paths: &[String],
     pm2_options: &Pm2ParseOptions,
@@ -620,15 +851,29 @@ pub fn ingest_native_internal(
 ) -> Result<NativeIngestResult, String> {
     let t0 = Instant::now();
 
-    // Fast-path: single raw log file
+    // Fast-path: single file (raw or zip)
     if paths.len() == 1 {
         let path = &paths[0];
         let p = Path::new(path);
-        if p.is_file() && !path.ends_with(".zip") && !path.ends_with(".gz") {
+        if p.is_file() {
             let file = File::open(path).map_err(|e| format!("Failed to open '{path}': {e}"))?;
             let mmap = unsafe { MmapOptions::new().map(&file) }
                 .map_err(|e| format!("Failed to memory-map '{path}': {e}"))?;
-            if mmap.len() >= 4 && &mmap[..4] != b"PK\x03\x04" && &mmap[..2] != b"\x1f\x8b" {
+
+            if mmap.len() >= 4 && &mmap[..4] == b"PK\x03\x04" {
+                return ingest_single_zip(
+                    path,
+                    &mmap,
+                    pm2_options,
+                    mongo_options,
+                    upload_mode,
+                    app_handle,
+                    state,
+                    t0,
+                );
+            }
+
+            if !path.ends_with(".zip") && !path.ends_with(".gz") && (mmap.len() < 2 || &mmap[..2] != b"\x1f\x8b") {
                 let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or(path);
                 let cat = classifier::classify_file_or_entry(file_name, &mmap);
                 let size = mmap.len() as u64;
@@ -748,11 +993,32 @@ pub fn ingest_native_internal(
         }
     }
 
-    let mut pm2_result = None;
-    let mut mongo_result = None;
+    let (pm2_outcome, mongo_outcome) = rayon::join(
+        || -> Result<Option<(Vec<pm2_core::Pm2Engine>, Pm2ParseResult)>, String> {
+            if pm2_items.is_empty() {
+                Ok(None)
+            } else {
+                parse_pm2_items(pm2_items, pm2_options, app_handle).map(Some)
+            }
+        },
+        || -> Result<Option<(mongo_core::MongoEngine, MongoParseResult)>, String> {
+            if mongo_items.is_empty() {
+                Ok(None)
+            } else {
+                let existing = if upload_mode == Some("append") {
+                    state.mongo.lock().unwrap().take()
+                } else {
+                    None
+                };
+                parse_mongo_items(mongo_items, mongo_options, app_handle, existing).map(Some)
+            }
+        },
+    );
 
-    if !pm2_items.is_empty() {
-        let (shards, res) = parse_pm2_items(pm2_items, pm2_options, app_handle)?;
+    let pm2_pair = pm2_outcome?;
+    let mongo_pair = mongo_outcome?;
+
+    let pm2_result = if let Some((shards, res)) = pm2_pair {
         let mut lock = state.pm2_shards.lock().unwrap();
         if upload_mode == Some("append") {
             lock.extend(shards);
@@ -761,30 +1027,28 @@ pub fn ingest_native_internal(
             let unmatched_count = lock.iter().map(|s| s.unmatched_count()).sum();
             let methods_mask = lock.iter().fold(0, |acc, s| acc | s.methods_mask());
             let shard_count = lock.len();
-            pm2_result = Some(Pm2ParseResult {
+            Some(Pm2ParseResult {
                 json: combined_json,
                 hit_count,
                 unmatched_count,
                 methods_mask,
                 shard_count,
                 parse_wall_ms: res.parse_wall_ms,
-            });
+            })
         } else {
             *lock = shards;
-            pm2_result = Some(res);
+            Some(res)
         }
-    }
+    } else {
+        None
+    };
 
-    if !mongo_items.is_empty() {
-        let existing = if upload_mode == Some("append") {
-            state.mongo.lock().unwrap().take()
-        } else {
-            None
-        };
-        let (engine, res) = parse_mongo_items(mongo_items, mongo_options, app_handle, existing)?;
+    let mongo_result = if let Some((engine, res)) = mongo_pair {
         *state.mongo.lock().unwrap() = Some(engine);
-        mongo_result = Some(res);
-    }
+        Some(res)
+    } else {
+        None
+    };
 
     emit_progress(app_handle, "complete", 100, 100, 100);
 
@@ -1136,6 +1400,41 @@ mod tests {
             res.pm2.as_ref().unwrap().hit_count,
             res.mongo.as_ref().unwrap().slow_query_count,
             res.files.len()
+        );
+    }
+
+    #[test]
+    fn test_profile_methaq_zip() {
+        let zip_path = Path::new("C:/Users/My_Home/Downloads/methaq-api&mongodb-07-09.zip");
+        if !zip_path.exists() {
+            println!("methaq zip not found, skipping");
+            return;
+        }
+
+        let paths = vec![zip_path.to_string_lossy().to_string()];
+
+        let state = AppState {
+            pm2_shards: Mutex::new(Vec::new()),
+            mongo: Mutex::new(None),
+        };
+
+        let t_ingest = Instant::now();
+        let ingest_res = ingest_native_internal(
+            &paths,
+            &Pm2ParseOptions::default(),
+            &MongoFilterOptions::default(),
+            Some("replace"),
+            None,
+            &state,
+        )
+        .expect("ingest_native_internal");
+        let ingest_wall = t_ingest.elapsed().as_millis();
+
+        println!(
+            "FULL INGEST NATIVE: wall {}ms (pm2 hits: {}, mongo lines: {})",
+            ingest_wall,
+            ingest_res.pm2.as_ref().map(|p| p.hit_count).unwrap_or(0),
+            ingest_res.mongo.as_ref().map(|m| m.total_lines).unwrap_or(0),
         );
     }
 }

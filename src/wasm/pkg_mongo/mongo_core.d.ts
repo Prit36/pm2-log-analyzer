@@ -24,6 +24,7 @@ export class MongoEngine {
     reaggregate(op: string, plan_filter: number, min_duration_ms: number, collection: string, search_query: string, high_scan_ratio_only: boolean, user: string): string;
     slow_query_count(): number;
     total_lines(): number;
+    write_slice(data: Uint8Array): void;
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -39,6 +40,7 @@ export interface InitOutput {
     readonly mongoengine_reaggregate: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number];
     readonly mongoengine_slow_query_count: (a: number) => number;
     readonly mongoengine_total_lines: (a: number) => number;
+    readonly mongoengine_write_slice: (a: number, b: number, c: number) => void;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
