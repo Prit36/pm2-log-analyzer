@@ -94,6 +94,12 @@ function waitForFirstPaint(selector: string): Promise<void> {
 let nativePm2Active = false;
 let nativeMongoActive = false;
 
+// Ingest and reaggregate now run off the webview thread, so a slow request can
+// finish after a newer one. Tag requests per store and let only the newest
+// write its result, otherwise a stale reaggregate overwrites a fresh ingest.
+let pm2RequestSeq = 0;
+let mongoRequestSeq = 0;
+
 export function isNativePm2Active(): boolean {
   return nativePm2Active;
 }
@@ -174,13 +180,16 @@ export async function parsePm2FilesNative(paths: string[]): Promise<Pm2ParseStat
 export async function reaggregatePm2Native(): Promise<void> {
   const { setResult, setError } = useAnalysisStore.getState();
   const options = workerParseOptions(useAnalysisStore.getState().filters);
+  const seq = ++pm2RequestSeq;
 
   try {
     const res = await invoke<Pm2ReaggNativeResult>("reaggregate_pm2", { options });
+    if (seq !== pm2RequestSeq) return;
     // SAFETY: data or parsed json conforms to AggregatedResult schema emitted by Rust finalizer
     const result = (res.data ?? (res.json ? JSON.parse(res.json) : null)) as AggregatedResult;
     setResult(result);
   } catch (err) {
+    if (seq !== pm2RequestSeq) return;
     const message = err instanceof Error ? err.message : String(err);
     setError(message);
     throw err;
@@ -239,6 +248,7 @@ export async function parseMongoFilesNative(paths: string[]): Promise<MongoParse
 
 export async function reaggregateMongoNative(): Promise<void> {
   const { setResult, setError, filters } = useMongoStore.getState();
+  const seq = ++mongoRequestSeq;
 
   try {
     const json = await invoke<string>("reaggregate_mongo", {
@@ -253,11 +263,13 @@ export async function reaggregateMongoNative(): Promise<void> {
         user: filters.userFilter,
       },
     });
+    if (seq !== mongoRequestSeq) return;
 
     // SAFETY: json string is guaranteed MongoAggregationResult JSON schema emitted by mongo_core reaggregate
     const parsed = JSON.parse(json) as MongoAggregationResult;
     setResult(parsed);
   } catch (err) {
+    if (seq !== mongoRequestSeq) return;
     const message = err instanceof Error ? err.message : String(err);
     setError(message);
     throw err;
@@ -330,6 +342,9 @@ export async function handleNativePathsUpload(
 
   const { setMode } = useAppModeStore.getState();
 
+  const pm2Seq = ++pm2RequestSeq;
+  const mongoSeq = ++mongoRequestSeq;
+
   // Set visual progress on active store
   setPm2Parsing(true);
   setPm2Progress({ stage: "reading", processed: 0, total: 100, percent: 0 });
@@ -389,11 +404,13 @@ export async function handleNativePathsUpload(
       // SAFETY: data or parsed json conforms to AggregatedResult schema emitted by Rust finalizer
       const result = (res.pm2.data ??
         (res.pm2.json ? JSON.parse(res.pm2.json) : null)) as AggregatedResult;
-      setPm2Result(result);
       pm2Matched = result.summary.matched;
       pm2WallMs = res.pm2.parse_wall_ms;
-      if (uploadMode === "append") appendPm2Files(pm2Files);
-      else setPm2Files(pm2Files);
+      if (pm2Seq === pm2RequestSeq) {
+        setPm2Result(result);
+        if (uploadMode === "append") appendPm2Files(pm2Files);
+        else setPm2Files(pm2Files);
+      }
       setPm2Progress({ stage: "complete", processed: 100, total: 100, percent: 100 });
       setPm2Parsing(false);
     } else {
@@ -405,12 +422,14 @@ export async function handleNativePathsUpload(
       // SAFETY: data or parsed json conforms to MongoAggregationResult schema emitted by mongo_core
       const parsed = (res.mongo.data ??
         (res.mongo.json ? JSON.parse(res.mongo.json) : null)) as MongoAggregationResult;
-      setMongoResult(parsed);
       mongoTotalLines = res.mongo.total_lines;
       mongoSlowQueries = res.mongo.slow_query_count;
       mongoWallMs = res.mongo.parse_wall_ms;
-      if (uploadMode === "append") appendMongoFiles(mongoFiles);
-      else setMongoFiles(mongoFiles);
+      if (mongoSeq === mongoRequestSeq) {
+        setMongoResult(parsed);
+        if (uploadMode === "append") appendMongoFiles(mongoFiles);
+        else setMongoFiles(mongoFiles);
+      }
       setMongoProgress({ stage: "complete", processed: 100, total: 100, percent: 100 });
       setMongoParsing(false);
     } else {

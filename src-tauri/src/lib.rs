@@ -10,9 +10,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 
 const LINE_EXTEND: usize = 256 * 1024;
+
+/// Feed granularity for MongoDB logs: large enough to keep `feed_slice` cheap,
+/// small enough that the progress bar moves during a multi-second ingest.
+const MONGO_FEED_CHUNK_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct ProgressPayload {
@@ -182,6 +186,41 @@ fn emit_progress(
                 total,
                 percent,
             },
+        );
+    }
+}
+
+/// Byte counter shared by pipelines that run at the same time (ZIP inflate +
+/// PM2 parse + Mongo parse), so the UI bar reflects all of them instead of
+/// restarting on each stage.
+struct SharedProgress<'a> {
+    app: Option<&'a tauri::AppHandle>,
+    done: AtomicU64,
+    total: u64,
+}
+
+impl<'a> SharedProgress<'a> {
+    fn new(app: Option<&'a tauri::AppHandle>, total: u64) -> Self {
+        Self {
+            app,
+            done: AtomicU64::new(0),
+            total,
+        }
+    }
+
+    /// Count `bytes` as processed and report the running percentage (capped at
+    /// 99 so "complete" stays reserved for the caller that owns the whole job).
+    fn add(&self, bytes: u64) {
+        if self.app.is_none() || self.total == 0 {
+            return;
+        }
+        let done = self.done.fetch_add(bytes, Ordering::Relaxed) + bytes;
+        emit_progress(
+            self.app,
+            "parsing",
+            done as usize,
+            self.total as usize,
+            ((done * 100) / self.total).min(99) as u32,
         );
     }
 }
@@ -382,7 +421,7 @@ pub fn parse_pm2_files_internal(
         return Err("No PM2 API access logs found in provided sources".into());
     }
 
-    parse_pm2_items(pm2_items, options, app_handle)
+    parse_pm2_items(pm2_items, options, app_handle, None)
 }
 
 fn parse_pm2_raw_mmaps(
@@ -484,6 +523,7 @@ fn parse_pm2_items(
     items: Vec<LogSourceItem>,
     options: &Pm2ParseOptions,
     app_handle: Option<&tauri::AppHandle>,
+    shared_progress: Option<&SharedProgress>,
 ) -> Result<(Vec<pm2_core::Pm2Engine>, Pm2ParseResult), String> {
     let t0 = Instant::now();
     let cpus = std::thread::available_parallelism()
@@ -515,7 +555,14 @@ fn parse_pm2_items(
     }
 
     let total_bytes: u64 = items.iter().map(|i| i.size as u64).sum();
-    emit_progress(app_handle, "parsing", 0, total_bytes as usize, 50);
+    let local_progress;
+    let progress = match shared_progress {
+        Some(shared) => shared,
+        None => {
+            local_progress = SharedProgress::new(app_handle, total_bytes);
+            &local_progress
+        }
+    };
 
     let mut shards: Vec<pm2_core::Pm2Engine> = tasks
         .into_par_iter()
@@ -529,6 +576,7 @@ fn parse_pm2_items(
                 task.end as f64,
                 task.file_size as f64,
             );
+            progress.add((task.end - task.start) as u64);
             engine
         })
         .collect();
@@ -537,13 +585,15 @@ fn parse_pm2_items(
     std::thread::spawn(move || drop(items));
 
     let shard_count = shards.len();
-    emit_progress(
-        app_handle,
-        "complete",
-        total_bytes as usize,
-        total_bytes as usize,
-        100,
-    );
+    if shared_progress.is_none() {
+        emit_progress(
+            app_handle,
+            "complete",
+            total_bytes as usize,
+            total_bytes as usize,
+            100,
+        );
+    }
 
     let json = finalize::finalize_pm2(&mut shards, options)?;
     let total_hits: u32 = shards.iter().map(|s| s.hit_count()).sum();
@@ -583,7 +633,7 @@ pub fn parse_mongo_files_internal(
         return Err("No MongoDB logs found in provided sources".into());
     }
 
-    parse_mongo_items(mongo_items, options, app_handle, None)
+    parse_mongo_items(mongo_items, options, app_handle, None, None)
 }
 
 fn parse_mongo_items(
@@ -591,16 +641,34 @@ fn parse_mongo_items(
     options: &MongoFilterOptions,
     app_handle: Option<&tauri::AppHandle>,
     existing_engine: Option<mongo_core::MongoEngine>,
+    shared_progress: Option<&SharedProgress>,
 ) -> Result<(mongo_core::MongoEngine, MongoParseResult), String> {
     let t0 = Instant::now();
     let mut engine = existing_engine.unwrap_or_else(mongo_core::MongoEngine::new);
 
     let total_bytes: usize = items.iter().map(|i| i.size).sum();
+    let local_progress;
+    let progress = match shared_progress {
+        Some(shared) => shared,
+        None => {
+            local_progress = SharedProgress::new(app_handle, total_bytes as u64);
+            &local_progress
+        }
+    };
+
     for item in &items {
-        engine.feed_slice(&item.data);
+        let data: &[u8] = &item.data;
+        // Feed in chunks: splitting the byte stream is lossless (`feed_slice`
+        // keeps the partial line carry) and keeps progress live on huge logs.
+        for chunk in data.chunks(MONGO_FEED_CHUNK_BYTES) {
+            engine.feed_slice(chunk);
+            progress.add(chunk.len() as u64);
+        }
         engine.end_shard();
     }
-    emit_progress(app_handle, "complete", total_bytes, total_bytes, 100);
+    if shared_progress.is_none() {
+        emit_progress(app_handle, "complete", total_bytes, total_bytes, 100);
+    }
 
     let json = engine.reaggregate(
         options.op.as_deref().unwrap_or("all"),
@@ -700,6 +768,20 @@ fn ingest_single_zip(
     pm2_entries.sort_by_key(|e| std::cmp::Reverse(e.compressed_size));
     mongo_entries.sort_by_key(|e| std::cmp::Reverse(e.compressed_size));
 
+    // Every archive byte is processed twice (inflate, then parse); entries that
+    // had to be classified by content were already inflated above.
+    let archive_bytes: u64 = pm2_entries
+        .iter()
+        .chain(mongo_entries.iter())
+        .map(|e| e.uncompressed_size as u64)
+        .sum();
+    let classified_bytes: u64 = extra_pm2
+        .iter()
+        .chain(extra_mongo.iter())
+        .map(|i| i.size as u64)
+        .sum();
+    let progress = SharedProgress::new(app_handle, archive_bytes * 2 + classified_bytes);
+
     let (pm2_outcome, mongo_outcome) = rayon::join(
         || -> Result<Option<(Vec<pm2_core::Pm2Engine>, Pm2ParseResult, Vec<NativeFileInfo>)>, String> {
             if pm2_entries.is_empty() && extra_pm2.is_empty() {
@@ -711,6 +793,7 @@ fn ingest_single_zip(
                 .filter_map(|entry| {
                     let clean = entry.name.rsplit('/').next().unwrap_or(&entry.name);
                     let cow = archive::extract_zip_entry(mmap, &entry).ok()?;
+                    progress.add(entry.uncompressed_size as u64);
                     let size = cow.len();
                     Some(LogSourceItem {
                         name: clean.to_string(),
@@ -738,7 +821,7 @@ fn ingest_single_zip(
                 })
                 .collect();
 
-            let (shards, res) = parse_pm2_items(items, pm2_options, app_handle)?;
+            let (shards, res) = parse_pm2_items(items, pm2_options, app_handle, Some(&progress))?;
             Ok(Some((shards, res, file_infos)))
         },
         || -> Result<Option<(mongo_core::MongoEngine, MongoParseResult, Vec<NativeFileInfo>)>, String> {
@@ -751,6 +834,7 @@ fn ingest_single_zip(
                 .filter_map(|entry| {
                     let clean = entry.name.rsplit('/').next().unwrap_or(&entry.name);
                     let cow = archive::extract_zip_entry(mmap, &entry).ok()?;
+                    progress.add(entry.uncompressed_size as u64);
                     let size = cow.len();
                     Some(LogSourceItem {
                         name: clean.to_string(),
@@ -784,7 +868,7 @@ fn ingest_single_zip(
                 None
             };
 
-            let (engine, res) = parse_mongo_items(items, mongo_options, app_handle, existing)?;
+            let (engine, res) = parse_mongo_items(items, mongo_options, app_handle, existing, Some(&progress))?;
             Ok(Some((engine, res, file_infos)))
         },
     );
@@ -904,6 +988,7 @@ pub fn ingest_native_internal(
                         } else {
                             None
                         },
+                        None,
                     )?;
                     *state.mongo.lock().unwrap() = Some(engine);
                     return Ok(NativeIngestResult {
@@ -1001,12 +1086,14 @@ pub fn ingest_native_internal(
         }
     }
 
+    let progress = SharedProgress::new(app_handle, total_bytes);
+
     let (pm2_outcome, mongo_outcome) = rayon::join(
         || -> Result<Option<(Vec<pm2_core::Pm2Engine>, Pm2ParseResult)>, String> {
             if pm2_items.is_empty() {
                 Ok(None)
             } else {
-                parse_pm2_items(pm2_items, pm2_options, app_handle).map(Some)
+                parse_pm2_items(pm2_items, pm2_options, app_handle, Some(&progress)).map(Some)
             }
         },
         || -> Result<Option<(mongo_core::MongoEngine, MongoParseResult)>, String> {
@@ -1018,7 +1105,8 @@ pub fn ingest_native_internal(
                 } else {
                     None
                 };
-                parse_mongo_items(mongo_items, mongo_options, app_handle, existing).map(Some)
+                parse_mongo_items(mongo_items, mongo_options, app_handle, existing, Some(&progress))
+                    .map(Some)
             }
         },
     );
@@ -1069,85 +1157,114 @@ pub fn ingest_native_internal(
     })
 }
 
+// Every command below does whole-file work (absorb, aggregate, serialize) that
+// takes hundreds of milliseconds to seconds. They are async on purpose: a sync
+// Tauri command runs on the webview's IPC thread, which stalls the window and
+// delays every `native-progress` event until the job is already finished.
 #[tauri::command]
-fn parse_pm2_files(
+async fn parse_pm2_files(
     paths: Vec<String>,
     options: Pm2ParseOptions,
     app: tauri::AppHandle,
-    state: State<'_, AppState>,
 ) -> Result<Pm2ParseResult, String> {
-    let (shards, res) = parse_pm2_files_internal(&paths, &options, Some(&app))?;
-    let mut lock = state.pm2_shards.lock().unwrap();
-    *lock = shards;
-    Ok(res)
-}
-
-#[tauri::command]
-fn reaggregate_pm2(
-    options: Pm2ParseOptions,
-    state: State<'_, AppState>,
-) -> Result<Pm2ReaggResult, String> {
-    let t0 = Instant::now();
-    let mut lock = state.pm2_shards.lock().unwrap();
-    if lock.is_empty() {
-        return Err("PM2 engine is not initialized".into());
-    }
-    let json = finalize::finalize_pm2(lock.as_mut_slice(), &options)?;
-    Ok(Pm2ReaggResult {
-        data: to_raw_value(json),
-        reagg_wall_ms: t0.elapsed().as_millis() as u64,
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Pm2ParseResult, String> {
+        let (shards, res) = parse_pm2_files_internal(&paths, &options, Some(&handle))?;
+        let state = handle.state::<AppState>();
+        *state.pm2_shards.lock().unwrap() = shards;
+        Ok(res)
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn parse_mongo_files(
+async fn reaggregate_pm2(
+    options: Pm2ParseOptions,
+    app: tauri::AppHandle,
+) -> Result<Pm2ReaggResult, String> {
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Pm2ReaggResult, String> {
+        let t0 = Instant::now();
+        let state = handle.state::<AppState>();
+        let mut lock = state.pm2_shards.lock().unwrap();
+        if lock.is_empty() {
+            return Err("PM2 engine is not initialized".into());
+        }
+        let json = finalize::finalize_pm2(lock.as_mut_slice(), &options)?;
+        Ok(Pm2ReaggResult {
+            data: to_raw_value(json),
+            reagg_wall_ms: t0.elapsed().as_millis() as u64,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn parse_mongo_files(
     paths: Vec<String>,
     options: MongoFilterOptions,
     app: tauri::AppHandle,
-    state: State<'_, AppState>,
 ) -> Result<MongoParseResult, String> {
-    let (engine, res) = parse_mongo_files_internal(&paths, &options, Some(&app))?;
-    let mut lock = state.mongo.lock().unwrap();
-    *lock = Some(engine);
-    Ok(res)
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<MongoParseResult, String> {
+        let (engine, res) = parse_mongo_files_internal(&paths, &options, Some(&handle))?;
+        let state = handle.state::<AppState>();
+        *state.mongo.lock().unwrap() = Some(engine);
+        Ok(res)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn reaggregate_mongo(
+async fn reaggregate_mongo(
     options: MongoFilterOptions,
-    state: State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let lock = state.mongo.lock().unwrap();
-    let engine = lock.as_ref().ok_or("MongoDB engine is not initialized")?;
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let state = handle.state::<AppState>();
+        let lock = state.mongo.lock().unwrap();
+        let engine = lock.as_ref().ok_or("MongoDB engine is not initialized")?;
 
-    Ok(engine.reaggregate(
-        options.op.as_deref().unwrap_or("all"),
-        options.plan_filter.unwrap_or(0),
-        options.min_duration_ms.unwrap_or(0),
-        options.collection.as_deref().unwrap_or("all"),
-        options.search_query.as_deref().unwrap_or(""),
-        options.high_scan_ratio_only.unwrap_or(false),
-        options.user.as_deref().unwrap_or("all"),
-    ))
+        Ok(engine.reaggregate(
+            options.op.as_deref().unwrap_or("all"),
+            options.plan_filter.unwrap_or(0),
+            options.min_duration_ms.unwrap_or(0),
+            options.collection.as_deref().unwrap_or("all"),
+            options.search_query.as_deref().unwrap_or(""),
+            options.high_scan_ratio_only.unwrap_or(false),
+            options.user.as_deref().unwrap_or("all"),
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn ingest_native_files(
+async fn ingest_native_files(
     paths: Vec<String>,
     pm2_options: Pm2ParseOptions,
     mongo_options: MongoFilterOptions,
     upload_mode: Option<String>,
     app: tauri::AppHandle,
-    state: State<'_, AppState>,
 ) -> Result<NativeIngestResult, String> {
-    ingest_native_internal(
-        &paths,
-        &pm2_options,
-        &mongo_options,
-        upload_mode.as_deref(),
-        Some(&app),
-        &state,
-    )
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<NativeIngestResult, String> {
+        let state = handle.state::<AppState>();
+        ingest_native_internal(
+            &paths,
+            &pm2_options,
+            &mongo_options,
+            upload_mode.as_deref(),
+            Some(&handle),
+            &state,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1199,7 +1316,8 @@ mod tests {
 
         assert!(res.hit_count > 0, "Expected hit_count > 0");
         assert!(res.parse_wall_ms < 10000, "Expected fast parse");
-        let v: serde_json::Value = serde_json::from_str(&res.json).expect("valid result JSON");
+        let v: serde_json::Value =
+            serde_json::from_str(res.data.get()).expect("valid result JSON");
         assert!(
             v["api"].as_array().is_some_and(|a| !a.is_empty()),
             "Expected api rows"
@@ -1214,7 +1332,7 @@ mod tests {
             res.hit_count,
             res.parse_wall_ms,
             res.shard_count,
-            res.json.len() / 1024
+            res.data.get().len() / 1024
         );
     }
 
@@ -1239,10 +1357,10 @@ mod tests {
             res.parse_wall_ms,
             res.shard_count,
             t0.elapsed().as_millis(),
-            res.json.len() / 1024,
+            res.data.get().len() / 1024,
         );
         assert_eq!(res.hit_count, 20315200);
-        assert!(serde_json::from_str::<serde_json::Value>(&res.json).is_ok());
+        assert!(serde_json::from_str::<serde_json::Value>(res.data.get()).is_ok());
     }
 
     #[test]
@@ -1264,6 +1382,65 @@ mod tests {
             "Mongo Native parsed {} lines ({} slow) in {}ms",
             res.total_lines, res.slow_query_count, res.parse_wall_ms
         );
+    }
+
+    /// `parse_mongo_items` feeds big logs in `MONGO_FEED_CHUNK_BYTES` slices so the
+    /// UI can show progress; splitting the byte stream must not change results.
+    #[test]
+    fn test_mongo_chunked_feed_matches_single_shot() {
+        let p = Path::new("../mongodb_logs_sample/methaq-mongod.log");
+        if !p.exists() {
+            eprintln!("Large mongo log not found, skipping");
+            return;
+        }
+        let data = std::fs::read(p).expect("read mongo log");
+
+        let mut single = mongo_core::MongoEngine::new();
+        single.feed_slice(&data);
+        single.end_shard();
+
+        let mut chunked = mongo_core::MongoEngine::new();
+        for chunk in data.chunks(4 * 1024 * 1024) {
+            chunked.feed_slice(chunk);
+        }
+        chunked.end_shard();
+
+        assert_eq!(single.total_lines(), chunked.total_lines());
+        assert_eq!(single.slow_query_count(), chunked.slow_query_count());
+
+        // Reagg emits patterns in hash order and numbers their `id` from
+        // that order, so compare content with array order and ids removed.
+        let a = mongo_reagg_json(&single);
+        let b = mongo_reagg_json(&chunked);
+        assert_eq!(
+            json_content(&a),
+            json_content(&b),
+            "chunked feed changed the aggregation"
+        );
+    }
+
+    fn mongo_reagg_json(engine: &mongo_core::MongoEngine) -> serde_json::Value {
+        serde_json::from_str(&engine.reaggregate("all", 0, 0, "all", "", false, "all"))
+            .expect("valid mongo result JSON")
+    }
+
+    /// Canonical form for comparing aggregations: arrays sorted by content and
+    /// `id` fields dropped (ids are numbered from hash-map iteration order).
+    fn json_content(value: &serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Array(items) => {
+                let mut sorted: Vec<serde_json::Value> = items.iter().map(json_content).collect();
+                sorted.sort_by_cached_key(|item| item.to_string());
+                serde_json::Value::Array(sorted)
+            }
+            serde_json::Value::Object(map) => serde_json::Value::Object(
+                map.iter()
+                    .filter(|(k, _)| k.as_str() != "id")
+                    .map(|(k, v)| (k.clone(), json_content(v)))
+                    .collect(),
+            ),
+            other => other.clone(),
+        }
     }
 
     #[test]

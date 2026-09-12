@@ -45,6 +45,53 @@ const cdpBase = `http://127.0.0.1:${port}`;
 const NATIVE_LINE =
   /\[native\] ui ready in ([\d.]+)ms \(invoke ([\d.]+)ms, assemble ([\d.]+)ms, native ([\d.]+)ms\)/;
 
+/**
+ * Watches how alive the webview stays while a native ingest runs. A blocked UI
+ * thread shows up as one long frame gap plus DOM updates only at the very end,
+ * which is what makes a fast native parse feel slower than a live WASM one.
+ */
+const UI_PROBE_INSTALL_JS = `(() => {
+  const u = (window.__ui = {
+    frames: 0,
+    maxFrameGapMs: 0,
+    mutations: 0,
+    timeline: [],
+    startedAt: performance.now(),
+    lastFrameAt: performance.now(),
+  });
+  const frame = () => {
+    const now = performance.now();
+    const gap = now - u.lastFrameAt;
+    if (gap > u.maxFrameGapMs) u.maxFrameGapMs = gap;
+    u.lastFrameAt = now;
+    u.frames++;
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  new MutationObserver(() => {
+    u.mutations++;
+    if (u.timeline.length < 40) {
+      u.timeline.push([
+        Math.round(performance.now() - u.startedAt),
+        document.body.innerText.replace(/\\s+/g, " ").slice(0, 60),
+      ]);
+    }
+  }).observe(document.body, { subtree: true, childList: true, characterData: true });
+  return true;
+})()`;
+
+const UI_PROBE_READ_JS = `(() => {
+  const u = window.__ui;
+  return {
+    frames: u.frames,
+    maxFrameGapMs: Math.round(u.maxFrameGapMs),
+    mutations: u.mutations,
+    timeline: u.timeline,
+    elapsedMs: Math.round(performance.now() - u.startedAt),
+    visibility: document.visibilityState,
+  };
+})()`;
+
 async function cdpAlive() {
   try {
     const res = await fetch(`${cdpBase}/json/version`, { signal: AbortSignal.timeout(1000) });
@@ -195,6 +242,7 @@ try {
   const results = [];
   for (let run = 0; run < runs; run++) {
     cdp.consoleLines = [];
+    await cdp.eval(UI_PROBE_INSTALL_JS);
     const t0 = Date.now();
     await cdp.eval(
       "window.__nativeUpload([" +
@@ -211,11 +259,23 @@ try {
     }
     if (!measured) throw new Error("timed out waiting for the [native] timing line");
     const wallMs = Date.now() - t0;
-    const row = { run: run + 1, wallMs, ...measured };
+    const ui = await cdp.eval(UI_PROBE_READ_JS);
+    const toast = await cdp.eval(
+      `document.querySelector('.fixed.bottom-4.right-4')?.textContent ?? null`,
+    );
+    const row = { run: run + 1, wallMs, ...measured, ui, toast };
     results.push(row);
     log(
       `run ${run + 1}/${runs}: ui ready ${measured.uiReadyMs.toFixed(0)}ms ` +
         `(invoke ${measured.invokeMs.toFixed(0)}, assemble ${measured.assembleMs.toFixed(0)}, native ${measured.nativeMs.toFixed(0)})`,
+    );
+    log(`  parsed: ${toast}`);
+    log(
+      `  ui: ${ui.frames} frames, longest freeze ${ui.maxFrameGapMs}ms, ${ui.mutations} dom updates (${ui.visibility})`,
+    );
+    const updateTimes = ui.timeline.map(([at]) => at);
+    log(
+      `  updates at: ${updateTimes.slice(0, 6).join(", ")}${updateTimes.length > 8 ? ", …, " : ", "}${updateTimes.slice(-2).join(", ")}ms`,
     );
   }
 
@@ -232,6 +292,9 @@ try {
       invokeMs: r.invokeMs,
       assembleMs: r.assembleMs,
       nativeMs: r.nativeMs,
+      maxFrameGapMs: r.ui.maxFrameGapMs,
+      domUpdates: r.ui.mutations,
+      toast: r.toast,
     })),
     summary: {
       uiReadyMs: {
@@ -243,6 +306,11 @@ try {
       assembleMs: { avg: avg("assembleMs") },
       nativeMs: { avg: avg("nativeMs") },
       throughputMBps: fileBytes / (1024 * 1024) / (best / 1000),
+      uiMaxFrameGapMs: {
+        avg: results.reduce((s, r) => s + r.ui.maxFrameGapMs, 0) / results.length,
+        max: Math.max(...results.map((r) => r.ui.maxFrameGapMs)),
+      },
+      uiMutations: { avg: results.reduce((s, r) => s + r.ui.mutations, 0) / results.length },
     },
   };
   console.log(JSON.stringify(output, null, 2));
