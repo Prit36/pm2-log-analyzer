@@ -75,3 +75,8 @@ declare module "../wasm/pkg_mongo/mongo_core.js" {
     memory: WebAssembly.Memory;
   };
 }
+
+interface Window {
+  /** Benchmark hook; installed only when localStorage["pm2-native-bench"] === "1". */
+  __nativeUpload?: (paths: string[]) => Promise<void>;
+}

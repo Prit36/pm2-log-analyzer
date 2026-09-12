@@ -16,6 +16,24 @@ fn hash_bytes(b: &[u8]) -> u64 {
     rapidhash::v3::rapidhash_v3(b)
 }
 
+/// Direct-mapped path cache size; the fingerprint makes hits verification-free.
+const PATH_CACHE_SLOTS: usize = 8192;
+
+/// Path-table entry. Carries a 96-bit fingerprint (hash + length + head) so a probe
+/// never has to touch the path arena: the arena is only read when interning a new path.
+#[derive(Clone, Copy, Debug)]
+struct PathSlot {
+    hash: u64,
+    id: u32,
+    len: u16,
+    head: u16,
+}
+
+#[inline(always)]
+fn path_head16(path: &[u8]) -> u16 {
+    u16::from_le_bytes([path[0], path.get(1).copied().unwrap_or(0)])
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PackedEntry {
@@ -59,12 +77,12 @@ impl PackedEntry {
     }
 }
 
-#[derive(Clone)]
-struct CronEv {
-    event: u8,
-    name: Vec<u8>,
-    ts: Option<Vec<u8>>,
-    duration_ms: Option<f32>,
+#[derive(Clone, Debug)]
+pub struct CronEv {
+    pub event: u8,
+    pub name: Vec<u8>,
+    pub ts: Option<Vec<u8>>,
+    pub duration_ms: Option<f32>,
 }
 
 struct EndpointAcc {
@@ -77,24 +95,76 @@ struct EndpointAcc {
     error_count: u32,
 }
 
-#[derive(Clone)]
-struct HourlyAcc {
-    count: u32,
-    error_count: u32,
-    sum: f64,
-    max: f32,
-    sketch: RelHist,
+#[derive(Clone, Debug)]
+pub struct HourlyAcc {
+    pub count: u32,
+    pub error_count: u32,
+    pub sum: f64,
+    pub max: f32,
+    pub sketch: RelHist,
 }
 
-struct DailyAcc {
-    date: [u8; 10],
-    count: u32,
-    error_count: u32,
-    slow_count: u32,
-    sum: f64,
-    max: f32,
-    sketch: RelHist,
-    hourly: [HourlyAcc; 24],
+impl HourlyAcc {
+    pub fn new() -> Self {
+        Self {
+            count: 0,
+            error_count: 0,
+            sum: 0.0,
+            max: 0.0,
+            sketch: RelHist::new(),
+        }
+    }
+
+    pub fn merge(&mut self, other: &HourlyAcc) {
+        self.count += other.count;
+        self.error_count += other.error_count;
+        self.sum += other.sum;
+        if other.max > self.max {
+            self.max = other.max;
+        }
+        self.sketch.merge(&other.sketch);
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DailyAcc {
+    pub date: [u8; 10],
+    pub count: u32,
+    pub error_count: u32,
+    pub slow_count: u32,
+    pub sum: f64,
+    pub max: f32,
+    pub sketch: RelHist,
+    pub hourly: [HourlyAcc; 24],
+}
+
+impl DailyAcc {
+    pub fn new(date: [u8; 10]) -> Self {
+        Self {
+            date,
+            count: 0,
+            error_count: 0,
+            slow_count: 0,
+            sum: 0.0,
+            max: 0.0,
+            sketch: RelHist::new(),
+            hourly: std::array::from_fn(|_| HourlyAcc::new()),
+        }
+    }
+
+    pub fn merge(&mut self, other: &DailyAcc) {
+        self.count += other.count;
+        self.error_count += other.error_count;
+        self.slow_count += other.slow_count;
+        self.sum += other.sum;
+        if other.max > self.max {
+            self.max = other.max;
+        }
+        self.sketch.merge(&other.sketch);
+        for h in 0..24 {
+            self.hourly[h].merge(&other.hourly[h]);
+        }
+    }
 }
 
 pub struct Engine {
@@ -106,7 +176,7 @@ pub struct Engine {
     path_bytes: Vec<u8>,
     path_off: Vec<u32>,
     path_len: Vec<u16>,
-    path_table: HashTable<u32>,
+    path_table: HashTable<PathSlot>,
 
     entries: Vec<PackedEntry>,
     /// Cached RelHist bucket keys; avoids recomputing duration.ln() on each filter pass.
@@ -138,6 +208,8 @@ pub struct Engine {
 
     cached_hourly_wire: Vec<u8>,
     cached_daily_wire: Vec<u8>,
+    hourly_buckets: [HourlyAcc; 24],
+    daily_accs: Vec<DailyAcc>,
 
     shard_start: u64,
     shard_end: u64,
@@ -145,7 +217,7 @@ pub struct Engine {
     skip_partial: bool,
     parsing: bool,
     last_path_id: Option<u32>,
-    path_cache: [(u64, u32); 1024],
+    path_cache: [(u64, u32, u16, u16); PATH_CACHE_SLOTS],
 }
 
 impl Engine {
@@ -181,13 +253,15 @@ impl Engine {
             summary_ready: false,
             cached_hourly_wire: Vec::new(),
             cached_daily_wire: Vec::new(),
+            hourly_buckets: std::array::from_fn(|_| HourlyAcc::new()),
+            daily_accs: Vec::new(),
             shard_start: 0,
             shard_end: 0,
             file_size: 0,
             skip_partial: false,
             parsing: false,
             last_path_id: None,
-            path_cache: [(0, u32::MAX); 1024],
+            path_cache: [(0, u32::MAX, 0, 0); PATH_CACHE_SLOTS],
         }
     }
 
@@ -209,6 +283,26 @@ impl Engine {
 
     pub fn methods_mask(&self) -> u8 {
         self.methods_mask
+    }
+
+    pub fn hourly_accs(&self) -> &[HourlyAcc; 24] {
+        &self.hourly_buckets
+    }
+
+    pub fn daily_accs(&self) -> &[DailyAcc] {
+        &self.daily_accs
+    }
+
+    pub fn dates(&self) -> &[[u8; 10]] {
+        &self.dates
+    }
+
+    pub fn cron_events(&self) -> &[CronEv] {
+        &self.cron_events
+    }
+
+    pub fn unmatched_sample(&self) -> &[Vec<u8>] {
+        &self.unmatched_sample
     }
 
     /// Grow ingest to `len` and return pointer for JS to `memory.set` into.
@@ -240,14 +334,7 @@ impl Engine {
         self.path_off.reserve(8192);
         self.path_len.reserve(8192);
         self.path_bytes.reserve(262144);
-        let path_off = &self.path_off;
-        let path_len = &self.path_len;
-        let path_bytes = &self.path_bytes;
-        self.path_table.reserve(8192, |&id| {
-            let off = path_off[id as usize] as usize;
-            let len = path_len[id as usize] as usize;
-            hash_bytes(&path_bytes[off..off + len])
-        });
+        self.path_table.reserve(8192, |e| e.hash);
     }
 
     fn reset_columns(&mut self) {
@@ -255,7 +342,7 @@ impl Engine {
         self.path_off.clear();
         self.path_len.clear();
         self.path_table.clear();
-        self.path_cache = [(0, u32::MAX); 1024];
+        self.path_cache = [(0, u32::MAX, 0, 0); PATH_CACHE_SLOTS];
         self.entries.clear();
         self.hist_keys.clear();
         self.dates.clear();
@@ -281,30 +368,40 @@ impl Engine {
         self.summary_ready = false;
         self.cached_hourly_wire.clear();
         self.cached_daily_wire.clear();
+        self.hourly_buckets = std::array::from_fn(|_| HourlyAcc::new());
+        self.daily_accs.clear();
         self.last_path_id = None;
     }
 
     /// Feed `len` bytes already written at ingest[0..len] starting at absolute `abs_off`.
     pub fn feed(&mut self, len: u32, abs_off: u64) -> u32 {
         let len = (len as usize).min(self.ingest.len());
+        let ingest = std::mem::take(&mut self.ingest);
+        let added = self.feed_view(&ingest[..len], abs_off);
+        self.ingest = ingest;
+        added
+    }
+
+    /// Feed bytes borrowed from outside the engine (native mmap fast path, zero copy).
+    pub fn feed_slice(&mut self, view: &[u8], abs_off: u64) -> u32 {
+        self.feed_view(view, abs_off)
+    }
+
+    fn feed_view(&mut self, view: &[u8], abs_off: u64) -> u32 {
         if self.carry.is_empty() {
-            self.feed_ingest_only(len, abs_off)
+            self.feed_ingest_only(view, abs_off)
         } else {
-            self.feed_with_carry(len, abs_off)
+            self.feed_with_carry(view, abs_off)
         }
     }
 
     /// Common path: no carry — SIMD memchr newline scan over ingest window.
-    fn feed_ingest_only(&mut self, len: usize, abs_off: u64) -> u32 {
+    fn feed_ingest_only(&mut self, view: &[u8], abs_off: u64) -> u32 {
         let before = self.entries.len();
-        let mut ingest = std::mem::take(&mut self.ingest);
-        if ingest.len() < len {
-            ingest.resize(len, 0);
-        }
+        let len = view.len();
         let chunk_end = abs_off + len as u64;
         let at_file_end = chunk_end >= self.file_size;
         let extend_limit = self.shard_end + LINE_EXTEND as u64;
-        let view = &ingest[..len];
 
         let mut i = 0usize;
         if self.skip_partial {
@@ -318,8 +415,7 @@ impl Engine {
                         self.carry.extend_from_slice(view);
                         self.carry_abs = abs_off;
                     }
-                    self.ingest = ingest;
-                    return 0;
+                                return 0;
                 }
             }
         }
@@ -347,25 +443,21 @@ impl Engine {
             }
         }
 
-        self.ingest = ingest;
         (self.entries.len() - before) as u32
     }
 
     /// Rare path: leftover partial line from previous chunk.
-    fn feed_with_carry(&mut self, len: usize, abs_off: u64) -> u32 {
+    fn feed_with_carry(&mut self, view: &[u8], abs_off: u64) -> u32 {
         let before = self.entries.len();
+        let len = view.len();
 
-        let mut ingest = std::mem::take(&mut self.ingest);
-        if ingest.len() < len {
-            ingest.resize(len, 0);
-        }
         let mut carry = std::mem::take(&mut self.carry);
         let carry_abs = self.carry_abs;
 
         let chunk_end = abs_off + len as u64;
         let at_file_end = chunk_end >= self.file_size;
         let extend_limit = self.shard_end + LINE_EXTEND as u64;
-        let ingest_view = &ingest[..len];
+        let ingest_view = view;
 
         // Fast path: carry is empty (99.9% of chunks after first line)
         if carry.is_empty() {
@@ -380,8 +472,7 @@ impl Engine {
                         self.carry.extend_from_slice(ingest_view);
                         self.carry_abs = carry_abs;
                     }
-                    self.ingest = ingest;
-                    return 0;
+                                return 0;
                 }
             }
 
@@ -405,8 +496,7 @@ impl Engine {
                 }
             }
 
-            self.ingest = ingest;
-            return (self.entries.len() - before) as u32;
+                return (self.entries.len() - before) as u32;
         }
 
         let total = carry.len() + len;
@@ -430,8 +520,7 @@ impl Engine {
                     self.carry = carry;
                     self.carry_abs = carry_abs;
                 }
-                self.ingest = ingest;
-                return 0;
+                        return 0;
             }
             i += 1;
             self.skip_partial = false;
@@ -485,7 +574,6 @@ impl Engine {
             }
         }
 
-        self.ingest = ingest;
         (self.entries.len() - before) as u32
     }
 
@@ -635,6 +723,8 @@ impl Engine {
 
         self.cached_hourly_wire = encode_hourly_vec(&hourly_buckets);
         self.cached_daily_wire = encode_daily_vec(&daily_accs);
+        self.hourly_buckets = hourly_buckets;
+        self.daily_accs = daily_accs;
     }
 
     /// Encode filter-independent hour-of-day request statistics.
@@ -644,12 +734,7 @@ impl Engine {
 
     /// Encode list of unique dates seen in logs.
     pub fn dates_wire(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        out.extend_from_slice(&(self.dates.len() as u32).to_le_bytes());
-        for d in &self.dates {
-            write_bytes(&mut out, d);
-        }
-        out
+        encode_dates_vec(&self.dates)
     }
 
     /// Encode daily summary stats and per-date hourly breakdown.
@@ -752,20 +837,8 @@ impl Engine {
     ) -> usize {
         self.begin_shard(shard_start as u64, shard_end as u64, file_size as u64);
         let read_end = (shard_end + LINE_EXTEND).min(file_size);
-        let mut off = shard_start;
-        while off < read_end {
-            let take = (read_end - off)
-                .min(INGEST_CAP)
-                .min(buf.len().saturating_sub(off - shard_start));
-            if take == 0 {
-                break;
-            }
-            let src_off = off - shard_start;
-            let _ = self.ingest_ptr(take as u32);
-            self.ingest[..take].copy_from_slice(&buf[src_off..src_off + take]);
-            self.feed(take as u32, off as u64);
-            off += take;
-        }
+        let end = read_end.saturating_sub(shard_start).min(buf.len());
+        self.feed_slice(&buf[..end], shard_start as u64);
         self.end_shard();
         self.entries.len()
     }
@@ -781,30 +854,23 @@ impl Engine {
                 }
             }
         }
+
         let hash = hash_bytes(path);
-        let slot = (hash as usize) & 1023;
-        let (cached_hash, cached_id) = self.path_cache[slot];
-        if cached_hash == hash && cached_id != u32::MAX {
-            let id_usize = cached_id as usize;
-            if id_usize < self.path_off.len() {
-                let off = self.path_off[id_usize] as usize;
-                let len = self.path_len[id_usize] as usize;
-                if path.len() == len && &self.path_bytes[off..off + len] == path {
-                    self.last_path_id = Some(cached_id);
-                    return cached_id;
-                }
-            }
+        let len = path.len() as u16;
+        let head = path_head16(path);
+        let slot = (hash as usize) & (PATH_CACHE_SLOTS - 1);
+        let (cached_hash, cached_id, cached_len, cached_head) = self.path_cache[slot];
+        if cached_hash == hash && cached_len == len && cached_head == head && cached_id != u32::MAX {
+            self.last_path_id = Some(cached_id);
+            return cached_id;
         }
 
-        let path_bytes = &self.path_bytes;
-        let path_off = &self.path_off;
-        let path_len = &self.path_len;
-        if let Some(&id) = self.path_table.find(hash, |&id| {
-            let off = path_off[id as usize] as usize;
-            let len = path_len[id as usize] as usize;
-            &path_bytes[off..off + len] == path
-        }) {
-            self.path_cache[slot] = (hash, id);
+        let found = self
+            .path_table
+            .find(hash, |e| e.hash == hash && e.len == len && e.head == head)
+            .map(|e| e.id);
+        if let Some(id) = found {
+            self.path_cache[slot] = (hash, id, len, head);
             self.last_path_id = Some(id);
             return id;
         }
@@ -813,18 +879,20 @@ impl Engine {
         let off = self.path_bytes.len() as u32;
         self.path_bytes.extend_from_slice(path);
         self.path_off.push(off);
-        self.path_len.push(path.len() as u16);
+        self.path_len.push(len);
         self.mode_ready = [false; 3];
 
-        let path_bytes = &self.path_bytes;
-        let path_off = &self.path_off;
-        let path_len = &self.path_len;
-        self.path_table.insert_unique(hash, next_id, |&id| {
-            let off = path_off[id as usize] as usize;
-            let len = path_len[id as usize] as usize;
-            hash_bytes(&path_bytes[off..off + len])
-        });
-        self.path_cache[slot] = (hash, next_id);
+        self.path_table.insert_unique(
+            hash,
+            PathSlot {
+                hash,
+                id: next_id,
+                len,
+                head,
+            },
+            |e| e.hash,
+        );
+        self.path_cache[slot] = (hash, next_id, len, head);
         self.last_path_id = Some(next_id);
         next_id
     }
@@ -1160,40 +1228,57 @@ impl Engine {
     }
 
     pub fn cron_wire(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        out.extend_from_slice(&(self.cron_events.len() as u32).to_le_bytes());
-        for ev in &self.cron_events {
-            out.push(ev.event);
-            write_bytes(&mut out, &ev.name);
-            match &ev.ts {
-                Some(ts) => {
-                    out.push(1);
-                    write_bytes(&mut out, ts);
-                }
-                None => out.push(0),
-            }
-            match ev.duration_ms {
-                Some(d) => {
-                    out.push(1);
-                    out.extend_from_slice(&d.to_le_bytes());
-                }
-                None => out.push(0),
-            }
-        }
-        out
+        encode_cron_vec(&self.cron_events)
     }
 
     pub fn unmatched_sample_wire(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        out.extend_from_slice(&(self.unmatched_sample.len() as u32).to_le_bytes());
-        for s in &self.unmatched_sample {
-            write_bytes(&mut out, s);
-        }
-        out
+        encode_unmatched_vec(&self.unmatched_sample)
     }
 }
 
-fn encode_hourly_vec(buckets: &[HourlyAcc]) -> Vec<u8> {
+pub fn encode_dates_vec(dates: &[[u8; 10]]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&(dates.len() as u32).to_le_bytes());
+    for d in dates {
+        write_bytes(&mut out, d);
+    }
+    out
+}
+
+pub fn encode_cron_vec(cron_events: &[CronEv]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&(cron_events.len() as u32).to_le_bytes());
+    for ev in cron_events {
+        out.push(ev.event);
+        write_bytes(&mut out, &ev.name);
+        match &ev.ts {
+            Some(ts) => {
+                out.push(1);
+                write_bytes(&mut out, ts);
+            }
+            None => out.push(0),
+        }
+        match ev.duration_ms {
+            Some(d) => {
+                out.push(1);
+                out.extend_from_slice(&d.to_le_bytes());
+            }
+            None => out.push(0),
+        }
+    }
+    out
+}
+
+pub fn encode_unmatched_vec(unmatched_sample: &[Vec<u8>]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&(unmatched_sample.len() as u32).to_le_bytes());
+    for s in unmatched_sample {
+        write_bytes(&mut out, s);
+    }
+    out
+}
+
+pub fn encode_hourly_vec(buckets: &[HourlyAcc]) -> Vec<u8> {
     let mut out = Vec::with_capacity(16 + buckets.len() * 32);
     out.extend_from_slice(&0x504D3248u32.to_le_bytes());
     out.extend_from_slice(&1u16.to_le_bytes());
@@ -1210,7 +1295,7 @@ fn encode_hourly_vec(buckets: &[HourlyAcc]) -> Vec<u8> {
     out
 }
 
-fn encode_daily_vec(accs: &[DailyAcc]) -> Vec<u8> {
+pub fn encode_daily_vec(accs: &[DailyAcc]) -> Vec<u8> {
     let mut out = Vec::with_capacity(16 + accs.len() * (32 + 24 * 32));
     out.extend_from_slice(&0x504D3244u32.to_le_bytes()); // PM2D
     out.extend_from_slice(&1u16.to_le_bytes());
@@ -1297,6 +1382,309 @@ fn encode_partial_vec(
         out.extend_from_slice(&wire);
     }
     out
+}
+
+pub fn merge_pm2_partials(partials: &[Vec<u8>]) -> Vec<u8> {
+    if partials.is_empty() {
+        return Vec::new();
+    }
+    if partials.len() == 1 {
+        return partials[0].clone();
+    }
+
+    let mut mode = 0u8;
+    let mut has_summary = false;
+    let mut total_matched = 0u32;
+    let mut total_unmatched = 0u32;
+    let mut sum_sum = 0.0f64;
+    let mut sum_max = 0.0f32;
+    let mut sum_errors = 0u32;
+    let mut sum_slow = 0u32;
+    let mut combined_summary_sketch = RelHist::new();
+
+    // Map: (method, path) -> (count, sum, min, max, error_count, sketch)
+    let mut map: hashbrown::HashMap<(u8, Vec<u8>), (u32, f64, f32, f32, u32, RelHist)> =
+        hashbrown::HashMap::with_capacity(512);
+
+    for p in partials {
+        if p.len() < 20 {
+            continue;
+        }
+        let magic = u32::from_le_bytes(p[0..4].try_into().unwrap());
+        if magic != 0x504D3250 {
+            continue;
+        }
+        mode = p[6];
+        let flags = p[7];
+        let shard_has_summary = (flags & 1) != 0;
+        let n_endpoints = u32::from_le_bytes(p[8..12].try_into().unwrap()) as usize;
+        let matched = u32::from_le_bytes(p[12..16].try_into().unwrap());
+        let unmatched = u32::from_le_bytes(p[16..20].try_into().unwrap());
+
+        total_matched += matched;
+        total_unmatched += unmatched;
+
+        let mut off = 20;
+        if shard_has_summary {
+            has_summary = true;
+            if off + 24 <= p.len() {
+                let s_sum = f64::from_le_bytes(p[off..off + 8].try_into().unwrap());
+                let s_max = f32::from_le_bytes(p[off + 8..off + 12].try_into().unwrap());
+                let s_err = u32::from_le_bytes(p[off + 12..off + 16].try_into().unwrap());
+                let s_slow = u32::from_le_bytes(p[off + 16..off + 20].try_into().unwrap());
+                let sk_len = u32::from_le_bytes(p[off + 20..off + 24].try_into().unwrap()) as usize;
+                off += 24;
+
+                sum_sum += s_sum;
+                if s_max > sum_max {
+                    sum_max = s_max;
+                }
+                sum_errors += s_err;
+                sum_slow += s_slow;
+
+                if off + sk_len <= p.len() {
+                    if let Some(sk) = RelHist::from_wire(&p[off..off + sk_len]) {
+                        combined_summary_sketch.merge(&sk);
+                    }
+                    off += sk_len;
+                }
+            }
+        }
+
+        for _ in 0..n_endpoints {
+            if off + 32 > p.len() {
+                break;
+            }
+            let method = p[off];
+            let count = u32::from_le_bytes(p[off + 4..off + 8].try_into().unwrap());
+            let sum = f64::from_le_bytes(p[off + 8..off + 16].try_into().unwrap());
+            let min = f32::from_le_bytes(p[off + 16..off + 20].try_into().unwrap());
+            let max = f32::from_le_bytes(p[off + 20..off + 24].try_into().unwrap());
+            let error_count = u32::from_le_bytes(p[off + 24..off + 28].try_into().unwrap());
+            let path_len = u32::from_le_bytes(p[off + 28..off + 32].try_into().unwrap()) as usize;
+            off += 32;
+
+            if off + path_len > p.len() {
+                break;
+            }
+            let path = p[off..off + path_len].to_vec();
+            off += path_len;
+
+            if off + 4 > p.len() {
+                break;
+            }
+            let sk_len = u32::from_le_bytes(p[off..off + 4].try_into().unwrap()) as usize;
+            off += 4;
+
+            if off + sk_len > p.len() {
+                break;
+            }
+            let sk_slice = &p[off..off + sk_len];
+            off += sk_len;
+
+            let key = (method, path);
+            match map.entry(key) {
+                hashbrown::hash_map::Entry::Vacant(e) => {
+                    let sketch = RelHist::from_wire(sk_slice).unwrap_or_default();
+                    e.insert((count, sum, min, max, error_count, sketch));
+                }
+                hashbrown::hash_map::Entry::Occupied(mut e) => {
+                    let val = e.get_mut();
+                    val.0 += count;
+                    val.1 += sum;
+                    if min < val.2 {
+                        val.2 = min;
+                    }
+                    if max > val.3 {
+                        val.3 = max;
+                    }
+                    val.4 += error_count;
+                    if let Some(sk) = RelHist::from_wire(sk_slice) {
+                        val.5.merge(&sk);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut out = Vec::with_capacity(64 + map.len() * 128);
+    out.extend_from_slice(&0x504D3250u32.to_le_bytes()); // PM2P
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.push(mode);
+    out.push(if has_summary { 1u8 } else { 0u8 });
+    out.extend_from_slice(&(map.len() as u32).to_le_bytes());
+    out.extend_from_slice(&total_matched.to_le_bytes());
+    out.extend_from_slice(&total_unmatched.to_le_bytes());
+
+    if has_summary {
+        out.extend_from_slice(&sum_sum.to_le_bytes());
+        out.extend_from_slice(&sum_max.to_le_bytes());
+        out.extend_from_slice(&sum_errors.to_le_bytes());
+        out.extend_from_slice(&sum_slow.to_le_bytes());
+        let wire = combined_summary_sketch.to_wire();
+        out.extend_from_slice(&(wire.len() as u32).to_le_bytes());
+        out.extend_from_slice(&wire);
+    }
+
+    let mut sorted_entries: Vec<((u8, Vec<u8>), (u32, f64, f32, f32, u32, RelHist))> =
+        map.into_iter().collect();
+    sorted_entries.sort_unstable_by(|a, b| a.0.1.cmp(&b.0.1).then_with(|| a.0.0.cmp(&b.0.0)));
+
+    for ((method, path), (count, sum, min, max, error_count, sketch)) in sorted_entries {
+        out.push(method);
+        out.extend_from_slice(&[0, 0, 0]);
+        out.extend_from_slice(&count.to_le_bytes());
+        out.extend_from_slice(&sum.to_le_bytes());
+        out.extend_from_slice(&min.to_le_bytes());
+        out.extend_from_slice(&max.to_le_bytes());
+        out.extend_from_slice(&error_count.to_le_bytes());
+        write_bytes(&mut out, &path);
+        let wire = sketch.to_wire();
+        out.extend_from_slice(&(wire.len() as u32).to_le_bytes());
+        out.extend_from_slice(&wire);
+    }
+
+    out
+}
+
+#[derive(Clone, Debug)]
+pub struct DecodedEndpoint {
+    pub method: u8,
+    pub path: Vec<u8>,
+    pub count: u32,
+    pub sum: f64,
+    pub min: f32,
+    pub max: f32,
+    pub error_count: u32,
+    pub sketch: RelHist,
+}
+
+#[derive(Clone, Debug)]
+pub struct DecodedSummary {
+    pub sum: f64,
+    pub max: f32,
+    pub errors: u32,
+    pub slow: u32,
+    pub sketch: RelHist,
+}
+
+#[derive(Clone, Debug)]
+pub struct DecodedPartial {
+    pub mode: u8,
+    pub endpoints: Vec<DecodedEndpoint>,
+    pub summary: Option<DecodedSummary>,
+    pub matched: u32,
+    pub unmatched: u32,
+}
+
+/// Bounds-checked cursor over a PM2P partial wire.
+struct WireReader<'a> {
+    buf: &'a [u8],
+    off: usize,
+}
+
+impl<'a> WireReader<'a> {
+    fn new(buf: &'a [u8]) -> Self {
+        Self { buf, off: 0 }
+    }
+
+    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
+        let end = self.off.checked_add(n)?;
+        let out = self.buf.get(self.off..end)?;
+        self.off = end;
+        Some(out)
+    }
+
+    fn u8(&mut self) -> Option<u8> {
+        self.take(1).map(|b| b[0])
+    }
+
+    fn u16(&mut self) -> Option<u16> {
+        let b = self.take(2)?;
+        Some(u16::from_le_bytes([b[0], b[1]]))
+    }
+
+    fn u32(&mut self) -> Option<u32> {
+        let b = self.take(4)?;
+        Some(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    }
+
+    fn f32(&mut self) -> Option<f32> {
+        let b = self.take(4)?;
+        Some(f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    }
+
+    fn f64(&mut self) -> Option<f64> {
+        let b = self.take(8)?;
+        Some(f64::from_le_bytes([
+            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+        ]))
+    }
+
+    fn sketch(&mut self) -> Option<RelHist> {
+        let len = self.u32()? as usize;
+        RelHist::from_wire(self.take(len)?)
+    }
+}
+
+/// Decode a merged PM2P partial wire back into Rust accumulators (native finalize path).
+pub fn decode_pm2_partial(buf: &[u8]) -> Option<DecodedPartial> {
+    let mut r = WireReader::new(buf);
+    if r.u32()? != 0x504D3250 {
+        return None;
+    }
+    if r.u16()? != 1 {
+        return None;
+    }
+    let mode = r.u8()?;
+    let flags = r.u8()?;
+    let n = r.u32()? as usize;
+    let matched = r.u32()?;
+    let unmatched = r.u32()?;
+
+    let summary = if flags & 1 != 0 {
+        Some(DecodedSummary {
+            sum: r.f64()?,
+            max: r.f32()?,
+            errors: r.u32()?,
+            slow: r.u32()?,
+            sketch: r.sketch()?,
+        })
+    } else {
+        None
+    };
+
+    let mut endpoints = Vec::with_capacity(n.min(1 << 16));
+    for _ in 0..n {
+        let method = r.u8()?;
+        r.take(3)?;
+        let count = r.u32()?;
+        let sum = r.f64()?;
+        let min = r.f32()?;
+        let max = r.f32()?;
+        let error_count = r.u32()?;
+        let path_len = r.u32()? as usize;
+        let path = r.take(path_len)?.to_vec();
+        let sketch = r.sketch()?;
+        endpoints.push(DecodedEndpoint {
+            method,
+            path,
+            count,
+            sum,
+            min,
+            max,
+            error_count,
+            sketch,
+        });
+    }
+
+    Some(DecodedPartial {
+        mode,
+        endpoints,
+        summary,
+        matched,
+        unmatched,
+    })
 }
 
 impl Default for Engine {
@@ -1451,5 +1839,26 @@ socket connected\n\
         e.end_shard();
         assert_eq!(e.hit_count(), 1);
         assert_eq!(e.unmatched_count(), 0);
+    }
+
+    #[test]
+    fn merge_pm2_partials_combines_shards() {
+        let sample_a = b"2026-07-24T00:00:10: GET /api/user 200 10.0 ms - 42\n";
+        let sample_b = b"2026-07-24T00:00:11: GET /api/user 200 20.0 ms - 42\n\
+2026-07-24T00:00:12: POST /api/login 201 5.0 ms - 10\n";
+        let mut ea = Engine::new();
+        ea.parse_shard(sample_a, 0, sample_a.len(), sample_a.len());
+        let wa = ea.reaggregate(0, 0, 0.0, b"", true);
+
+        let mut eb = Engine::new();
+        eb.parse_shard(sample_b, 0, sample_b.len(), sample_b.len());
+        let wb = eb.reaggregate(0, 0, 0.0, b"", true);
+
+        let merged = merge_pm2_partials(&[wa, wb]);
+        assert_eq!(&merged[0..4], &0x504D3250u32.to_le_bytes());
+        let n_endpoints = u32::from_le_bytes(merged[8..12].try_into().unwrap());
+        assert_eq!(n_endpoints, 2);
+        let total_matched = u32::from_le_bytes(merged[12..16].try_into().unwrap());
+        assert_eq!(total_matched, 3);
     }
 }

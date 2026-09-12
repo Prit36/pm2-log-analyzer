@@ -7,6 +7,8 @@ import { formatBytes } from "../utils/format";
 import { cn } from "../utils/cn";
 
 import { handleLogFilesUpload, filterValidFiles } from "../utils/zipExtractor";
+import { isTauri } from "../utils/platform";
+import { handleNativePathsUpload, pickNativeFiles } from "../services/nativeBridge";
 
 export const PASTE_WARN_BYTES = 8 * 1024 * 1024;
 
@@ -389,6 +391,11 @@ export function IngestPanel() {
     e.preventDefault();
     setDragOver(false);
     if (busy) return;
+    if (isTauri()) {
+      // In Tauri desktop, file drops are handled natively at the window level by onDragDropEvent
+      // using direct disk paths and zero-copy memory mapping.
+      return;
+    }
     const validFiles = filterValidFiles(e.dataTransfer.files);
     if (validFiles.length === 0) {
       showToast("Please upload log, text, or archive files (.log, .zip, .gz, .txt, etc.)");
@@ -402,11 +409,29 @@ export function IngestPanel() {
   };
 
   const handleAppendClick = () => {
+    if (isTauri()) {
+      void (async () => {
+        const paths = await pickNativeFiles();
+        if (paths && paths.length > 0) {
+          await handleNativePathsUpload(paths, "append");
+        }
+      })();
+      return;
+    }
     setUploadMode("append");
     inputRef.current?.click();
   };
 
   const handleReplaceClick = () => {
+    if (isTauri()) {
+      void (async () => {
+        const paths = await pickNativeFiles();
+        if (paths && paths.length > 0) {
+          await handleNativePathsUpload(paths, "replace");
+        }
+      })();
+      return;
+    }
     setUploadMode("replace");
     inputRef.current?.click();
   };

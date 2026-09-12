@@ -7,12 +7,27 @@ mod store;
 
 use wasm_bindgen::prelude::*;
 
-pub use store::Engine;
+pub use relhist::RelHist;
+pub use store::{
+    decode_pm2_partial, encode_cron_vec, encode_daily_vec, encode_dates_vec, encode_hourly_vec,
+    encode_unmatched_vec, merge_pm2_partials, CronEv, DailyAcc, DecodedEndpoint, DecodedPartial,
+    DecodedSummary, Engine, HourlyAcc,
+};
 
 /// Opaque engine handle for JS.
 #[wasm_bindgen]
 pub struct Pm2Engine {
     inner: Engine,
+}
+
+impl Pm2Engine {
+    pub fn inner(&self) -> &Engine {
+        &self.inner
+    }
+
+    pub fn inner_mut(&mut self) -> &mut Engine {
+        &mut self.inner
+    }
 }
 
 #[wasm_bindgen]

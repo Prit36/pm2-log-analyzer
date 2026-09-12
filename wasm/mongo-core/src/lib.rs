@@ -73,11 +73,18 @@ impl MongoEngine {
         };
         reagg::reaggregate(&self.inner, params)
     }
+
+    pub fn write_slice(&mut self, data: &[u8]) {
+        let len = data.len();
+        if self.inner.ingest.len() < len {
+            self.inner.ingest.resize(len, 0);
+        }
+        self.inner.ingest[..len].copy_from_slice(data);
+    }
+
     #[cfg(test)]
     pub fn write_ingest_for_test(&mut self, data: &[u8]) {
-        let len = data.len() as u32;
-        let _ = self.ingest_ptr(len);
-        self.inner.ingest[..data.len()].copy_from_slice(data);
+        self.write_slice(data);
     }
 }
 

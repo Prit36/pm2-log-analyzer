@@ -6,6 +6,8 @@ import { cancelMongo, parseMongoText } from "../../hooks/useMongoParserWorker";
 import { formatBytes } from "../../utils/format";
 import { cn } from "../../utils/cn";
 import { handleLogFilesUpload, filterValidFiles } from "../../utils/zipExtractor";
+import { isTauri } from "../../utils/platform";
+import { handleNativePathsUpload, pickNativeFiles } from "../../services/nativeBridge";
 
 export const PASTE_WARN_BYTES = 8 * 1024 * 1024;
 
@@ -44,6 +46,10 @@ export function MongoIngestPanel() {
     e.preventDefault();
     setDragOver(false);
     if (busy) return;
+    if (isTauri()) {
+      // Handled natively at the window level by onDragDropEvent
+      return;
+    }
     const validFiles = filterValidFiles(e.dataTransfer.files);
     if (validFiles.length === 0) {
       showToast("Please upload log or archive files (.log, .zip, .gz, .txt, .json, etc.)");
@@ -57,11 +63,29 @@ export function MongoIngestPanel() {
   };
 
   const handleAppendClick = () => {
+    if (isTauri()) {
+      void (async () => {
+        const paths = await pickNativeFiles();
+        if (paths && paths.length > 0) {
+          await handleNativePathsUpload(paths, "append");
+        }
+      })();
+      return;
+    }
     setUploadMode("append");
     inputRef.current?.click();
   };
 
   const handleReplaceClick = () => {
+    if (isTauri()) {
+      void (async () => {
+        const paths = await pickNativeFiles();
+        if (paths && paths.length > 0) {
+          await handleNativePathsUpload(paths, "replace");
+        }
+      })();
+      return;
+    }
     setUploadMode("replace");
     inputRef.current?.click();
   };

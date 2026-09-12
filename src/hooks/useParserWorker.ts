@@ -6,6 +6,8 @@ import type {
 } from "../workers/logParserWorker";
 import LogParserWorker from "../workers/logParserWorker.ts?worker&inline";
 import { useAnalysisStore, workerParseOptions } from "../store/analysisStore";
+import { isTauri } from "../utils/platform";
+import { clearNative, isNativePm2Active, reaggregatePm2Native } from "../services/nativeBridge";
 
 type Pm2Bench = {
   at: string;
@@ -236,9 +238,13 @@ export async function parseText(text: string): Promise<void> {
 }
 
 export async function reaggregate(): Promise<void> {
-  const options = workerParseOptions(useAnalysisStore.getState().filters);
   const t0 = performance.now();
-  await runReagg({ type: "REAGGREGATE", payload: { options } });
+  if (isTauri() && isNativePm2Active()) {
+    await reaggregatePm2Native();
+  } else {
+    const options = workerParseOptions(useAnalysisStore.getState().filters);
+    await runReagg({ type: "REAGGREGATE", payload: { options } });
+  }
   const ms = Math.round(performance.now() - t0);
   const b = ensureBench();
   b.lastReaggMs = ms;
@@ -256,6 +262,9 @@ export function cancel(): void {
 }
 
 export function clear(): void {
+  if (isTauri() && isNativePm2Active()) {
+    void clearNative();
+  }
   worker?.postMessage({ type: "CLEAR" } satisfies WorkerMessage);
   clearAnalysis();
 }

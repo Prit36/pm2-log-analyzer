@@ -15,13 +15,18 @@ const coiHeaders = {
 
 // https://vite.dev/config/
 export default defineConfig({
+  clearScreen: false,
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
     },
   },
-  server: { headers: coiHeaders },
+  server: {
+    port: 5173,
+    strictPort: true,
+    headers: coiHeaders,
+  },
   preview: { headers: coiHeaders },
   worker: {
     format: "es",

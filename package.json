@@ -16,9 +16,15 @@
     "wasm:build": "node scripts/wasm-build.mjs",
     "bench": "node scripts/bench/bench.mjs",
     "bench:mongo": "node scripts/bench/bench_mongo.mjs",
-    "bench:zip": "node scripts/bench/bench_zip.mjs"
+    "bench:zip": "node scripts/bench/bench_zip.mjs",
+    "bench:native": "node scripts/bench/bench_native_tauri.mjs",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.3",
     "clsx": "2.1.1",
     "exceljs": "^4.4.0",
     "lucide-react": "^1.44.0",
@@ -32,6 +38,7 @@
   "devDependencies": {
     "@oxlint/plugins": "1.82.0",
     "@tailwindcss/vite": "4.3.3",
+    "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^26.5.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",

@@ -1,6 +1,8 @@
 import type { MongoWorkerMessage, MongoWorkerResponse } from "../workers/mongoParserWorker";
 import MongoParserWorker from "../workers/mongoParserWorker.ts?worker&inline";
 import { useMongoStore } from "../store/mongoStore";
+import { isTauri } from "../utils/platform";
+import { clearNative, isNativeMongoActive, reaggregateMongoNative } from "../services/nativeBridge";
 
 export type MongoBench = {
   at: string;
@@ -248,9 +250,13 @@ export async function parseMongoText(text: string): Promise<void> {
 }
 
 export async function reaggregateMongo(): Promise<void> {
-  const filters = useMongoStore.getState().filters;
   const t0 = performance.now();
-  await runMongoReagg({ type: "REAGGREGATE", payload: { filters } });
+  if (isTauri() && isNativeMongoActive()) {
+    await reaggregateMongoNative();
+  } else {
+    const filters = useMongoStore.getState().filters;
+    await runMongoReagg({ type: "REAGGREGATE", payload: { filters } });
+  }
   const ms = Math.round(performance.now() - t0);
   const bench = ensureMongoBench();
   bench.lastReaggMs = ms;
@@ -268,6 +274,9 @@ export function cancelMongo(): void {
 }
 
 export function clearMongo(): void {
+  if (isTauri() && isNativeMongoActive()) {
+    void clearNative();
+  }
   worker?.postMessage({ type: "CLEAR" } satisfies MongoWorkerMessage);
   clearAnalysis();
 }

@@ -95,48 +95,148 @@ impl RelHist {
         }
         out
     }
+
+    pub fn merge(&mut self, other: &RelHist) {
+        self.count += other.count;
+        for i in 0..DENSE_LIMIT {
+            self.dense[i] += other.dense[i];
+        }
+        for (&k, &v) in &other.sparse {
+            *self.sparse.entry(k).or_insert(0) += v;
+        }
+    }
+
+    pub fn from_wire(buf: &[u8]) -> Option<Self> {
+        if buf.len() < 8 {
+            return None;
+        }
+        let count = u32::from_le_bytes(buf[0..4].try_into().ok()?);
+        let n = u32::from_le_bytes(buf[4..8].try_into().ok()?) as usize;
+        if buf.len() < 8 + n * 8 {
+            return None;
+        }
+        let mut dense = [0u32; DENSE_LIMIT];
+        let mut sparse = HashMap::new();
+        let mut off = 8;
+        for _ in 0..n {
+            let key = i32::from_le_bytes(buf[off..off + 4].try_into().ok()?);
+            let cnt = u32::from_le_bytes(buf[off + 4..off + 8].try_into().ok()?);
+            off += 8;
+            if key >= 0 && (key as usize) < DENSE_LIMIT {
+                dense[key as usize] = cnt;
+            } else {
+                sparse.insert(key, cnt);
+            }
+        }
+        Some(Self {
+            dense,
+            sparse,
+            count,
+        })
+    }
+
+    /// Ascending keys that carry a non-zero count.
+    fn ordered_keys(&self) -> Vec<i32> {
+        let mut neg: Vec<i32> = self.sparse.keys().copied().filter(|&k| k < 0).collect();
+        neg.sort_unstable();
+        let mut high: Vec<i32> = self
+            .sparse
+            .keys()
+            .copied()
+            .filter(|&k| k >= DENSE_LIMIT as i32)
+            .collect();
+        high.sort_unstable();
+
+        let mut keys = Vec::with_capacity(neg.len() + high.len() + 64);
+        keys.extend_from_slice(&neg);
+        for i in 0..DENSE_LIMIT {
+            if self.dense[i] > 0 {
+                keys.push(i as i32);
+            }
+        }
+        keys.extend_from_slice(&high);
+        keys
+    }
+
+    #[inline]
+    fn count_at(&self, key: i32) -> u32 {
+        if key >= 0 && (key as usize) < DENSE_LIMIT {
+            self.dense[key as usize]
+        } else {
+            self.sparse.get(&key).copied().unwrap_or(0)
+        }
+    }
+
+    /// Approximate quantile in milliseconds (parity with the JS `RelHist.quantile`).
+    pub fn quantile_ms(&self, q: f64) -> f32 {
+        if self.count == 0 {
+            return 0.0;
+        }
+        let keys = self.ordered_keys();
+        let last = *keys.last().expect("count > 0 implies keys");
+        if q <= 0.0 {
+            return bucket_value(keys[0]);
+        }
+        if q >= 1.0 {
+            return bucket_value(last);
+        }
+        let target = q * (self.count as f64 - 1.0);
+        let mut rank = 0u32;
+        for &k in &keys {
+            if (rank + self.count_at(k)) as f64 > target {
+                return bucket_value(k);
+            }
+            rank += self.count_at(k);
+        }
+        bucket_value(last)
+    }
+
+    /// p50/p90/p95/p99 in a single pass (parity with the JS `RelHist.quantiles4`).
+    pub fn quantiles4_ms(&self) -> [f32; 4] {
+        if self.count == 0 {
+            return [0.0; 4];
+        }
+        let keys = self.ordered_keys();
+        let last_val = bucket_value(*keys.last().expect("count > 0 implies keys"));
+        let count = self.count as f64;
+        let targets = [
+            0.5 * (count - 1.0),
+            0.9 * (count - 1.0),
+            0.95 * (count - 1.0),
+            0.99 * (count - 1.0),
+        ];
+        let mut out = [-1.0f32; 4];
+        let mut rank = 0u32;
+        for &k in &keys {
+            let next_rank = rank + self.count_at(k);
+            let v = bucket_value(k);
+            for i in 0..4 {
+                if out[i] < 0.0 && next_rank as f64 > targets[i] {
+                    out[i] = v;
+                }
+            }
+            rank = next_rank;
+        }
+        [
+            if out[0] < 0.0 { last_val } else { out[0] },
+            if out[1] < 0.0 { last_val } else { out[1] },
+            if out[2] < 0.0 { last_val } else { out[2] },
+            if out[3] < 0.0 { last_val } else { out[3] },
+        ]
+    }
+}
+
+#[inline]
+fn bucket_value(key: i32) -> f32 {
+    GAMMA.powf(key as f64 - 0.5) as f32
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn bucket_value(key: i32) -> f32 {
-        GAMMA.powf(key as f64 - 0.5) as f32
-    }
-
     fn quantile(h: &RelHist, q: f64) -> f32 {
-        if h.count == 0 {
-            return 0.0;
-        }
-        let wire = h.to_wire();
-        let n = u32::from_le_bytes(wire[4..8].try_into().unwrap()) as usize;
-        let mut keys = Vec::with_capacity(n);
-        let mut counts = Vec::with_capacity(n);
-        let mut off = 8usize;
-        for _ in 0..n {
-            let k = i32::from_le_bytes(wire[off..off + 4].try_into().unwrap());
-            let c = u32::from_le_bytes(wire[off + 4..off + 8].try_into().unwrap());
-            keys.push(k);
-            counts.push(c);
-            off += 8;
-        }
-        if q <= 0.0 {
-            return bucket_value(keys[0]);
-        }
-        if q >= 1.0 {
-            return bucket_value(*keys.last().unwrap());
-        }
-        let target = q * (h.count as f64 - 1.0);
-        let mut rank = 0u32;
-        for i in 0..n {
-            let c = counts[i];
-            if (rank + c) as f64 > target {
-                return bucket_value(keys[i]);
-            }
-            rank += c;
-        }
-        bucket_value(*keys.last().unwrap())
+        h.quantile_ms(q)
     }
 
     #[test]
