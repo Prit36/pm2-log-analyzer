@@ -75,6 +75,7 @@ name = "app"
 version = "0.1.0"
 dependencies = [
  "hashbrown 0.17.1",
+ "libdeflater",
  "log",
  "memmap2",
  "mongo-core",
@@ -1810,6 +1811,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "328c4789d42200f1eeec05bd86c9c13c7f091d2ba9a6ea35acdf51f31bc0f043"
 dependencies = [
  "pkg-config",
+]
+
+[[package]]
+name = "libdeflate-sys"
+version = "1.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6949d73714ba8c32d2757405b89c94e427f64f078a4041debe07e1b8e9e850e9"
+dependencies = [
+ "cc",
+]
+
+[[package]]
+name = "libdeflater"
+version = "1.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b72b274104f747cb65358c918e38c6cd4a69937937a36c8ad3cfd516c9c471e"
+dependencies = [
+ "libdeflate-sys",
 ]
 
 [[package]]

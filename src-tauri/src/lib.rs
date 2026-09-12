@@ -519,6 +519,26 @@ fn parse_pm2_raw_mmaps(
     ))
 }
 
+/// Equal-sized shard ranges for one file, in one place so every caller splits a
+/// file into identical shards.
+fn pm2_shard_plan(file_size: usize, cpus: usize) -> Vec<(usize, usize)> {
+    let n_shards = if file_size <= 8 * 1024 * 1024 {
+        1
+    } else {
+        ((file_size + 16 * 1024 * 1024 - 1) / (16 * 1024 * 1024)).clamp(1, cpus.min(16))
+    };
+    let chunk_size = (file_size + n_shards - 1) / n_shards;
+    let mut plan = Vec::with_capacity(n_shards);
+    for i in 0..n_shards {
+        let start = i * chunk_size;
+        if start >= file_size {
+            break;
+        }
+        plan.push((start, ((i + 1) * chunk_size).min(file_size)));
+    }
+    plan
+}
+
 fn parse_pm2_items(
     items: Vec<LogSourceItem>,
     options: &Pm2ParseOptions,
@@ -533,18 +553,7 @@ fn parse_pm2_items(
 
     for item in &items {
         let file_size = item.size;
-        let n_shards = if file_size <= 8 * 1024 * 1024 {
-            1
-        } else {
-            ((file_size + 16 * 1024 * 1024 - 1) / (16 * 1024 * 1024)).clamp(1, cpus.min(16))
-        };
-        let chunk_size = (file_size + n_shards - 1) / n_shards;
-        for i in 0..n_shards {
-            let start = i * chunk_size;
-            if start >= file_size {
-                break;
-            }
-            let end = ((i + 1) * chunk_size).min(file_size);
+        for (start, end) in pm2_shard_plan(file_size, cpus) {
             tasks.push(ShardTaskRef {
                 data: &item.data,
                 start,
@@ -695,6 +704,82 @@ fn parse_mongo_items(
     ))
 }
 
+/// Window size and pool depth for the streaming ZIP ingest: reusing a few small
+/// buffers keeps the decompressed bytes cache-resident instead of faulting in a
+/// full-size allocation.
+const STREAM_WINDOW_BYTES: usize = 8 * 1024 * 1024;
+const STREAM_WINDOW_POOL: usize = 3;
+
+/// Inflate one deflated MongoDB log through a small window pool while a consumer
+/// thread feeds the engine, so the parse overlaps decompression and no
+/// full-size output buffer is allocated.
+fn parse_mongo_entry_streamed(
+    raw: &[u8],
+    options: &MongoFilterOptions,
+    progress: &SharedProgress,
+    existing_engine: Option<mongo_core::MongoEngine>,
+) -> Result<(mongo_core::MongoEngine, MongoParseResult), String> {
+    let t0 = Instant::now();
+    let mut engine = existing_engine.unwrap_or_else(mongo_core::MongoEngine::new);
+
+    let (full_tx, full_rx) = std::sync::mpsc::sync_channel::<(Vec<u8>, usize)>(STREAM_WINDOW_POOL);
+    let (free_tx, free_rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(STREAM_WINDOW_POOL);
+    for _ in 0..STREAM_WINDOW_POOL {
+        free_tx
+            .send(vec![0u8; STREAM_WINDOW_BYTES])
+            .map_err(|e| e.to_string())?;
+    }
+
+    let mut stream = archive::DeflateStream::new(raw);
+    std::thread::scope(|scope| -> Result<(), String> {
+        let engine_ref = &mut engine;
+        let progress_ref = progress;
+        let consumer = scope.spawn(move || {
+            while let Ok((buf, len)) = full_rx.recv() {
+                engine_ref.feed_slice(&buf[..len]);
+                progress_ref.add(len as u64 * 2);
+                let _ = free_tx.send(buf);
+            }
+        });
+
+        while !stream.finished() {
+            let mut buf = free_rx.recv().map_err(|e| e.to_string())?;
+            let len = stream.fill(&mut buf)?;
+            if len == 0 {
+                break;
+            }
+            full_tx.send((buf, len)).map_err(|e| e.to_string())?;
+        }
+        drop(full_tx);
+        consumer.join().map_err(|_| "mongo feed thread panicked")?;
+        Ok(())
+    })?;
+
+    engine.end_shard();
+    let json = engine.reaggregate(
+        options.op.as_deref().unwrap_or("all"),
+        options.plan_filter.unwrap_or(0),
+        options.min_duration_ms.unwrap_or(0),
+        options.collection.as_deref().unwrap_or("all"),
+        options.search_query.as_deref().unwrap_or(""),
+        options.high_scan_ratio_only.unwrap_or(false),
+        options.user.as_deref().unwrap_or("all"),
+    );
+    let slow_query_count = engine.slow_query_count();
+    let total_lines = engine.total_lines();
+    let elapsed = t0.elapsed().as_millis() as u64;
+
+    Ok((
+        engine,
+        MongoParseResult {
+            data: to_raw_value(json),
+            parse_wall_ms: elapsed,
+            slow_query_count,
+            total_lines,
+        },
+    ))
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn ingest_single_zip(
     zip_path: &str,
@@ -827,6 +912,35 @@ fn ingest_single_zip(
         || -> Result<Option<(mongo_core::MongoEngine, MongoParseResult, Vec<NativeFileInfo>)>, String> {
             if mongo_entries.is_empty() && extra_mongo.is_empty() {
                 return Ok(None);
+            }
+
+            // Streaming fast path: a single deflated entry is fed to the engine
+            // while it inflates, so the parse hides behind decompression.
+            if extra_mongo.is_empty()
+                && mongo_entries.len() == 1
+                && mongo_entries[0].compression_method == 8
+            {
+                let entry = &mongo_entries[0];
+                let raw = &mmap[entry.data_start..entry.data_start + entry.compressed_size];
+                let clean = entry.name.rsplit('/').next().unwrap_or(&entry.name);
+                let file_infos = vec![NativeFileInfo {
+                    name: clean.to_string(),
+                    path: format!("{}/{}", zip_path, entry.name),
+                    size: entry.uncompressed_size as u64,
+                    category: "mongo".into(),
+                }];
+                let existing = if upload_mode == Some("append") {
+                    state.mongo.lock().unwrap().take()
+                } else {
+                    None
+                };
+                let (engine, res) = parse_mongo_entry_streamed(
+                    raw,
+                    mongo_options,
+                    &progress,
+                    existing,
+                )?;
+                return Ok(Some((engine, res, file_infos)));
             }
 
             let mut items: Vec<LogSourceItem> = mongo_entries
@@ -1275,8 +1389,22 @@ fn clear_engine(state: State<'_, AppState>) {
     *mongo = None;
 }
 
+/// Worker stacks must survive rayon's nested-wait execution: a worker that
+/// waits on a job runs other jobs on the same stack, so deep pipelines
+/// (`rayon::join` into `scope`/`par_iter` pipelines) can outgrow the 2MB
+/// default. Reserve address space, not committed memory.
+const RAYON_STACK_BYTES: usize = 16 * 1024 * 1024;
+
+fn configure_rayon_pool() {
+    let _ = rayon::ThreadPoolBuilder::new()
+        .thread_name(|index| format!("log-analyzer-{index}"))
+        .stack_size(RAYON_STACK_BYTES)
+        .build_global();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    configure_rayon_pool();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {

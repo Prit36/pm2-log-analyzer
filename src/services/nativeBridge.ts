@@ -68,6 +68,18 @@ export type Pm2ParseStats = NativeParseStats & { matched: number; shardCount: nu
 
 export type MongoParseStats = NativeParseStats & { totalLines: number; slowQueries: number };
 
+/**
+ * Native results omit the per-row `key` (it is always `method + " " + path`);
+ * rebuilding it here keeps the IPC body ~2MB smaller without changing the
+ * `AggregatedResult` contract the UI consumes.
+ */
+function restoreApiKeys(result: AggregatedResult): AggregatedResult {
+  for (const row of result.api) {
+    if (!row.key) row.key = `${row.method} ${row.path}`;
+  }
+  return result;
+}
+
 function sec(ms: number): string {
   return `${(ms / 1000).toFixed(2)}s`;
 }
@@ -152,7 +164,9 @@ export async function parsePm2FilesNative(paths: string[]): Promise<Pm2ParseStat
 
     const t1 = performance.now();
     // SAFETY: data or parsed json conforms to AggregatedResult schema emitted by Rust finalizer
-    const result = (res.data ?? (res.json ? JSON.parse(res.json) : null)) as AggregatedResult;
+    const result = restoreApiKeys(
+      (res.data ?? (res.json ? JSON.parse(res.json) : null)) as AggregatedResult,
+    );
     setResult(result);
     const assembleMs = performance.now() - t1;
 
@@ -186,7 +200,9 @@ export async function reaggregatePm2Native(): Promise<void> {
     const res = await invoke<Pm2ReaggNativeResult>("reaggregate_pm2", { options });
     if (seq !== pm2RequestSeq) return;
     // SAFETY: data or parsed json conforms to AggregatedResult schema emitted by Rust finalizer
-    const result = (res.data ?? (res.json ? JSON.parse(res.json) : null)) as AggregatedResult;
+    const result = restoreApiKeys(
+      (res.data ?? (res.json ? JSON.parse(res.json) : null)) as AggregatedResult,
+    );
     setResult(result);
   } catch (err) {
     if (seq !== pm2RequestSeq) return;
@@ -402,8 +418,9 @@ export async function handleNativePathsUpload(
     if (res.pm2) {
       nativePm2Active = true;
       // SAFETY: data or parsed json conforms to AggregatedResult schema emitted by Rust finalizer
-      const result = (res.pm2.data ??
-        (res.pm2.json ? JSON.parse(res.pm2.json) : null)) as AggregatedResult;
+      const result = restoreApiKeys(
+        (res.pm2.data ?? (res.pm2.json ? JSON.parse(res.pm2.json) : null)) as AggregatedResult,
+      );
       pm2Matched = result.summary.matched;
       pm2WallMs = res.pm2.parse_wall_ms;
       if (pm2Seq === pm2RequestSeq) {

@@ -18,7 +18,6 @@ const UNMATCHED_SAMPLE_CAP: usize = 40;
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ApiRow {
-    key: String,
     method: &'static str,
     path: String,
     count: u32,
@@ -222,6 +221,9 @@ pub fn finalize_pm2(shards: &mut [Pm2Engine], options: &Pm2ParseOptions) -> Resu
     );
     let summary = build_summary(&decoded, total_unmatched);
 
+    // Per-row `key` is intentionally absent: it is `method + ' ' + path`, and
+    // repeating it for every row added 2.2MB to the IPC body the UI pays for on
+    // every parse. The native bridge rebuilds it before anything reads a row.
     let api: Vec<ApiRow> = decoded
         .endpoints
         .into_par_iter()
@@ -229,26 +231,21 @@ pub fn finalize_pm2(shards: &mut [Pm2Engine], options: &Pm2ParseOptions) -> Resu
             let method = METHODS[e.method as usize % METHODS.len()];
             let path = String::from_utf8_lossy(&e.path).into_owned();
             let [p50_ms, p90_ms, p95_ms, p99_ms] = e.sketch.quantiles4_ms();
-            let mut key = String::with_capacity(method.len() + 1 + path.len());
-            key.push_str(method);
-            key.push(' ');
-            key.push_str(&path);
             ApiRow {
-                key,
                 method,
                 path,
                 count: e.count,
-                avg_ms: if e.count > 0 {
+                avg_ms: round2(if e.count > 0 {
                     e.sum / e.count as f64
                 } else {
                     0.0
-                },
-                p50_ms,
-                p90_ms,
-                p95_ms,
-                p99_ms,
-                max_ms: if e.count > 0 { e.max } else { 0.0 },
-                min_ms: if e.count > 0 { e.min } else { 0.0 },
+                }),
+                p50_ms: round2(p50_ms as f64) as f32,
+                p90_ms: round2(p90_ms as f64) as f32,
+                p95_ms: round2(p95_ms as f64) as f32,
+                p99_ms: round2(p99_ms as f64) as f32,
+                max_ms: round2(if e.count > 0 { e.max } else { 0.0 } as f64) as f32,
+                min_ms: round2(if e.count > 0 { e.min } else { 0.0 } as f64) as f32,
                 error_count: e.error_count,
             }
         })
@@ -271,6 +268,12 @@ pub fn finalize_pm2(shards: &mut [Pm2Engine], options: &Pm2ParseOptions) -> Resu
     };
 
     serde_json::to_string(&result).map_err(|e| format!("failed to serialize PM2 result: {e}"))
+}
+
+/// Two decimals: the UI renders integer milliseconds (`formatMs`), so extra
+/// digits only cost IPC bytes (they were ~2.3MB of the methaq payload).
+fn round2(value: f64) -> f64 {
+    (value * 100.0).round() / 100.0
 }
 
 fn build_summary(decoded: &pm2_core::DecodedPartial, total_unmatched: u32) -> LogSummary {
