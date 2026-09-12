@@ -5,12 +5,10 @@ use memchr::memmem;
 pub struct ParsedSlowQuery<'a> {
     pub timestamp: &'a str,
     pub epoch_ms: i64,
-    pub severity: u8, // b'I', b'W', b'E', b'F'
     pub ctx: &'a str,
     pub user: &'a str,
     pub ns: &'a str,
     pub collection: &'a str,
-    pub db: &'a str,
     pub duration_ms: u32,
     pub plan_summary: &'a str,
     pub is_collscan: bool,
@@ -21,22 +19,15 @@ pub struct ParsedSlowQuery<'a> {
     pub reslen: u32,
     pub remote: &'a str,
     pub query_hash: &'a str,
-    pub plan_cache_key: &'a str,
     pub line: &'a [u8],
 }
 
 pub enum ParsedLine<'a> {
     SlowQuery(ParsedSlowQuery<'a>),
     ConnectionAccepted {
-        timestamp: &'a str,
-        ctx: &'a str,
         connection_count: u32,
-        remote: &'a str,
     },
-    ConnectionEnded {
-        timestamp: &'a str,
-        ctx: &'a str,
-    },
+    ConnectionEnded,
     AuthSuccess {
         timestamp: &'a str,
         ctx: &'a str,
@@ -46,10 +37,8 @@ pub enum ParsedLine<'a> {
         app_name: &'a str,
     },
     AuthFail {
-        timestamp: &'a str,
         ctx: &'a str,
         user: &'a str,
-        errmsg: &'a str,
     },
     ClientMetadata {
         ctx: &'a str,
@@ -76,7 +65,6 @@ pub enum ParsedLine<'a> {
 use std::sync::LazyLock;
 
 pub static MSG_FINDER: LazyLock<memmem::Finder<'static>> = LazyLock::new(|| memmem::Finder::new(b"\"msg\":\""));
-pub static S_FINDER: LazyLock<memmem::Finder<'static>> = LazyLock::new(|| memmem::Finder::new(b"\"s\":\""));
 pub static CTX_FINDER: LazyLock<memmem::Finder<'static>> = LazyLock::new(|| memmem::Finder::new(b"\"ctx\":\""));
 pub static NS_FINDER: LazyLock<memmem::Finder<'static>> = LazyLock::new(|| memmem::Finder::new(b"\"ns\":\""));
 pub static PLAN_FINDER: LazyLock<memmem::Finder<'static>> = LazyLock::new(|| memmem::Finder::new(b"\"planSummary\":\""));
@@ -91,10 +79,7 @@ pub static PLAN_KEY_FINDER: LazyLock<memmem::Finder<'static>> = LazyLock::new(||
 pub static USER_FINDER: LazyLock<memmem::Finder<'static>> = LazyLock::new(|| memmem::Finder::new(b"\"user\":\""));
 pub static PRINCIPAL_FINDER: LazyLock<memmem::Finder<'static>> = LazyLock::new(|| memmem::Finder::new(b"\"principalName\":\""));
 pub static DUR_REV_FINDER: LazyLock<memmem::FinderRev<'static>> = LazyLock::new(|| memmem::FinderRev::new(b"\"durationMillis\":"));
-pub static C_FINDER: LazyLock<memmem::Finder<'static>> = LazyLock::new(|| memmem::Finder::new(b"\"c\":\""));
-pub static ID_FINDER: LazyLock<memmem::Finder<'static>> = LazyLock::new(|| memmem::Finder::new(b"\"id\":"));
 pub static DATE_FINDER: LazyLock<memmem::Finder<'static>> = LazyLock::new(|| memmem::Finder::new(b"\"$date\":\""));
-pub static CONN_COUNT_FINDER: LazyLock<memmem::Finder<'static>> = LazyLock::new(|| memmem::Finder::new(b"\"connectionCount\":"));
 
 /// Extract string field value using a precompiled static Finder
 #[inline(always)]
@@ -381,12 +366,6 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
         if msg == "Slow query" {
             if let Some(dur) = extract_duration_rev(line) {
                 let (timestamp, epoch_ms) = extract_timestamp(header);
-                let severity = if let Some(s) = extract_str_with_finder(header, &S_FINDER) {
-                    s.as_bytes().first().copied().unwrap_or(b'I')
-                } else {
-                    b'I'
-                };
-
                 let (ctx, after_ctx) = if let Some(pos) = CTX_FINDER.find(header) {
                     let start = pos + CTX_FINDER.needle().len();
                     if let Some(quote) = memchr::memchr(b'"', &header[start..]) {
@@ -403,10 +382,9 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
                 let ns = extract_str_with_finder(after_ctx, &NS_FINDER)
                     .or_else(|| extract_str_with_finder(header, &NS_FINDER))
                     .unwrap_or("");
-                let (db, collection) = if let Some(idx) = ns.find('.') {
-                    (&ns[..idx], &ns[idx + 1..])
-                } else {
-                    ("unknown", ns)
+                let collection = match ns.find('.') {
+                    Some(idx) => &ns[idx + 1..],
+                    None => ns,
                 };
 
                 let tail = if line.len() > 4800 {
@@ -440,7 +418,7 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
                 sub = s;
                 let (query_hash, s) = extract_forward_str(sub, metrics_slice, &HASH_FINDER);
                 sub = s;
-                let (plan_cache_key, s) = extract_forward_str(sub, metrics_slice, &PLAN_KEY_FINDER);
+                let (_, s) = extract_forward_str(sub, metrics_slice, &PLAN_KEY_FINDER);
                 sub = s;
                 let (reslen, s) = extract_forward_u32(sub, metrics_slice, &RESLEN_FINDER);
                 sub = s;
@@ -454,12 +432,10 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
                 return ParsedLine::SlowQuery(ParsedSlowQuery {
                     timestamp,
                     epoch_ms,
-                    severity,
                     ctx,
                     user,
                     ns,
                     collection,
-                    db,
                     duration_ms: dur,
                     plan_summary,
                     is_collscan,
@@ -470,7 +446,6 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
                     reslen,
                     remote,
                     query_hash,
-                    plan_cache_key,
                     line,
                 });
             }
@@ -483,18 +458,10 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
             let connection_count = extract_u32_value(header, b"\"connectionCount\":")
                 .or_else(|| extract_u32_value(line, b"\"connectionCount\":"))
                 .unwrap_or(0);
-            let remote = extract_str_value(header, b"\"remote\":\"")
-                .or_else(|| extract_str_value(line, b"\"remote\":\""))
-                .unwrap_or("");
-            return ParsedLine::ConnectionAccepted {
-                timestamp,
-                ctx,
-                connection_count,
-                remote,
-            };
+            return ParsedLine::ConnectionAccepted { connection_count };
         }
         if msg == "Connection ended" {
-            return ParsedLine::ConnectionEnded { timestamp, ctx };
+            return ParsedLine::ConnectionEnded;
         }
         if msg == "Authentication succeeded" || msg == "Successfully authenticated" {
             let user = extract_str_value(line, b"\"user\":\"")
@@ -523,13 +490,7 @@ pub fn parse_line<'a>(line: &'a [u8]) -> ParsedLine<'a> {
             let user = extract_str_value(line, b"\"user\":\"")
                 .or_else(|| extract_str_value(line, b"\"principalName\":\""))
                 .unwrap_or("");
-            let errmsg = extract_str_value(line, b"\"errmsg\":\"").unwrap_or(msg);
-            return ParsedLine::AuthFail {
-                timestamp,
-                ctx,
-                user,
-                errmsg,
-            };
+            return ParsedLine::AuthFail { ctx, user };
         }
         if msg == "client metadata" {
             let app_name = extract_str_value(line, b"\"application\":{\"name\":\"")

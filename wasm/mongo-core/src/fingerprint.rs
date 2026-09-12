@@ -56,10 +56,7 @@ impl MongoOp {
 }
 
 pub struct FingerprintResult {
-    pub op: MongoOp,
     pub fingerprint: String,
-    pub filter_keys: Vec<String>,
-    pub sort_keys: Vec<String>,
     pub index_suggestion: String,
 }
 
@@ -393,10 +390,7 @@ pub fn generate_fingerprint(
     };
 
     FingerprintResult {
-        op,
         fingerprint,
-        filter_keys,
-        sort_keys,
         index_suggestion,
     }
 }

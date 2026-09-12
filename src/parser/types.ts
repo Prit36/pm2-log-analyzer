@@ -107,24 +107,7 @@ export type CronEventCompact = {
   durationMs?: number | undefined;
 };
 
-export type HttpRequestHit = {
-  method: LogMethod;
-  path: string;
-  status: number;
-  durationMs: number;
-  hour?: number | undefined;
-  date?: string | undefined;
-};
-
-export type ParsedLine =
-  | { kind: "http"; hit: HttpRequestHit }
-  | { kind: "cron"; event: CronEventCompact }
-  | { kind: "unmatched" }
-  | { kind: "empty" };
-
 export const METHODS: LogMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"];
-
-export const METHOD_INDEX = new Map(METHODS.map((m, i) => [m, i]));
 
 export const EMPTY_RESULT: AggregatedResult = {
   api: [],

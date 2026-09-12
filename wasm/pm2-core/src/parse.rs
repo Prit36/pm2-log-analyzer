@@ -1,4 +1,4 @@
-//! Byte-level PM2 log line parser (parity with src/parser/parseLine.ts).
+//! Byte-level PM2 log line parser.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Method {
@@ -8,31 +8,6 @@ pub enum Method {
     Patch = 3,
     Delete = 4,
     Head = 5,
-}
-
-impl Method {
-    pub fn from_code(c: u8) -> Option<Self> {
-        match c {
-            0 => Some(Self::Get),
-            1 => Some(Self::Post),
-            2 => Some(Self::Put),
-            3 => Some(Self::Patch),
-            4 => Some(Self::Delete),
-            5 => Some(Self::Head),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Get => "GET",
-            Self::Post => "POST",
-            Self::Put => "PUT",
-            Self::Patch => "PATCH",
-            Self::Delete => "DELETE",
-            Self::Head => "HEAD",
-        }
-    }
 }
 
 #[derive(Clone, Debug)]

@@ -22,11 +22,9 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.11.3", features = [] }
-tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 pm2-core = { path = "../wasm/pm2-core" }
 mongo-core = { path = "../wasm/mongo-core" }
-zip-core = { path = "../wasm/zip-core" }
 memmap2 = "0.9"
 rayon = "1.10"
 hashbrown = "0.17"

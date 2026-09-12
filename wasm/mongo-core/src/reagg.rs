@@ -46,7 +46,6 @@ struct CollectionAcc {
 }
 
 struct TimeBucketAcc {
-    hour: u8,
     count: u32,
     collscan_count: u32,
     total_duration_ms: u64,
@@ -270,7 +269,6 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
             t_acc.sample_durations.push(dur);
         } else {
             time_buckets[hour] = Some(TimeBucketAcc {
-                hour: hour as u8,
                 count: 1,
                 collscan_count: if is_coll { 1 } else { 0 },
                 total_duration_ms: dur as u64,
@@ -905,12 +903,6 @@ pub fn write_escaped_json(out: &mut String, s: &str) {
     }
 }
 
-pub fn escape_json(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    write_escaped_json(&mut out, s);
-    out
-}
-
 pub fn write_epoch_to_iso(out: &mut String, epoch_ms: i64) {
     if epoch_ms <= 0 {
         out.push_str("1970-01-01T00:00:00.000Z");
@@ -954,8 +946,3 @@ pub fn write_epoch_to_iso(out: &mut String, epoch_ms: i64) {
     );
 }
 
-pub fn epoch_to_iso(epoch_ms: i64) -> String {
-    let mut out = String::with_capacity(24);
-    write_epoch_to_iso(&mut out, epoch_ms);
-    out
-}

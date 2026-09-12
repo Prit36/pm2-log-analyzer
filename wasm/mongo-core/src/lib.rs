@@ -1,5 +1,4 @@
 //! MongoDB log analyzer Wasm core: parse bytes → compact columnar store → microsecond reagg.
-#![allow(dead_code)]
 
 mod fingerprint;
 mod parse;

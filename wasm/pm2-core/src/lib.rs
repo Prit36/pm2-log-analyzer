@@ -25,10 +25,6 @@ impl Pm2Engine {
         &self.inner
     }
 
-    pub fn inner_mut(&mut self) -> &mut Engine {
-        &mut self.inner
-    }
-
     pub fn reaggregate_decoded(
         &mut self,
         normalize_mode: u8,

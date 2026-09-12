@@ -20,8 +20,6 @@ export const EMPTY_SAMPLES: string[] = [];
 export const EMPTY_DATES: string[] = [];
 export const EMPTY_DAILY: DaySummary[] = [];
 export const EMPTY_HOURLY: HourlyBucket[] = [];
-export const EMPTY_FILE_NAMES: string[] = [];
-
 export type SortDirection = "asc" | "desc";
 export type ApiSortKey = "p95Ms" | "p99Ms" | "avgMs" | "maxMs" | "count" | "errorCount" | "path";
 export type CronSortKey =

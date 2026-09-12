@@ -75,9 +75,6 @@ importers:
       tailwindcss:
         specifier: 4.3.3
         version: 4.3.3
-      tsx:
-        specifier: ^4.23.13
-        version: 4.23.13
       typescript:
         specifier: 7.0.2
         version: 7.0.2
@@ -2450,6 +2447,7 @@ snapshots:
       '@esbuild/win32-arm64': 0.28.2
       '@esbuild/win32-ia32': 0.28.2
       '@esbuild/win32-x64': 0.28.2
+    optional: true
 
   eventemitter3@5.0.4: {}
 
@@ -2907,6 +2905,7 @@ snapshots:
       esbuild: 0.28.2
     optionalDependencies:
       fsevents: 2.3.3
+    optional: true
 
   typescript@7.0.2:
     optionalDependencies:

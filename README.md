@@ -54,12 +54,11 @@ npm run preview
 
 Output is a single `dist/index.html` (plus a small logo asset).
 
-### Lint / format / self-check
+### Lint / format
 
 ```bash
 npm run lint
 npm run fmt
-npm run selfcheck
 ```
 
 ---

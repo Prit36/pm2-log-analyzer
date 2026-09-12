@@ -1,7 +1,7 @@
 //! Persistent per-shard columnar store + reaggregation.
 
 use crate::normalize::{normalize_path, NormalizeMode};
-use crate::parse::{parse_line_bytes, LineKind, Method};
+use crate::parse::{parse_line_bytes, LineKind};
 use crate::relhist::RelHist;
 use hashbrown::{HashMap, HashTable};
 use memchr::memchr;
@@ -2140,9 +2140,6 @@ impl Default for Engine {
 }
 
 #[allow(dead_code)]
-pub fn method_name(code: u8) -> &'static str {
-    Method::from_code(code).map(|m| m.as_str()).unwrap_or("GET")
-}
 
 #[cfg(test)]
 mod tests {

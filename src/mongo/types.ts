@@ -1,4 +1,12 @@
-import type { MongoDoc } from "./fingerprint";
+export type MongoParsedNode =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly MongoParsedNode[]
+  | { readonly [key: string]: MongoParsedNode };
+
+export type MongoDoc = { readonly [key: string]: MongoParsedNode };
 
 export type MongoSeverity = "I" | "W" | "E" | "F" | "D";
 
