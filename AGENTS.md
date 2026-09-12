@@ -154,7 +154,7 @@ Boris Cherny (creator of Claude Code) keeps his team's file around 100 lines. Un
 - Language and version: TypeScript 7.0.2 (strict), target ESNext
 - Framework(s): React 19.2.8, Vite 8.1.5, Tailwind CSS 4.3.3 (`@tailwindcss/vite`)
 - Package manager: User choice (e.g. bun, yarn, npm)
-- Runtime / deployment target: Browser SPA (Vite multi-asset build)
+- Runtime / deployment target: **both** the browser SPA (Vite build, Wasm cores) and the Tauri desktop app (native Rust cores). Keep both working: the browser path (`src/workers`, `src/wasm`, `src/utils/zipExtractor.ts`, `wasm/zip-core`) is a supported target, not legacy.
 
 ### Commands
 - Install: `<package-manager> install`
@@ -164,6 +164,7 @@ Boris Cherny (creator of Claude Code) keeps his team's file around 100 lines. Un
 - Lint: `<package-manager> run lint` (`oxlint && tsc --noEmit`); fix: `<package-manager> run lint:fix`
 - Format: `<package-manager> run fmt` (`oxfmt`); check: `<package-manager> run fmt:check`
 - Typecheck: `<package-manager> run typecheck` (`tsc --noEmit`)
+- Rebuild Wasm: `<package-manager> run wasm:build` (only after editing `wasm/*/src`; needs `wasm-bindgen` 0.2.126 + `wasm-opt` on PATH, then commit the regenerated `src/wasm/*`)
 - Bench (PM2): `<package-manager> run bench`
 - Bench (Mongo): `<package-manager> run bench:mongo`
 - Bench (Zip): `<package-manager> run bench:zip`
@@ -231,6 +232,7 @@ When the user corrects your approach, append a one-line rule here before ending 
 - Decoder choice for ZIP entries (2026-09-12): libdeflate (`libdeflater`, vendored C, builds via cc) beats pure-Rust `zlib-rs` on log data by ~1.3x for whole-buffer inflate (pm2 268MB 237→172ms, mongo 458MB 265→203ms) and a zeroed `vec![0u8; n]` costs ~0ms (lazily-zeroed pages, same first-touch cost as the old `MaybeUninit` path), so use libdeflate where the whole entry is materialized. Whole-buffer inflate + parallel parse is the fastest PM2 ZIP path: streaming PM2 shards into parsers measured no better (inflate writes 242ms instead of 188ms because the concurrent parsers steal memory bandwidth; per-shard fresh 22MB windows cost another ~35ms) even with a recycled window pool, so keep libdeflate + `par_iter` shards for PM2.
 - Streaming Mongo ZIP ingest (2026-09-12): `archive::DeflateStream` (resumable raw-deflate inflate from the stable `zlib_rs::Inflate`) feeding a consumer thread through a 3×8MiB `sync_channel` pool drops the methaq mongo branch from ~376ms to ~250ms and the app's peak working set from 842–911MB to 442–522MB, because the 437MB full-size buffer is never allocated and the 104ms engine feed overlaps the 210ms inflate. It only helps when the parse is smaller than the inflate — measuring both branches before picking a structure is mandatory here.
 - IPC payload size is the dominant UI-ready cost after parsing (2026-09-12): the Tauri custom-protocol response transfers at ~10ms/MB on WebView2 (10.6MB → ~118ms of `invoke`-minus-`native` overhead, unaffected by switching to a raw `ArrayBuffer` body — V8's `JSON.parse` of a 7MB payload is only 8–11ms). Dropping the redundant per-row `key` (`method + ' ' + path`, rebuilt in `nativeBridge.restoreApiKeys`) and rounding display-only floats to 2 decimals shrinks the methaq PM2 JSON from 9.27MB to 5.85MB and UI-ready by ~30ms. Progress events are cheap (~5ms for 45 events) — do not throttle them for speed.
+- Dual target: browser + desktop are both supported (2026-09-12). `src/wasm/pkg*` and `src/wasm/*Bytes.ts` are checked-in Wasm artifacts, so any change under `wasm/*/src` must be followed by `pnpm wasm:build` and a browser bench (`bench:zip`/`bench:mongo`), not just the native bench. They had drifted: the artifacts committed in `b3e0bbe` predated `MongoEngine::feed_slice` from the native streaming work, so the browser was running a Wasm built from older sources (functionally identical — the browser never calls `feed_slice` — and regenerating changed no numbers: both builds give 907,336 requests / 82,191 slow queries / 557 patterns on the methaq zip). Rule: after touching a shared core crate, run `cargo test` + `pnpm wasm:build` + one native bench + one browser bench, and commit the regenerated artifacts with the source change.
 - Vite's dev watcher must ignore `src-tauri` (2026-09-12): `server.watch.ignored: ["**/src-tauri/**", "**/target/**"]`. `src-tauri/target` is 13GB/28k files, so a cargo/tauri build floods the dev server with watcher events and it stops answering module requests (measured: 16.4s to first paint under a build, 2.6–5.8s per 179-byte 304; 1.5s once ignored, 0.5s idle). Symptom to recognize: DevTools shows tiny cached responses taking seconds, which means the server, not the browser, is stalled — a slow dev load is never the app code, and building the Rust side while testing `pnpm dev` will always look like an app regression unless this is set.
 
 

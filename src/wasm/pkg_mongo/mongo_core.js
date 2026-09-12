@@ -31,6 +31,16 @@ export class MongoEngine {
         return ret >>> 0;
     }
     /**
+     * @param {Uint8Array} data
+     * @returns {number}
+     */
+    feed_slice(data) {
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.mongoengine_feed_slice(this.__wbg_ptr, ptr0, len0);
+        return ret >>> 0;
+    }
+    /**
      * Grow ingest window to `len` bytes; returns pointer into Wasm memory for JS writes.
      * @param {number} len
      * @returns {number}

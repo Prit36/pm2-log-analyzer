@@ -5,6 +5,7 @@ export const __wbg_mongoengine_free: (a: number, b: number) => void;
 export const mongoengine_clear: (a: number) => void;
 export const mongoengine_end_shard: (a: number) => void;
 export const mongoengine_feed: (a: number, b: number, c: number) => number;
+export const mongoengine_feed_slice: (a: number, b: number, c: number) => number;
 export const mongoengine_ingest_ptr: (a: number, b: number) => number;
 export const mongoengine_new: () => number;
 export const mongoengine_reaggregate: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number];

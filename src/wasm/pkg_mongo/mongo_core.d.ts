@@ -13,6 +13,7 @@ export class MongoEngine {
      * Parse `len` bytes previously written at ingest_ptr; `abs_off` is file offset of those bytes.
      */
     feed(len: number, abs_off: number): number;
+    feed_slice(data: Uint8Array): number;
     /**
      * Grow ingest window to `len` bytes; returns pointer into Wasm memory for JS writes.
      */
@@ -35,6 +36,7 @@ export interface InitOutput {
     readonly mongoengine_clear: (a: number) => void;
     readonly mongoengine_end_shard: (a: number) => void;
     readonly mongoengine_feed: (a: number, b: number, c: number) => number;
+    readonly mongoengine_feed_slice: (a: number, b: number, c: number) => number;
     readonly mongoengine_ingest_ptr: (a: number, b: number) => number;
     readonly mongoengine_new: () => number;
     readonly mongoengine_reaggregate: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number];
