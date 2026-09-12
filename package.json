@@ -20,7 +20,9 @@
     "bench:native": "node scripts/bench/bench_native_tauri.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:build:exe": "tauri build --no-bundle",
+    "build:exe": "tauri build --no-bundle"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

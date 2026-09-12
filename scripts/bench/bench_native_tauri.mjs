@@ -176,11 +176,13 @@ try {
   }
 
   log('enabling benchmark hook (localStorage["pm2-native-bench"] = "1")');
-  await cdp.eval(`localStorage.setItem("pm2-native-bench","1"); location.reload()`);
+  await cdp.eval(
+    `localStorage.setItem("pm2-native-bench","1"); localStorage.removeItem("app-analyzer-mode"); location.reload()`,
+  );
   for (let i = 0; i < 60; i++) {
     await sleep(500);
     const ready = await cdp.eval(
-      `document.querySelector('[data-testid="log-file-input"]') !== null`,
+      `document.querySelector('[data-testid="log-file-input"], [data-testid="mongo-log-file-input"]') !== null`,
     );
     if (ready) break;
     if (i === 59) throw new Error("app UI did not load after reload");

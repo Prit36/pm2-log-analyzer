@@ -29,6 +29,7 @@ mongo-core = { path = "../wasm/mongo-core" }
 zip-core = { path = "../wasm/zip-core" }
 memmap2 = "0.9"
 rayon = "1.10"
+zlib-rs = { version = "0.6", default-features = false, features = ["rust-allocator", "__internal-api"] }
 
 [profile.release]
 opt-level = 3

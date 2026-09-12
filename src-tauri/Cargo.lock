@@ -86,6 +86,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-log",
  "zip-core",
+ "zlib-rs",
 ]
 
 [[package]]

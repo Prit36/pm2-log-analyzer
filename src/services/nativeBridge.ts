@@ -30,6 +30,21 @@ export type MongoNativeResult = {
   total_lines: number;
 };
 
+export type NativeFileInfo = {
+  name: string;
+  path: string;
+  size: number;
+  category: "pm2" | "mongo" | "skip" | "unknown";
+};
+
+export type NativeIngestResult = {
+  pm2: Pm2NativeResult | null;
+  mongo: MongoNativeResult | null;
+  files: NativeFileInfo[];
+  total_bytes: number;
+  parse_wall_ms: number;
+};
+
 type NativeProgressPayload = {
   stage: string;
   processed: number;
@@ -254,22 +269,16 @@ export async function clearNative(): Promise<void> {
   await invoke("clear_engine");
 }
 
-export function classifyLogPath(path: string): "pm2" | "mongo" | "unknown" {
-  const fileName = (path.split(/[/\\]/).pop() ?? path).toLowerCase();
-  if (
-    fileName.includes("mongo") ||
-    fileName.includes("mongod") ||
-    fileName.endsWith(".mongodb.log")
-  ) {
+export function classifyLogPath(path: string): "pm2" | "mongo" | "skip" | "unknown" {
+  const lower = path.toLowerCase().replace(/\\/g, "/");
+  const fileName = lower.split("/").pop() ?? lower;
+  if (fileName.startsWith(".") || fileName.startsWith("__macosx") || fileName.includes("error")) {
+    return "skip";
+  }
+  if (/(?:^|[._-])mongo(?:[._-]|\d|$)|mongod/i.test(fileName)) {
     return "mongo";
   }
-  if (
-    fileName.includes("api") ||
-    fileName.includes("pm2") ||
-    fileName.includes("access") ||
-    fileName.includes("out") ||
-    fileName.includes("error")
-  ) {
+  if (/(?:^|[._-])(?:api[._-]out|pm2)|out\.log/i.test(fileName) || /^api[.-]/.test(fileName)) {
     return "pm2";
   }
   return "unknown";
@@ -280,80 +289,175 @@ export async function handleNativePathsUpload(
   uploadMode: "replace" | "append" = "replace",
 ): Promise<void> {
   const startedAt = performance.now();
-  const pm2Paths: string[] = [];
-  const mongoPaths: string[] = [];
-  const activeMode = useAppModeStore.getState().mode;
+  const pm2Options = workerParseOptions(useAnalysisStore.getState().filters);
+  const mongoFilters = useMongoStore.getState().filters;
+  const mongoOptions = {
+    op: mongoFilters.operation,
+    planFilter:
+      mongoFilters.planFilter === "collscan_only"
+        ? 1
+        : mongoFilters.planFilter === "ixscan_only"
+          ? 2
+          : 0,
+    minDurationMs: mongoFilters.minDurationMs,
+    collection: mongoFilters.collection,
+    searchQuery: mongoFilters.searchQuery,
+    highScanRatioOnly: mongoFilters.highScanRatioOnly,
+    user: mongoFilters.userFilter,
+  };
 
-  for (const p of paths) {
-    const cat = classifyLogPath(p);
-    if (cat === "mongo") {
-      mongoPaths.push(p);
-    } else if (cat === "pm2") {
-      pm2Paths.push(p);
-    } else {
-      if (activeMode === "mongo") mongoPaths.push(p);
-      else pm2Paths.push(p);
-    }
-  }
+  const {
+    setParsing: setPm2Parsing,
+    setProgress: setPm2Progress,
+    setResult: setPm2Result,
+    setError: setPm2Error,
+    showToast: showPm2Toast,
+    appendLoadedFiles: appendPm2Files,
+    setLoadedFiles: setPm2Files,
+  } = useAnalysisStore.getState();
 
-  const { appendLoadedFiles: appendPm2Files, setLoadedFiles: setPm2Files } =
-    useAnalysisStore.getState();
-  const { appendLoadedFiles: appendMongoFiles, setLoadedFiles: setMongoFiles } =
-    useMongoStore.getState();
+  const {
+    setParsing: setMongoParsing,
+    setProgress: setMongoProgress,
+    setResult: setMongoResult,
+    setError: setMongoError,
+    showToast: showMongoToast,
+    appendLoadedFiles: appendMongoFiles,
+    setLoadedFiles: setMongoFiles,
+  } = useMongoStore.getState();
+
   const { setMode } = useAppModeStore.getState();
 
-  let pm2: Pm2ParseStats | null = null;
-  let mongo: MongoParseStats | null = null;
+  // Set visual progress on active store
+  setPm2Parsing(true);
+  setPm2Progress({ stage: "reading", processed: 0, total: 100, percent: 0 });
+  setMongoParsing(true);
+  setMongoProgress({ stage: "reading", processed: 0, total: 100, percent: 0 });
 
-  if (pm2Paths.length > 0) {
-    const fakeFiles = pm2Paths.map((p) => new File([], p.split(/[/\\]/).pop() ?? p));
-    if (uploadMode === "append") appendPm2Files(fakeFiles);
-    else setPm2Files(fakeFiles);
-    pm2 = await parsePm2FilesNative(pm2Paths);
-  }
-  if (mongoPaths.length > 0) {
-    const fakeFiles = mongoPaths.map((p) => new File([], p.split(/[/\\]/).pop() ?? p));
-    if (uploadMode === "append") appendMongoFiles(fakeFiles);
-    else setMongoFiles(fakeFiles);
-    mongo = await parseMongoFilesNative(mongoPaths);
-  }
+  let unlisten: (() => void) | null = null;
+  try {
+    unlisten = await listen<NativeProgressPayload>("native-progress", (event) => {
+      const stage: "complete" | "reading" | "parsing" =
+        event.payload.stage === "complete"
+          ? "complete"
+          : event.payload.stage === "reading"
+            ? "reading"
+            : "parsing";
+      const payload = {
+        stage,
+        processed: event.payload.processed,
+        total: event.payload.total,
+        percent: event.payload.percent,
+      };
+      setPm2Progress(payload);
+      setMongoProgress(payload);
+    });
 
-  if (pm2Paths.length > 0 && mongoPaths.length > 0) {
-    // Keep the current tab; both stores are populated.
-  } else if (mongoPaths.length > 0) {
-    setMode("mongo");
-  } else if (pm2Paths.length > 0) {
-    setMode("pm2");
-  }
+    const t0 = performance.now();
+    const res = await invoke<NativeIngestResult>("ingest_native_files", {
+      paths,
+      pm2Options,
+      mongoOptions,
+      uploadMode,
+    });
+    const invokeMs = performance.now() - t0;
 
-  const mode = useAppModeStore.getState().mode;
-  await waitForFirstPaint(
-    mode === "mongo" ? '[data-testid="mongo-kpi-row"]' : '[data-testid="kpi-row"]',
-  );
-  const readyMs = performance.now() - startedAt;
+    const t1 = performance.now();
+    let pm2Matched = 0;
+    let pm2WallMs = 0;
+    let mongoTotalLines = 0;
+    let mongoSlowQueries = 0;
+    let mongoWallMs = 0;
 
-  const invokeMs = (pm2?.invokeMs ?? 0) + (mongo?.invokeMs ?? 0);
-  const assembleMs = (pm2?.assembleMs ?? 0) + (mongo?.assembleMs ?? 0);
-  const nativeMs = (pm2?.nativeMs ?? 0) + (mongo?.nativeMs ?? 0);
-  console.info(
-    `[native] ui ready in ${readyMs.toFixed(0)}ms (invoke ${invokeMs.toFixed(0)}ms, assemble ${assembleMs.toFixed(0)}ms, native ${nativeMs.toFixed(0)}ms)`,
-  );
+    const pm2Files: File[] = [];
+    const mongoFiles: File[] = [];
 
-  const { showToast: showPm2Toast } = useAnalysisStore.getState();
-  const { showToast: showMongoToast } = useMongoStore.getState();
+    for (const f of res.files) {
+      const fileObj = new File([], f.name);
+      Object.defineProperty(fileObj, "size", { value: f.size, writable: false });
+      if (f.category === "mongo") {
+        mongoFiles.push(fileObj);
+      } else {
+        pm2Files.push(fileObj);
+      }
+    }
 
-  if (pm2 && mongo) {
-    const msg = `UI ready in ${sec(readyMs)} · ${pm2.matched.toLocaleString()} requests + ${mongo.totalLines.toLocaleString()} MongoDB lines`;
-    showPm2Toast(msg);
-    showMongoToast(msg);
-  } else if (mongo) {
-    showMongoToast(
-      `UI ready in ${sec(readyMs)} · ${mongo.totalLines.toLocaleString()} lines (${mongo.slowQueries.toLocaleString()} slow, native ${sec(mongo.nativeMs)})`,
+    if (res.pm2) {
+      nativePm2Active = true;
+      // SAFETY: json is AggregatedResult schema emitted by the Rust finalizer
+      const result = JSON.parse(res.pm2.json) as AggregatedResult;
+      setPm2Result(result);
+      pm2Matched = result.summary.matched;
+      pm2WallMs = res.pm2.parse_wall_ms;
+      if (uploadMode === "append") appendPm2Files(pm2Files);
+      else setPm2Files(pm2Files);
+      setPm2Progress({ stage: "complete", processed: 100, total: 100, percent: 100 });
+      setPm2Parsing(false);
+    } else {
+      setPm2Parsing(false);
+    }
+
+    if (res.mongo) {
+      nativeMongoActive = true;
+      // SAFETY: json is guaranteed MongoAggregationResult JSON schema emitted by mongo_core
+      const parsed = JSON.parse(res.mongo.json) as MongoAggregationResult;
+      setMongoResult(parsed);
+      mongoTotalLines = res.mongo.total_lines;
+      mongoSlowQueries = res.mongo.slow_query_count;
+      mongoWallMs = res.mongo.parse_wall_ms;
+      if (uploadMode === "append") appendMongoFiles(mongoFiles);
+      else setMongoFiles(mongoFiles);
+      setMongoProgress({ stage: "complete", processed: 100, total: 100, percent: 100 });
+      setMongoParsing(false);
+    } else {
+      setMongoParsing(false);
+    }
+
+    const assembleMs = performance.now() - t1;
+
+    // Tab switching
+    if (res.pm2 && res.mongo) {
+      // Both tabs populated; keep the current tab
+    } else if (res.mongo) {
+      setMode("mongo");
+    } else if (res.pm2) {
+      setMode("pm2");
+    }
+
+    const mode = useAppModeStore.getState().mode;
+    await waitForFirstPaint(
+      mode === "mongo" ? '[data-testid="mongo-kpi-row"]' : '[data-testid="kpi-row"]',
     );
-  } else if (pm2) {
-    showPm2Toast(
-      `UI ready in ${sec(readyMs)} · ${pm2.matched.toLocaleString()} requests (native ${sec(pm2.nativeMs)})`,
+    const readyMs = performance.now() - startedAt;
+    const nativeMs = res.parse_wall_ms;
+
+    console.info(
+      `[native] ui ready in ${readyMs.toFixed(0)}ms (invoke ${invokeMs.toFixed(0)}ms, assemble ${assembleMs.toFixed(0)}ms, native ${nativeMs.toFixed(0)}ms)`,
     );
+
+    if (res.pm2 && res.mongo) {
+      const msg = `UI ready in ${sec(readyMs)} · ${pm2Matched.toLocaleString()} requests + ${mongoTotalLines.toLocaleString()} MongoDB lines (both tabs populated)`;
+      showPm2Toast(msg);
+      showMongoToast(msg);
+    } else if (res.mongo) {
+      showMongoToast(
+        `UI ready in ${sec(readyMs)} · ${mongoTotalLines.toLocaleString()} lines (${mongoSlowQueries.toLocaleString()} slow, native ${sec(mongoWallMs)})`,
+      );
+    } else if (res.pm2) {
+      showPm2Toast(
+        `UI ready in ${sec(readyMs)} · ${pm2Matched.toLocaleString()} requests (native ${sec(pm2WallMs)})`,
+      );
+    }
+  } catch (err) {
+    setPm2Parsing(false);
+    setMongoParsing(false);
+    const message = err instanceof Error ? err.message : String(err);
+    setPm2Error(message);
+    setMongoError(message);
+    showPm2Toast(message);
+    throw err;
+  } finally {
+    if (unlisten) unlisten();
   }
 }
 
