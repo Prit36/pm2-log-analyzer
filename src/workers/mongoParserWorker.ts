@@ -6,11 +6,7 @@ import {
   type MongoFilters,
 } from "../mongo/types";
 import MongoShardWorkerCtor from "./mongoShardWorker.ts?worker&inline";
-import type {
-  MongoShardParsed,
-  MongoShardRequest,
-  MongoShardResponse,
-} from "./mongoShardWorker";
+import type { MongoShardParsed, MongoShardRequest, MongoShardResponse } from "./mongoShardWorker";
 
 export type MongoWorkerMessage =
   | { type: "PARSE_FILE"; payload: { file: File; filters: MongoFilters } }

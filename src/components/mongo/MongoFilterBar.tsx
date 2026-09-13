@@ -346,7 +346,9 @@ export function MongoFilterBar() {
                 ? "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 hover:text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60"
                 : "border border-transparent text-slate-400 opacity-40 cursor-not-allowed dark:text-slate-500",
             )}
-            title={activeFilterCount > 0 ? "Reset all filters to defaults" : "No active filters to reset"}
+            title={
+              activeFilterCount > 0 ? "Reset all filters to defaults" : "No active filters to reset"
+            }
           >
             <RotateCcw className="size-3" />
             <span>Reset all filters</span>

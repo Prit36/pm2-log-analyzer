@@ -1,8 +1,20 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Flame, Info, RotateCcw } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ExternalLink,
+  Flame,
+  Info,
+  RotateCcw,
+} from "lucide-react";
 import { useMemo } from "react";
 import { List, type RowComponentProps } from "react-window";
 import { useShallow } from "zustand/react/shallow";
-import { countActiveMongoFilters, type MongoSlowQuery, type MongoSlowQuerySortField } from "../../mongo/types";
+import {
+  countActiveMongoFilters,
+  type MongoSlowQuery,
+  type MongoSlowQuerySortField,
+} from "../../mongo/types";
 import { useMongoStore } from "../../store/mongoStore";
 import { resetMongoFilters } from "../../hooks/useMongoParserWorker";
 import { formatMs, formatNum } from "../../utils/format";

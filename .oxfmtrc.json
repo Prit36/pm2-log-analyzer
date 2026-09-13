@@ -25,6 +25,7 @@
     "*.md",
     "scripts/bench/history.json",
     "scripts/bench/mongo_history.json",
+    "scripts/bench/native_mongo_history.json",
     "scripts/bench/zip_history.json"
   ]
 }

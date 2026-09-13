@@ -241,4 +241,3 @@ export async function exportMongoSpreadsheet(
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
-

@@ -12,7 +12,11 @@ import {
 import { useMemo, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
 import { useShallow } from "zustand/react/shallow";
-import { countActiveMongoFilters, type MongoQueryPattern, type MongoSortField } from "../../mongo/types";
+import {
+  countActiveMongoFilters,
+  type MongoQueryPattern,
+  type MongoSortField,
+} from "../../mongo/types";
 import { useMongoStore } from "../../store/mongoStore";
 import { resetMongoFilters } from "../../hooks/useMongoParserWorker";
 import { formatMs, formatNum } from "../../utils/format";

@@ -1,0 +1,3 @@
+# The repository stores LF and oxfmt (`pnpm fmt:check`) expects LF, so check
+# every text file out as LF regardless of platform or core.autocrlf.
+* text=auto eol=lf
