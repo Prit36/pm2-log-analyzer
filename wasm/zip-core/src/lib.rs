@@ -45,21 +45,23 @@ fn classify_by_content(data: &[u8]) -> &'static str {
     let sample = &data[..sample_len];
 
     // Check for Mongo JSON or legacy formats
-    if sample.windows(8).any(|w| w == b"\"$date\"")
-        || sample.windows(5).any(|w| w == b"\"msg\"")
-        || sample.windows(5).any(|w| w == b"\"ctx\"")
-        || sample.windows(15).any(|w| w == b"[initandlisten]")
-        || sample.windows(6).any(|w| w == b"[conn")
+    if sample.windows(8).any(|window| window == b"\"$date\"")
+        || sample.windows(5).any(|window| window == b"\"msg\"")
+        || sample.windows(5).any(|window| window == b"\"ctx\"")
+        || sample.windows(15).any(|window| window == b"[initandlisten]")
+        || sample.windows(6).any(|window| window == b"[conn")
     {
         return "mongo";
     }
 
     // Check for HTTP / PM2 log lines
-    if sample.windows(4).any(|w| w == b"GET " || w == b"POST")
-        || sample.windows(4).any(|w| w == b"PUT " || w == b"HEAD")
-        || sample.windows(7).any(|w| w == b"DELETE " || w == b"OPTIONS")
-        || sample.windows(6).any(|w| w == b"[cron]")
-        || sample.windows(5).any(|w| w == b"[PM2]")
+    if sample.windows(4).any(|window| window == b"GET " || window == b"POST")
+        || sample.windows(4).any(|window| window == b"PUT " || window == b"HEAD")
+        || sample
+            .windows(7)
+            .any(|window| window == b"DELETE " || window == b"OPTIONS")
+        || sample.windows(6).any(|window| window == b"[cron]")
+        || sample.windows(5).any(|window| window == b"[PM2]")
     {
         return "pm2";
     }
@@ -164,7 +166,7 @@ impl FastDecompressor {
             || slice.len() != uncompressed_size
         {
             return Err(JsValue::from_str(&format!(
-                "Deflate decompression failed: {rc:?}"
+                "Deflate decompression failed: {rc:?}",
             )));
         }
 
@@ -215,7 +217,7 @@ pub fn classify_log_name_or_content(name: &str, sample: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{classify_by_name, decompress_gzip_internal};
 
     #[test]
     fn test_classification_by_name() {
