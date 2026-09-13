@@ -86,7 +86,9 @@ struct AggregatedResult {
     daily_stats: Vec<DaySummary>,
 }
 
-const NUM_MERGE_BUCKETS: usize = 16;
+/// Endpoint merge partitions. Sized well above the worker count so a rayon
+/// scheduler with a long tail still packs the work evenly.
+const NUM_MERGE_BUCKETS: usize = 64;
 
 struct MergedEndpoint {
     count: u32,
@@ -253,7 +255,7 @@ impl PartialTotals {
 fn merge_partials(partials: Vec<pm2_core::DecodedPartial>) -> MergedPartials {
     let mut totals = PartialTotals::new();
     let mut partitioned: [Vec<pm2_core::DecodedEndpoint>; NUM_MERGE_BUCKETS] =
-        std::array::from_fn(|_| Vec::with_capacity(2048));
+        std::array::from_fn(|_| Vec::with_capacity(512));
     for partial in partials {
         totals.absorb(&partial);
         for endpoint in partial.endpoints {

@@ -1,7 +1,5 @@
 //! Path normalization (parity with src/parser/normalize.ts).
 
-use std::borrow::Cow;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum NormalizeMode {
@@ -103,20 +101,39 @@ fn collapse_segment(seg: &[u8]) -> &[u8] {
     seg
 }
 
-pub fn normalize_path(path: &[u8], mode: NormalizeMode) -> Cow<'_, [u8]> {
+/// Collapse-aware normalization into a reusable scratch buffer: one pass over
+/// the path, no per-path allocation. Returns `path` itself when nothing
+/// collapsed (the scratch contents are then meaningless).
+pub fn normalize_into<'a>(
+    path: &'a [u8],
+    mode: NormalizeMode,
+    scratch: &'a mut Vec<u8>,
+) -> &'a [u8] {
     if mode == NormalizeMode::Exact {
-        return Cow::Borrowed(path);
+        return path;
     }
     let path = strip_query(path);
     if mode != NormalizeMode::CollapseIds {
-        // StripQuery: borrow the query-trimmed slice — no alloc.
-        return Cow::Borrowed(path);
+        return path;
     }
-    // CollapseIds: borrow when no segment needs collapsing.
-    if !has_collapsible_segment(path) {
-        return Cow::Borrowed(path);
+    scratch.clear();
+    let mut collapsed = false;
+    let mut start = 0usize;
+    for index in 0..=path.len() {
+        if index == path.len() || path[index] == b'/' {
+            let segment = &path[start..index];
+            let replacement = collapse_segment(segment);
+            if !std::ptr::eq(replacement.as_ptr(), segment.as_ptr()) {
+                collapsed = true;
+            }
+            scratch.extend_from_slice(replacement);
+            if index < path.len() {
+                scratch.push(b'/');
+            }
+            start = index + 1;
+        }
     }
-    Cow::Owned(collapse_segments(path))
+    if collapsed { scratch } else { path }
 }
 
 /// Drop the query string (`?…`) when the mode keeps the path at all.
@@ -127,69 +144,34 @@ fn strip_query(path: &[u8]) -> &[u8] {
     }
 }
 
-fn has_collapsible_segment(path: &[u8]) -> bool {
-    let mut start = 0usize;
-    for index in 0..=path.len() {
-        if index == path.len() || path[index] == b'/' {
-            let segment = &path[start..index];
-            if collapse_segment(segment) != segment {
-                return true;
-            }
-            start = index + 1;
-        }
-    }
-    false
-}
-
-fn collapse_segments(path: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(path.len());
-    let mut start = 0usize;
-    for index in 0..=path.len() {
-        if index == path.len() || path[index] == b'/' {
-            out.extend_from_slice(collapse_segment(&path[start..index]));
-            if index < path.len() {
-                out.push(b'/');
-            }
-            start = index + 1;
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{normalize_path, NormalizeMode};
-    use std::borrow::Cow;
+    use super::{normalize_into, NormalizeMode};
+
+    /// Normalize with a fresh scratch buffer, like a single call would.
+    fn normalized(path: &[u8], mode: NormalizeMode) -> Vec<u8> {
+        let mut scratch = Vec::new();
+        normalize_into(path, mode, &mut scratch).to_vec()
+    }
 
     #[test]
     fn collapse_object_id() {
         let path = b"/api/users/507f1f77bcf86cd799439011/profile";
-        assert_eq!(
-            normalize_path(path, NormalizeMode::CollapseIds).as_ref(),
-            b"/api/users/:id/profile",
-        );
+        assert_eq!(normalized(path, NormalizeMode::CollapseIds), b"/api/users/:id/profile");
     }
 
     #[test]
     fn strip_query() {
-        let out = normalize_path(b"/api/x?foo=1&bar=2", NormalizeMode::StripQuery);
-        assert_eq!(out.as_ref(), b"/api/x");
-        assert!(matches!(out, Cow::Borrowed(_)));
+        assert_eq!(normalized(b"/api/x?foo=1&bar=2", NormalizeMode::StripQuery), b"/api/x");
     }
 
     #[test]
-    fn collapse_noop_borrows() {
-        let path = b"/api/health";
-        let out = normalize_path(path, NormalizeMode::CollapseIds);
-        assert_eq!(out.as_ref(), path);
-        assert!(matches!(out, Cow::Borrowed(_)));
+    fn collapse_noop_keeps_bytes() {
+        assert_eq!(normalized(b"/api/health", NormalizeMode::CollapseIds), b"/api/health");
     }
 
     #[test]
     fn exact_keeps_query() {
-        let path = b"/api/x?foo=1";
-        let out = normalize_path(path, NormalizeMode::Exact);
-        assert_eq!(out.as_ref(), path);
-        assert!(matches!(out, Cow::Borrowed(_)));
+        assert_eq!(normalized(b"/api/x?foo=1", NormalizeMode::Exact), b"/api/x?foo=1");
     }
 }

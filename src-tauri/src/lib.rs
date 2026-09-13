@@ -47,6 +47,9 @@ pub struct Pm2ParseOptions {
 pub struct PayloadRef {
     pub url: String,
     pub bytes: usize,
+    /// Not part of the IPC payload; lets tests read the bytes back.
+    #[serde(skip)]
+    pub id: u64,
 }
 
 /// The loopback payload server, started once when the app boots.
@@ -55,9 +58,14 @@ static PAYLOAD_SERVER: std::sync::OnceLock<std::sync::Arc<payload::PayloadServer
 
 /// Hand a finished JSON result to the loopback server and describe where it is.
 fn publish_payload(json: String) -> Option<PayloadRef> {
-    let server = PAYLOAD_SERVER.get()?;
-    let (_, url, bytes) = server.publish(json.into_bytes());
-    Some(PayloadRef { url, bytes })
+    let server = ensure_payload_server();
+    let (id, url, bytes) = server.publish(json.into_bytes());
+    Some(PayloadRef { id, url, bytes })
+}
+
+/// The payload server, started on first use (app boot, or a test that needs it).
+fn ensure_payload_server() -> &'static std::sync::Arc<payload::PayloadServer> {
+    PAYLOAD_SERVER.get_or_init(payload::PayloadServer::start)
 }
 
 #[derive(serde::Serialize, Clone, Debug)]
@@ -1843,7 +1851,7 @@ async fn ingest_native_files(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     configure_rayon_pool();
-    let _ = PAYLOAD_SERVER.set(payload::PayloadServer::start());
+    ensure_payload_server();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {

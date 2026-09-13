@@ -262,9 +262,22 @@ impl RelHist {
     }
 }
 
-#[inline]
+/// `GAMMA.powf(key - 0.5)` over the dense key range. Quantile scans touch
+/// hundreds of buckets per endpoint, and `powf` dominated that scan.
+static DENSE_VALUES: std::sync::OnceLock<[f32; DENSE_LIMIT]> = std::sync::OnceLock::new();
+
+#[inline(always)]
+fn dense_values() -> &'static [f32; DENSE_LIMIT] {
+    DENSE_VALUES.get_or_init(|| std::array::from_fn(|key| GAMMA.powf(key as f64 - 0.5) as f32))
+}
+
+#[inline(always)]
 fn bucket_value(key: i32) -> f32 {
-    GAMMA.powf(key as f64 - 0.5) as f32
+    if (key as usize) < DENSE_LIMIT {
+        dense_values()[key as usize]
+    } else {
+        GAMMA.powf(key as f64 - 0.5) as f32
+    }
 }
 
 #[cfg(test)]

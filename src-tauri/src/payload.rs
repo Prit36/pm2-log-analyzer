@@ -60,6 +60,17 @@ impl PayloadServer {
         (id, url, length)
     }
 
+    /// The bytes retained for `id` (tests read results back through this).
+    #[cfg(test)]
+    pub fn bytes(&self, id: u64) -> Option<Vec<u8>> {
+        self.payloads
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(stored, _)| *stored == id)
+            .map(|(_, bytes)| bytes.clone())
+    }
+
     /// Serve requests one at a time; each connection carries exactly one.
     fn accept_loop(&self, listener: TcpListener) {
         for stream in listener.incoming() {

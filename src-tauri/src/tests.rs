@@ -6,6 +6,13 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::Instant;
 
+/// The JSON a result published to the loopback payload server.
+fn result_json(payload: &Option<crate::PayloadRef>) -> String {
+    let payload = payload.as_ref().expect("result payload");
+    let server = crate::ensure_payload_server();
+    String::from_utf8(server.bytes(payload.id).expect("payload bytes")).expect("utf-8 payload")
+}
+
     #[test]
     fn test_native_pm2_parse_sample() {
         let path = Path::new("../test_data/api-out.log");
@@ -23,7 +30,7 @@ use std::time::Instant;
         assert!(res.hit_count > 0, "Expected hit_count > 0");
         assert!(res.parse_wall_ms < 10000, "Expected fast parse");
         let result: serde_json::Value =
-            serde_json::from_str(res.data.get()).expect("valid result JSON");
+            serde_json::from_str(&result_json(&res.payload)).expect("valid result JSON");
         assert!(
             result["api"].as_array().is_some_and(|rows| !rows.is_empty()),
             "Expected api rows",
@@ -38,7 +45,7 @@ use std::time::Instant;
             res.hit_count,
             res.parse_wall_ms,
             res.shard_count,
-            res.data.get().len() / 1024,
+            result_json(&res.payload).len() / 1024,
         );
     }
 
@@ -63,10 +70,10 @@ use std::time::Instant;
             res.parse_wall_ms,
             res.shard_count,
             t0.elapsed().as_millis(),
-            res.data.get().len() / 1024,
+            result_json(&res.payload).len() / 1024,
         );
         assert_eq!(res.hit_count, 20315200);
-        assert!(serde_json::from_str::<serde_json::Value>(res.data.get()).is_ok());
+        assert!(serde_json::from_str::<serde_json::Value>(&result_json(&res.payload)).is_ok());
     }
 
     #[test]

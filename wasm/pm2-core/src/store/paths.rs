@@ -1,7 +1,7 @@
 //! Path, date, and normalize-mode interning.
 
 use super::{hash_bytes, path_head16, Engine, PathSlot, PATH_CACHE_SLOTS};
-use crate::normalize::{normalize_path, NormalizeMode};
+use crate::normalize::{normalize_into, NormalizeMode};
 use hashbrown::HashTable;
 
 impl Engine {
@@ -198,16 +198,17 @@ impl Engine {
         let path_off = &self.path_off;
         let path_len = &self.path_len;
         let path_to_norm = &mut self.path_to_norm[mode_index];
+        let mut scratch = Vec::with_capacity(256);
         for path_id in 0..path_off.len() {
             let offset = path_off[path_id] as usize;
             let length = path_len[path_id] as usize;
-            let normalized = normalize_path(&path_bytes[offset..offset + length], mode);
+            let normalized = normalize_into(&path_bytes[offset..offset + length], mode, &mut scratch);
             path_to_norm[path_id] = Self::intern_norm_into(
                 norm_bytes,
                 norm_off,
                 norm_len,
                 norm_table,
-                normalized.as_ref(),
+                normalized,
             );
         }
     }
