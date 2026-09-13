@@ -11,104 +11,117 @@ pub struct ZipEntryMeta {
 
 /// Parse Central Directory entries from a ZIP archive byte slice (e.g. mmap).
 pub fn parse_zip_entries(zip_bytes: &[u8]) -> Result<Vec<ZipEntryMeta>, String> {
-    let n = zip_bytes.len();
-    if n < 22 {
-        return Err("File too small to be a valid ZIP archive".into());
-    }
-
-    // EOCD is within the last 65557 bytes (22 min + 65535 max comment)
-    let search_start = n.saturating_sub(65557);
-    let tail = &zip_bytes[search_start..];
-
-    let mut eocd_rel_offset = None;
-    for i in (0..=tail.len().saturating_sub(22)).rev() {
-        if tail[i] == 0x50 && tail[i + 1] == 0x4b && tail[i + 2] == 0x05 && tail[i + 3] == 0x06 {
-            eocd_rel_offset = Some(i);
-            break;
-        }
-    }
-
-    let eocd_offset =
-        search_start + eocd_rel_offset.ok_or("End of Central Directory record not found")?;
+    let eocd_offset = find_eocd(zip_bytes)?;
     let eocd = &zip_bytes[eocd_offset..];
-
-    let total_entries = u16::from_le_bytes([eocd[10], eocd[11]]) as usize;
-    let cd_size = u32::from_le_bytes([eocd[12], eocd[13], eocd[14], eocd[15]]) as usize;
-    let cd_offset = u32::from_le_bytes([eocd[16], eocd[17], eocd[18], eocd[19]]) as usize;
-
+    let total_entries = little_endian_u16(eocd, 10) as usize;
+    let cd_size = little_endian_u32(eocd, 12) as usize;
+    let cd_offset = little_endian_u32(eocd, 16) as usize;
     if cd_offset + cd_size > zip_bytes.len() {
         return Err("Invalid Central Directory offset in ZIP archive".into());
     }
 
     let mut entries = Vec::with_capacity(total_entries.min(1024));
     let mut cursor = cd_offset;
-
     for _ in 0..total_entries {
-        if cursor + 46 > zip_bytes.len() {
+        let Some(entry) = parse_central_entry(zip_bytes, cursor) else {
             break;
+        };
+        cursor = entry.next_cursor;
+        if let Some(meta) = entry.meta {
+            entries.push(meta);
         }
-        if &zip_bytes[cursor..cursor + 4] != b"PK\x01\x02" {
-            break;
-        }
-
-        let method = u16::from_le_bytes([zip_bytes[cursor + 10], zip_bytes[cursor + 11]]);
-        let comp_size = u32::from_le_bytes([
-            zip_bytes[cursor + 20],
-            zip_bytes[cursor + 21],
-            zip_bytes[cursor + 22],
-            zip_bytes[cursor + 23],
-        ]) as usize;
-        let uncomp_size = u32::from_le_bytes([
-            zip_bytes[cursor + 24],
-            zip_bytes[cursor + 25],
-            zip_bytes[cursor + 26],
-            zip_bytes[cursor + 27],
-        ]) as usize;
-        let name_len =
-            u16::from_le_bytes([zip_bytes[cursor + 28], zip_bytes[cursor + 29]]) as usize;
-        let extra_len =
-            u16::from_le_bytes([zip_bytes[cursor + 30], zip_bytes[cursor + 31]]) as usize;
-        let comment_len =
-            u16::from_le_bytes([zip_bytes[cursor + 32], zip_bytes[cursor + 33]]) as usize;
-        let lh_offset = u32::from_le_bytes([
-            zip_bytes[cursor + 42],
-            zip_bytes[cursor + 43],
-            zip_bytes[cursor + 44],
-            zip_bytes[cursor + 45],
-        ]) as usize;
-
-        let name_start = cursor + 46;
-        let name_end = name_start + name_len;
-        if name_end > zip_bytes.len() {
-            break;
-        }
-        let name = String::from_utf8_lossy(&zip_bytes[name_start..name_end]).to_string();
-
-        // Calculate actual data start from Local Header
-        if lh_offset + 30 <= zip_bytes.len()
-            && &zip_bytes[lh_offset..lh_offset + 4] == b"PK\x03\x04"
-        {
-            let lh_name_len =
-                u16::from_le_bytes([zip_bytes[lh_offset + 26], zip_bytes[lh_offset + 27]]) as usize;
-            let lh_extra_len =
-                u16::from_le_bytes([zip_bytes[lh_offset + 28], zip_bytes[lh_offset + 29]]) as usize;
-            let data_start = lh_offset + 30 + lh_name_len + lh_extra_len;
-
-            if data_start + comp_size <= zip_bytes.len() {
-                entries.push(ZipEntryMeta {
-                    name,
-                    compression_method: method,
-                    compressed_size: comp_size,
-                    uncompressed_size: uncomp_size,
-                    data_start,
-                });
-            }
-        }
-
-        cursor = cursor + 46 + name_len + extra_len + comment_len;
     }
-
     Ok(entries)
+}
+
+/// The offset of the End of Central Directory record, searched from the file tail.
+fn find_eocd(zip_bytes: &[u8]) -> Result<usize, String> {
+    if zip_bytes.len() < 22 {
+        return Err("File too small to be a valid ZIP archive".into());
+    }
+    // EOCD is within the last 65557 bytes (22 min + 65535 max comment).
+    let search_start = zip_bytes.len().saturating_sub(65_557);
+    let tail = &zip_bytes[search_start..];
+    for index in (0..=tail.len().saturating_sub(22)).rev() {
+        if &tail[index..index + 4] == b"PK\x05\x06" {
+            return Ok(search_start + index);
+        }
+    }
+    Err("End of Central Directory record not found".into())
+}
+
+/// One central-directory record: its metadata (when the local header checks out)
+/// and the cursor position of the next record.
+struct CentralEntry {
+    meta: Option<ZipEntryMeta>,
+    next_cursor: usize,
+}
+
+/// Read one central-directory record, or `None` at the end of the directory.
+fn parse_central_entry(zip_bytes: &[u8], cursor: usize) -> Option<CentralEntry> {
+    if cursor + 46 > zip_bytes.len() || &zip_bytes[cursor..cursor + 4] != b"PK\x01\x02" {
+        return None;
+    }
+    let record = &zip_bytes[cursor..];
+    let compression_method = little_endian_u16(record, 10);
+    let compressed_size = little_endian_u32(record, 20) as usize;
+    let uncompressed_size = little_endian_u32(record, 24) as usize;
+    let name_len = little_endian_u16(record, 28) as usize;
+    let extra_len = little_endian_u16(record, 30) as usize;
+    let comment_len = little_endian_u16(record, 32) as usize;
+    let local_header_offset = little_endian_u32(record, 42) as usize;
+    let next_cursor = cursor + 46 + name_len + extra_len + comment_len;
+
+    let name_start = cursor + 46;
+    let name_end = name_start + name_len;
+    if name_end > zip_bytes.len() {
+        return None;
+    }
+    let name = String::from_utf8_lossy(&zip_bytes[name_start..name_end]).to_string();
+    let meta = local_header_data_start(zip_bytes, local_header_offset, compressed_size).map(
+        |data_start| ZipEntryMeta {
+            name,
+            compression_method,
+            compressed_size,
+            uncompressed_size,
+            data_start,
+        },
+    );
+    Some(CentralEntry { meta, next_cursor })
+}
+
+/// The offset of the entry's data, read from its local header.
+fn local_header_data_start(
+    zip_bytes: &[u8],
+    local_header_offset: usize,
+    compressed_size: usize,
+) -> Option<usize> {
+    if local_header_offset + 30 > zip_bytes.len() {
+        return None;
+    }
+    if &zip_bytes[local_header_offset..local_header_offset + 4] != b"PK\x03\x04" {
+        return None;
+    }
+    let header = &zip_bytes[local_header_offset..];
+    let name_len = little_endian_u16(header, 26) as usize;
+    let extra_len = little_endian_u16(header, 28) as usize;
+    let data_start = local_header_offset + 30 + name_len + extra_len;
+    (data_start + compressed_size <= zip_bytes.len()).then_some(data_start)
+}
+
+/// A little-endian `u16` at `offset`.
+fn little_endian_u16(bytes: &[u8], offset: usize) -> u16 {
+    u16::from_le_bytes([bytes[offset], bytes[offset + 1]])
+}
+
+/// A little-endian `u32` at `offset`.
+fn little_endian_u32(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes([
+        bytes[offset],
+        bytes[offset + 1],
+        bytes[offset + 2],
+        bytes[offset + 3],
+    ])
 }
 
 /// Decompress or slice a single ZIP entry.
@@ -145,13 +158,13 @@ pub fn extract_zip_entry<'a>(
                 Ok(len) => {
                     return Err(format!(
                         "Deflate decompression size mismatch for '{}': {len} != {}",
-                        entry.name, entry.uncompressed_size
+                        entry.name, entry.uncompressed_size,
                     ));
                 }
                 Err(err) => {
                     return Err(format!(
                         "Deflate decompression failed for '{}': {err:?}",
-                        entry.name
+                        entry.name,
                     ));
                 }
             }
@@ -168,7 +181,7 @@ pub fn extract_zip_entry<'a>(
         other => {
             return Err(format!(
                 "Unsupported ZIP compression method {} for '{}'",
-                other, entry.name
+                other, entry.name,
             ));
         }
     };
@@ -231,7 +244,7 @@ pub fn decompress_gzip(gz_bytes: &[u8], output: &mut Vec<u8>) -> Result<(), Stri
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::decompress_gzip;
 
     #[test]
     fn test_gzip_roundtrip() {

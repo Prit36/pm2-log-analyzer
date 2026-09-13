@@ -77,23 +77,23 @@ pub fn classify_content(data: &[u8]) -> LogCategory {
     let sample = &data[..sample_len];
 
     // Check for Mongo JSON or legacy formats
-    if sample.windows(8).any(|w| w == b"\"$date\"")
-        || sample.windows(5).any(|w| w == b"\"msg\"")
-        || sample.windows(5).any(|w| w == b"\"ctx\"")
-        || sample.windows(15).any(|w| w == b"[initandlisten]")
-        || sample.windows(6).any(|w| w == b"[conn")
+    if sample.windows(8).any(|window| window == b"\"$date\"")
+        || sample.windows(5).any(|window| window == b"\"msg\"")
+        || sample.windows(5).any(|window| window == b"\"ctx\"")
+        || sample.windows(15).any(|window| window == b"[initandlisten]")
+        || sample.windows(6).any(|window| window == b"[conn")
     {
         return LogCategory::Mongo;
     }
 
     // Check for HTTP / PM2 log lines
-    if sample.windows(4).any(|w| w == b"GET " || w == b"POST")
-        || sample.windows(4).any(|w| w == b"PUT " || w == b"HEAD")
+    if sample.windows(4).any(|window| window == b"GET " || window == b"POST")
+        || sample.windows(4).any(|window| window == b"PUT " || window == b"HEAD")
         || sample
             .windows(7)
-            .any(|w| w == b"DELETE " || w == b"OPTIONS")
-        || sample.windows(6).any(|w| w == b"[cron]")
-        || sample.windows(5).any(|w| w == b"[PM2]")
+            .any(|window| window == b"DELETE " || window == b"OPTIONS")
+        || sample.windows(6).any(|window| window == b"[cron]")
+        || sample.windows(5).any(|window| window == b"[PM2]")
     {
         return LogCategory::Pm2;
     }
@@ -111,7 +111,7 @@ pub fn classify_file_or_entry(name: &str, sample: &[u8]) -> LogCategory {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{classify_content, classify_name, LogCategory};
 
     #[test]
     fn test_classify_by_name() {
