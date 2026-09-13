@@ -8,5 +8,7 @@ rustflags = [
 rustflags = [
   "-C",
   "target-cpu=native",
+  "-C",
+  "linker=rust-lld",
 ]
 
