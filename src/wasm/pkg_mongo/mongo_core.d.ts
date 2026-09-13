@@ -18,7 +18,15 @@ export class MongoEngine {
      * Grow ingest window to `len` bytes; returns pointer into Wasm memory for JS writes.
      */
     ingest_ptr(len: number): number;
+    /**
+     * Merge another MongoEngine into this one
+     */
+    merge(other: MongoEngine): void;
     constructor();
+    /**
+     * Parse shard slice [shard_start..shard_end] with lookahead up to MONGO_LINE_EXTEND
+     */
+    parse_shard(slice: Uint8Array, shard_start: number, shard_end: number, file_size: number): number;
     /**
      * Fast reaggregate returning serialized JSON string.
      */
@@ -38,7 +46,9 @@ export interface InitOutput {
     readonly mongoengine_feed: (a: number, b: number, c: number) => number;
     readonly mongoengine_feed_slice: (a: number, b: number, c: number) => number;
     readonly mongoengine_ingest_ptr: (a: number, b: number) => number;
+    readonly mongoengine_merge: (a: number, b: number) => void;
     readonly mongoengine_new: () => number;
+    readonly mongoengine_parse_shard: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly mongoengine_reaggregate: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number];
     readonly mongoengine_slow_query_count: (a: number) => number;
     readonly mongoengine_total_lines: (a: number) => number;

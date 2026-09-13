@@ -7,7 +7,7 @@ mod store;
 
 use wasm_bindgen::prelude::*;
 
-pub use store::Engine;
+pub use store::{Engine, MONGO_LINE_EXTEND};
 
 #[wasm_bindgen]
 pub struct MongoEngine {
@@ -85,9 +85,36 @@ impl MongoEngine {
         self.inner.ingest[..len].copy_from_slice(data);
     }
 
+    /// Parse shard slice [shard_start..shard_end] with lookahead up to MONGO_LINE_EXTEND
+    pub fn parse_shard(
+        &mut self,
+        slice: &[u8],
+        shard_start: f64,
+        shard_end: f64,
+        file_size: f64,
+    ) -> usize {
+        self.inner.parse_shard(
+            slice,
+            shard_start as usize,
+            shard_end as usize,
+            file_size as usize,
+        )
+    }
+
+    /// Merge another MongoEngine into this one
+    pub fn merge(&mut self, other: MongoEngine) {
+        self.inner.merge(other.inner);
+    }
+
     #[cfg(test)]
     pub fn write_ingest_for_test(&mut self, data: &[u8]) {
         self.write_slice(data);
+    }
+}
+
+impl Default for MongoEngine {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -228,5 +255,54 @@ mod tests {
             json.len(),
             engine.slow_query_count()
         );
+    }
+
+    #[test]
+    fn test_mongo_sharded_parse_and_merge_parity() {
+        let sample = b"{\"t\":{\"$date\":\"2026-09-01T00:00:01.000Z\"},\"s\":\"I\",\"c\":\"NETWORK\",\"id\":22943,\"ctx\":\"listener\",\"msg\":\"Connection accepted\",\"attr\":{\"connectionId\":1,\"connectionCount\":42,\"remote\":\"10.0.0.1:1234\"}}\n\
+{\"t\":{\"$date\":\"2026-09-01T00:01:00.000Z\"},\"s\":\"I\",\"c\":\"COMMAND\",\"id\":51803,\"ctx\":\"conn1\",\"msg\":\"Slow query\",\"attr\":{\"ns\":\"db1.coll1\",\"command\":{\"find\":\"coll1\",\"filter\":{\"x\":1}},\"planSummary\":\"IXSCAN { x: 1 }\",\"docsExamined\":10,\"keysExamined\":10,\"nreturned\":10,\"durationMillis\":50}}\n\
+{\"t\":{\"$date\":\"2026-09-01T00:02:00.000Z\"},\"s\":\"I\",\"c\":\"COMMAND\",\"id\":51803,\"ctx\":\"conn2\",\"msg\":\"Slow query\",\"attr\":{\"ns\":\"db1.coll2\",\"command\":{\"find\":\"coll2\"},\"planSummary\":\"COLLSCAN\",\"docsExamined\":1000,\"keysExamined\":0,\"nreturned\":5,\"durationMillis\":500}}\n\
+{\"t\":{\"$date\":\"2026-09-01T07:57:16.966+04:00\"},\"s\":\"I\",\"c\":\"ACCESS\",\"id\":5286306,\"ctx\":\"conn10476\",\"msg\":\"Successfully authenticated\",\"attr\":{\"client\":\"103.251.212.27:50576\",\"user\":\"prit-read-only\",\"db\":\"admin\",\"doc\":{\"application\":{\"name\":\"MongoDB Compass\"}}}}\n\
+{\"t\":{\"$date\":\"2026-09-01T07:58:00.000+04:00\"},\"s\":\"I\",\"c\":\"COMMAND\",\"id\":51803,\"ctx\":\"conn10476\",\"msg\":\"Slow query\",\"attr\":{\"ns\":\"crm.cash_settlements\",\"command\":{\"find\":\"cash_settlements\"},\"planSummary\":\"COLLSCAN\",\"docsExamined\":500,\"keysExamined\":0,\"nreturned\":10,\"durationMillis\":1200}}\n\
+{\"t\":{\"$date\":\"2026-09-01T08:00:00.000+04:00\"},\"s\":\"I\",\"c\":\"ACCESS\",\"id\":20436,\"ctx\":\"conn10476\",\"msg\":\"Checking authorization failed\",\"attr\":{\"error\":{\"code\":13,\"codeName\":\"Unauthorized\",\"errmsg\":\"not authorized\"}}}\n\
+{\"t\":{\"$date\":\"2026-09-01T08:05:00.000+04:00\"},\"s\":\"I\",\"c\":\"COMMAND\",\"id\":51803,\"ctx\":\"conn99999\",\"msg\":\"Slow query\",\"attr\":{\"ns\":\"crm.other\",\"command\":{\"find\":\"other\"},\"planSummary\":\"IXSCAN\",\"docsExamined\":1,\"keysExamined\":1,\"nreturned\":1,\"durationMillis\":80}}\n";
+
+        // 1. Single engine parsing whole buffer
+        let mut single = MongoEngine::new();
+        single.parse_shard(sample, 0.0, sample.len() as f64, sample.len() as f64);
+        assert_eq!(single.slow_query_count(), 4);
+        assert_eq!(single.total_lines(), 7);
+
+        // 2. Multi-shard parsing across 3 shards with boundaries cutting right through JSON lines
+        let file_size = sample.len();
+        let chunk1 = file_size / 3;
+        let chunk2 = (file_size * 2) / 3;
+
+        let mut shard0 = MongoEngine::new();
+        let mut shard1 = MongoEngine::new();
+        let mut shard2 = MongoEngine::new();
+
+        let s0_end = (chunk1 + MONGO_LINE_EXTEND).min(file_size);
+        shard0.parse_shard(&sample[..s0_end], 0.0, chunk1 as f64, file_size as f64);
+
+        let s1_end = (chunk2 + MONGO_LINE_EXTEND).min(file_size);
+        shard1.parse_shard(&sample[chunk1..s1_end], chunk1 as f64, chunk2 as f64, file_size as f64);
+
+        shard2.parse_shard(&sample[chunk2..], chunk2 as f64, file_size as f64, file_size as f64);
+
+        // Merge shards: 0 + 1 + 2
+        shard0.merge(shard1);
+        shard0.merge(shard2);
+
+        assert_eq!(shard0.slow_query_count(), single.slow_query_count());
+        assert_eq!(shard0.total_lines(), single.total_lines());
+
+        let single_all = single.reaggregate("all", 0, 0, "all", "", false, "all");
+        let merged_all = shard0.reaggregate("all", 0, 0, "all", "", false, "all");
+        assert_eq!(single_all, merged_all);
+
+        let single_user = single.reaggregate("all", 0, 0, "all", "", false, "prit-read-only");
+        let merged_user = shard0.reaggregate("all", 0, 0, "all", "", false, "prit-read-only");
+        assert_eq!(single_user, merged_user);
     }
 }

@@ -777,7 +777,7 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
                 let ratio = (u_acc.total_docs as f64) / ((u_acc.total_returned as f64).max(1.0));
 
                 let mut coll_vec: Vec<(&u16, &(u32, u64, u32))> = u_acc.colls.iter().collect();
-                coll_vec.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+                coll_vec.sort_by(|a, b| b.1.0.cmp(&a.1.0).then_with(|| b.1.1.cmp(&a.1.1)));
 
                 (u_acc.count, u_acc.collscan_count, u_acc.total_duration_ms, u_acc.min_duration_ms, u_acc.max_duration_ms, p95, avg, u_acc.total_docs, u_acc.total_keys, u_acc.total_returned, ratio, Some(&u_acc.ops), coll_vec)
             } else {
@@ -829,7 +829,7 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
         );
         if let Some(ops) = ops_map {
             let mut o_entries: Vec<(&u8, &u32)> = ops.iter().collect();
-            o_entries.sort_by(|a, b| b.1.cmp(a.1));
+            o_entries.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
             for (oi, (op_code, cnt)) in o_entries.into_iter().enumerate() {
                 if oi > 0 { out.push(','); }
                 let _ = write!(out, "\"{}\":{}", MongoOp::from_u8(*op_code).as_str(), cnt);

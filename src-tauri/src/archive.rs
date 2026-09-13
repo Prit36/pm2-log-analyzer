@@ -176,76 +176,6 @@ pub fn extract_zip_entry<'a>(
     Ok(decompressed)
 }
 
-/// Resumable raw DEFLATE (RFC 1951) inflater that fills caller-owned buffers.
-///
-/// Unlike a whole-buffer decompressor this lets the ZIP pipeline hand each
-/// window of inflated bytes to a parser while the rest of the entry is still
-/// being decoded, so decompression and parsing overlap and no full-size buffer
-/// is ever allocated.
-pub struct DeflateStream<'a> {
-    inflate: zlib_rs::Inflate,
-    raw: &'a [u8],
-    consumed: usize,
-    produced: u64,
-    finished: bool,
-}
-
-impl<'a> DeflateStream<'a> {
-    pub fn new(raw: &'a [u8]) -> Self {
-        Self {
-            inflate: zlib_rs::Inflate::new(false, 15),
-            raw,
-            consumed: 0,
-            produced: 0,
-            finished: false,
-        }
-    }
-
-    /// Inflate into `out` until it is full or the stream ends.
-    /// Returns how many bytes were written into `out`.
-    pub fn fill(&mut self, out: &mut [u8]) -> Result<usize, String> {
-        let start = self.produced as usize;
-        let mut filled = 0usize;
-        while filled < out.len() && !self.finished {
-            let dest = unsafe {
-                core::slice::from_raw_parts_mut(
-                    out[filled..].as_mut_ptr() as *mut core::mem::MaybeUninit<u8>,
-                    out.len() - filled,
-                )
-            };
-            let status = self
-                .inflate
-                .decompress_uninit(
-                    &self.raw[self.consumed..],
-                    dest,
-                    zlib_rs::InflateFlush::NoFlush,
-                )
-                .map_err(|e| format!("deflate failed: {e:?}"))?;
-
-            let consumed = self.inflate.total_in() as usize;
-            let produced = self.inflate.total_out() as usize;
-            let progressed = consumed != self.consumed || produced != start + filled;
-            filled = produced.saturating_sub(start);
-            self.consumed = consumed;
-            self.produced = produced as u64;
-            if status == zlib_rs::Status::StreamEnd {
-                self.finished = true;
-            }
-            if !progressed {
-                return Err(format!(
-                    "deflate stream stalled after {} bytes ({status:?})",
-                    self.produced
-                ));
-            }
-        }
-        Ok(filled)
-    }
-
-    pub fn finished(&self) -> bool {
-        self.finished
-    }
-}
-
 /// Decompress GZIP byte stream into output buffer.
 pub fn decompress_gzip(gz_bytes: &[u8], output: &mut Vec<u8>) -> Result<(), String> {
     if gz_bytes.len() < 10 {
@@ -320,8 +250,7 @@ mod tests {
         let raw_deflate = [
             0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0x28, 0xcf, 0x2f, 0xca, 0x49, 0xe1, 0x02, 0x00,
         ];
-        let mut out = Vec::new();
-        out.resize(12, 0);
+        let mut out = vec![0; 12];
         let config = zlib_rs::InflateConfig { window_bits: -15 };
         let (slice, _rc) = zlib_rs::decompress_slice(&mut out, &raw_deflate, config);
         assert_eq!(slice, b"hello world\n");

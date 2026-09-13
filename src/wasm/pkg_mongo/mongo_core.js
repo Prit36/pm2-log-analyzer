@@ -49,11 +49,34 @@ export class MongoEngine {
         const ret = wasm.mongoengine_ingest_ptr(this.__wbg_ptr, len);
         return ret >>> 0;
     }
+    /**
+     * Merge another MongoEngine into this one
+     * @param {MongoEngine} other
+     */
+    merge(other) {
+        _assertClass(other, MongoEngine);
+        var ptr0 = other.__destroy_into_raw();
+        wasm.mongoengine_merge(this.__wbg_ptr, ptr0);
+    }
     constructor() {
         const ret = wasm.mongoengine_new();
         this.__wbg_ptr = ret;
         MongoEngineFinalization.register(this, this.__wbg_ptr, this);
         return this;
+    }
+    /**
+     * Parse shard slice [shard_start..shard_end] with lookahead up to MONGO_LINE_EXTEND
+     * @param {Uint8Array} slice
+     * @param {number} shard_start
+     * @param {number} shard_end
+     * @param {number} file_size
+     * @returns {number}
+     */
+    parse_shard(slice, shard_start, shard_end, file_size) {
+        const ptr0 = passArray8ToWasm0(slice, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.mongoengine_parse_shard(this.__wbg_ptr, ptr0, len0, shard_start, shard_end, file_size);
+        return ret >>> 0;
     }
     /**
      * Fast reaggregate returning serialized JSON string.
@@ -135,6 +158,12 @@ function __wbg_get_imports() {
 const MongoEngineFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_mongoengine_free(ptr, 1));
+
+function _assertClass(instance, klass) {
+    if (!(instance instanceof klass)) {
+        throw new Error(`expected instance of ${klass.name}`);
+    }
+}
 
 function getStringFromWasm0(ptr, len) {
     return decodeText(ptr >>> 0, len);

@@ -2518,5 +2518,86 @@
         "jsHeapUsedAfterMB": 20.247112274169922
       }
     ]
+  },
+  {
+    "id": "2026-09-13T04:48:05.668Z",
+    "method": "browser-app",
+    "app": "zip-archive",
+    "note": null,
+    "git": {
+      "commit": "6987be1",
+      "branch": "main",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Downloads\\methaq-api&mongodb-07-09.zip",
+    "fileMB": 81.18695259094238,
+    "runs": 3,
+    "classification": {
+      "totalFiles": 2,
+      "pm2Files": 1,
+      "mongoFiles": 1,
+      "skippedFiles": 1
+    },
+    "summary": {
+      "extractWallSec": {
+        "avg": 0.5823333333333333,
+        "stddev": 0.011897712198383176,
+        "min": 0.566,
+        "max": 0.594
+      },
+      "uploadToReadySec": {
+        "avg": 1.3942332999999998,
+        "stddev": 0.047704084942137404,
+        "min": 1.3335208,
+        "max": 1.4500653
+      },
+      "throughputMBps": {
+        "avg": 1191.84503904714,
+        "stddev": 24.619647977239488,
+        "min": 1167.9430810690728,
+        "max": 1225.7211840194866
+      },
+      "browserRssPeakMB": {
+        "avg": 1629.9908854166667,
+        "stddev": 4.537150806433613,
+        "min": 1624.40625,
+        "max": 1635.51953125
+      },
+      "jsHeapPeakMB": {
+        "avg": 24.03683090209961,
+        "stddev": 1.780384666398202,
+        "min": 22.658519744873047,
+        "max": 26.55077362060547
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "extractWallSec": 0.594,
+        "uploadToReadySec": 1.4500653,
+        "throughputMBps": 1167.9430810690728,
+        "browserRssPeakMB": 1635.51953125,
+        "jsHeapPeakMB": 22.658519744873047,
+        "jsHeapUsedAfterMB": 27.366256713867188
+      },
+      {
+        "run": 2,
+        "extractWallSec": 0.566,
+        "uploadToReadySec": 1.3991138,
+        "throughputMBps": 1225.7211840194866,
+        "browserRssPeakMB": 1624.40625,
+        "jsHeapPeakMB": 22.901199340820312,
+        "jsHeapUsedAfterMB": 22.264774322509766
+      },
+      {
+        "run": 3,
+        "extractWallSec": 0.587,
+        "uploadToReadySec": 1.3335208,
+        "throughputMBps": 1181.870852052861,
+        "browserRssPeakMB": 1630.046875,
+        "jsHeapPeakMB": 26.55077362060547,
+        "jsHeapUsedAfterMB": 20.047313690185547
+      }
+    ]
   }
 ]

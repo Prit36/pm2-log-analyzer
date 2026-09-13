@@ -130,8 +130,10 @@ impl RelHist {
         for i in start..end {
             self.dense[i] += other.dense[i];
         }
-        for (&k, &v) in &other.sparse {
-            *self.sparse.entry(k).or_insert(0) += v;
+        if !other.sparse.is_empty() {
+            for (&k, &v) in &other.sparse {
+                *self.sparse.entry(k).or_insert(0) += v;
+            }
         }
     }
 

@@ -1410,15 +1410,17 @@ impl Engine {
                     let norm_id = (idx >> 3) as u32;
                     let off = norm_off[norm_id as usize] as usize;
                     let len = norm_len[norm_id as usize] as usize;
+                    let raw = &norm_bytes[off..off + len];
                     endpoints.push(DecodedEndpoint {
                         method: e.method,
-                        path: norm_bytes[off..off + len].to_vec(),
+                        hash: hash_bytes(raw),
+                        path: raw.to_vec(),
                         count: e.count,
                         sum: e.sum,
                         min: if e.count > 0 { e.min } else { 0.0 },
                         max: if e.count > 0 { e.max } else { 0.0 },
                         error_count: e.error_count,
-                        sketch: e.sketch,
+                        sketch: Box::new(e.sketch),
                     });
                 }
             }
@@ -1427,15 +1429,17 @@ impl Engine {
                 let norm_id = (key >> 3) as u32;
                 let off = norm_off[norm_id as usize] as usize;
                 let len = norm_len[norm_id as usize] as usize;
+                let raw = &norm_bytes[off..off + len];
                 endpoints.push(DecodedEndpoint {
                     method: e.method,
-                    path: norm_bytes[off..off + len].to_vec(),
+                    hash: hash_bytes(raw),
+                    path: raw.to_vec(),
                     count: e.count,
                     sum: e.sum,
                     min: if e.count > 0 { e.min } else { 0.0 },
                     max: if e.count > 0 { e.max } else { 0.0 },
                     error_count: e.error_count,
-                    sketch: e.sketch,
+                    sketch: Box::new(e.sketch),
                 });
             }
         }
@@ -1796,13 +1800,14 @@ pub fn merge_pm2_partials(partials: &[Vec<u8>]) -> Vec<u8> {
 #[derive(Clone, Debug)]
 pub struct DecodedEndpoint {
     pub method: u8,
+    pub hash: u64,
     pub path: Vec<u8>,
     pub count: u32,
     pub sum: f64,
     pub min: f32,
     pub max: f32,
     pub error_count: u32,
-    pub sketch: RelHist,
+    pub sketch: Box<RelHist>,
 }
 
 #[derive(Clone, Debug)]
@@ -1851,7 +1856,7 @@ pub fn merge_two_decoded(a: DecodedPartial, b: DecodedPartial) -> DecodedPartial
         (None, None) => None,
     };
 
-    let mut map: hashbrown::HashMap<(u8, Vec<u8>), (u32, f64, f32, f32, u32, RelHist)> =
+    let mut map: hashbrown::HashMap<(u8, Vec<u8>), (u32, f64, f32, f32, u32, Box<RelHist>)> =
         hashbrown::HashMap::with_capacity(a.endpoints.len() + b.endpoints.len());
     for ep in a.endpoints {
         map.insert((ep.method, ep.path), (ep.count, ep.sum, ep.min, ep.max, ep.error_count, ep.sketch));
@@ -1879,15 +1884,19 @@ pub fn merge_two_decoded(a: DecodedPartial, b: DecodedPartial) -> DecodedPartial
 
     let endpoints = map
         .into_iter()
-        .map(|((method, path), (count, sum, min, max, error_count, sketch))| DecodedEndpoint {
-            method,
-            path,
-            count,
-            sum,
-            min,
-            max,
-            error_count,
-            sketch,
+        .map(|((method, path), (count, sum, min, max, error_count, sketch))| {
+            let hash = hash_bytes(&path);
+            DecodedEndpoint {
+                method,
+                hash,
+                path,
+                count,
+                sum,
+                min,
+                max,
+                error_count,
+                sketch,
+            }
         })
         .collect();
 
@@ -1933,9 +1942,16 @@ pub fn merge_decoded_partials(partials: Vec<DecodedPartial>) -> DecodedPartial {
         sketch: Box<RelHist>,
     }
 
+    let total_eps: usize = partials.iter().map(|p| p.endpoints.len()).sum();
     // Partition by method (GET=0, POST=1, etc.) for lower collision, no tuple overhead, and smaller cache footprint
-    let mut maps: [hashbrown::HashMap<Vec<u8>, MergedEndpoint>; 6] =
-        std::array::from_fn(|_| hashbrown::HashMap::with_capacity(2048));
+    let mut maps: [hashbrown::HashMap<Vec<u8>, MergedEndpoint>; 6] = [
+        hashbrown::HashMap::with_capacity((total_eps / 2).max(4096)),
+        hashbrown::HashMap::with_capacity(1024),
+        hashbrown::HashMap::with_capacity(512),
+        hashbrown::HashMap::with_capacity(256),
+        hashbrown::HashMap::with_capacity(256),
+        hashbrown::HashMap::with_capacity(256),
+    ];
 
     for p in partials {
         mode = p.mode;
@@ -1956,30 +1972,29 @@ pub fn merge_decoded_partials(partials: Vec<DecodedPartial>) -> DecodedPartial {
         for ep in p.endpoints {
             let m = (ep.method as usize).min(5);
             let map = &mut maps[m];
-            match map.entry(ep.path) {
-                hashbrown::hash_map::Entry::Vacant(v) => {
-                    v.insert(MergedEndpoint {
+            if let Some(acc) = map.get_mut(&ep.path) {
+                acc.count += ep.count;
+                acc.sum += ep.sum;
+                if ep.count > 0 && (acc.count == ep.count || ep.min < acc.min) {
+                    acc.min = ep.min;
+                }
+                if ep.max > acc.max {
+                    acc.max = ep.max;
+                }
+                acc.error_count += ep.error_count;
+                acc.sketch.merge(&ep.sketch);
+            } else {
+                map.insert(
+                    ep.path,
+                    MergedEndpoint {
                         count: ep.count,
                         sum: ep.sum,
                         min: ep.min,
                         max: ep.max,
                         error_count: ep.error_count,
-                        sketch: Box::new(ep.sketch),
-                    });
-                }
-                hashbrown::hash_map::Entry::Occupied(mut o) => {
-                    let acc = o.get_mut();
-                    acc.count += ep.count;
-                    acc.sum += ep.sum;
-                    if ep.count > 0 && (acc.count == ep.count || ep.min < acc.min) {
-                        acc.min = ep.min;
-                    }
-                    if ep.max > acc.max {
-                        acc.max = ep.max;
-                    }
-                    acc.error_count += ep.error_count;
-                    acc.sketch.merge(&ep.sketch);
-                }
+                        sketch: ep.sketch,
+                    },
+                );
             }
         }
     }
@@ -2001,15 +2016,17 @@ pub fn merge_decoded_partials(partials: Vec<DecodedPartial>) -> DecodedPartial {
     for (m, map) in maps.into_iter().enumerate() {
         let method = m as u8;
         for (path, me) in map {
+            let hash = hash_bytes(&path);
             endpoints.push(DecodedEndpoint {
                 method,
+                hash,
                 path,
                 count: me.count,
                 sum: me.sum,
                 min: me.min,
                 max: me.max,
                 error_count: me.error_count,
-                sketch: *me.sketch,
+                sketch: me.sketch,
             });
         }
     }
@@ -2112,15 +2129,17 @@ pub fn decode_pm2_partial(buf: &[u8]) -> Option<DecodedPartial> {
         let path_len = r.u32()? as usize;
         let path = r.take(path_len)?.to_vec();
         let sketch = r.sketch()?;
+        let hash = hash_bytes(&path);
         endpoints.push(DecodedEndpoint {
             method,
+            hash,
             path,
             count,
             sum,
             min,
             max,
             error_count,
-            sketch,
+            sketch: Box::new(sketch),
         });
     }
 

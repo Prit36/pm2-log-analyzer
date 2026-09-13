@@ -14,10 +14,6 @@ use tauri::{Emitter, Manager, State};
 
 const LINE_EXTEND: usize = 256 * 1024;
 
-/// Feed granularity for MongoDB logs: large enough to keep `feed_slice` cheap,
-/// small enough that the progress bar moves during a multi-second ingest.
-const MONGO_FEED_CHUNK_BYTES: usize = 16 * 1024 * 1024;
-
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct ProgressPayload {
     pub stage: String,
@@ -62,6 +58,12 @@ pub struct Pm2ParseResult {
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct Pm2ReaggResult {
+    pub data: Box<serde_json::value::RawValue>,
+    pub reagg_wall_ms: u64,
+}
+
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct MongoReaggResult {
     pub data: Box<serde_json::value::RawValue>,
     pub reagg_wall_ms: u64,
 }
@@ -438,18 +440,7 @@ fn parse_pm2_raw_mmaps(
 
     for (file_idx, (_path, mmap)) in mmaps_with_paths.into_iter().enumerate() {
         let file_size = mmap.len();
-        let n_shards = if file_size <= 16 * 1024 * 1024 {
-            1
-        } else {
-            ((file_size + 32 * 1024 * 1024 - 1) / (32 * 1024 * 1024)).clamp(1, cpus.min(16))
-        };
-        let chunk_size = (file_size + n_shards - 1) / n_shards;
-        for i in 0..n_shards {
-            let start = i * chunk_size;
-            if start >= file_size {
-                break;
-            }
-            let end = ((i + 1) * chunk_size).min(file_size);
+        for (start, end) in pm2_shard_plan(file_size, cpus) {
             tasks.push((file_idx, start, end, file_size));
         }
         mmaps.push(mmap);
@@ -458,7 +449,12 @@ fn parse_pm2_raw_mmaps(
     let total_bytes: u64 = mmaps.iter().map(|m| m.len() as u64).sum();
     let completed_bytes = AtomicU64::new(0);
 
-    let mut shards: Vec<pm2_core::Pm2Engine> = tasks
+    let mode = mode_code(options.normalize_mode.as_deref());
+    let status = status_code(options.status_family.as_deref());
+    let min_ms = options.min_ms.unwrap_or(0.0);
+    let date_filter = options.date_filter.clone().unwrap_or_default();
+
+    let (mut shards, partials): (Vec<pm2_core::Pm2Engine>, Vec<pm2_core::DecodedPartial>) = tasks
         .into_par_iter()
         .map(|(file_idx, start, end, file_size)| {
             let mmap = &mmaps[file_idx];
@@ -470,11 +466,10 @@ fn parse_pm2_raw_mmaps(
             if let Some(app) = app_handle {
                 let task_bytes = (end - start) as u64;
                 let done = completed_bytes.fetch_add(task_bytes, Ordering::Relaxed) + task_bytes;
-                let percent = if total_bytes > 0 {
-                    ((done * 100) / total_bytes).min(99) as u32
-                } else {
-                    99
-                };
+                let percent = (done * 100)
+                    .checked_div(total_bytes)
+                    .map(|p| p.min(99) as u32)
+                    .unwrap_or(99);
                 emit_progress(
                     Some(app),
                     "parsing",
@@ -484,9 +479,10 @@ fn parse_pm2_raw_mmaps(
                 );
             }
 
-            engine
+            let partial = engine.reaggregate_decoded(mode, status, min_ms, date_filter.as_bytes(), true);
+            (engine, partial)
         })
-        .collect();
+        .unzip();
 
     // Tear down multi-GB mmaps in side thread so IPC and UI first-paint are not blocked
     std::thread::spawn(move || drop(mmaps));
@@ -500,7 +496,7 @@ fn parse_pm2_raw_mmaps(
         100,
     );
 
-    let json = finalize::finalize_pm2(&mut shards, options)?;
+    let json = finalize::finalize_pm2_with_partials(&mut shards, options, partials)?;
     let total_hits: u32 = shards.iter().map(|s| s.hit_count()).sum();
     let total_unmatched: u32 = shards.iter().map(|s| s.unmatched_count()).sum();
     let combined_methods_mask: u8 = shards.iter().fold(0, |acc, s| acc | s.methods_mask());
@@ -525,9 +521,9 @@ fn pm2_shard_plan(file_size: usize, cpus: usize) -> Vec<(usize, usize)> {
     let n_shards = if file_size <= 8 * 1024 * 1024 {
         1
     } else {
-        ((file_size + 16 * 1024 * 1024 - 1) / (16 * 1024 * 1024)).clamp(1, cpus.min(16))
+        file_size.div_ceil(16 * 1024 * 1024).clamp(1, cpus.min(16))
     };
-    let chunk_size = (file_size + n_shards - 1) / n_shards;
+    let chunk_size = file_size.div_ceil(n_shards);
     let mut plan = Vec::with_capacity(n_shards);
     for i in 0..n_shards {
         let start = i * chunk_size;
@@ -537,6 +533,118 @@ fn pm2_shard_plan(file_size: usize, cpus: usize) -> Vec<(usize, usize)> {
         plan.push((start, ((i + 1) * chunk_size).min(file_size)));
     }
     plan
+}
+
+fn mongo_shard_plan(file_size: usize, cpus: usize) -> Vec<(usize, usize)> {
+    let n_shards = if file_size <= 8 * 1024 * 1024 {
+        1
+    } else {
+        file_size.div_ceil(16 * 1024 * 1024).clamp(1, cpus.min(16))
+    };
+    let chunk_size = file_size.div_ceil(n_shards);
+    let mut plan = Vec::with_capacity(n_shards);
+    for i in 0..n_shards {
+        let start = i * chunk_size;
+        if start >= file_size {
+            break;
+        }
+        plan.push((start, ((i + 1) * chunk_size).min(file_size)));
+    }
+    plan
+}
+
+fn parse_mongo_raw_mmaps(
+    mmaps_with_paths: Vec<(String, memmap2::Mmap)>,
+    options: &MongoFilterOptions,
+    app_handle: Option<&tauri::AppHandle>,
+    existing_engine: Option<mongo_core::MongoEngine>,
+) -> Result<(mongo_core::MongoEngine, MongoParseResult), String> {
+    let t0 = Instant::now();
+    let cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let mut mmaps = Vec::with_capacity(mmaps_with_paths.len());
+    let mut tasks = Vec::new();
+
+    for (file_idx, (_path, mmap)) in mmaps_with_paths.into_iter().enumerate() {
+        let file_size = mmap.len();
+        for (start, end) in mongo_shard_plan(file_size, cpus) {
+            tasks.push((file_idx, start, end, file_size));
+        }
+        mmaps.push(mmap);
+    }
+
+    let total_bytes: u64 = mmaps.iter().map(|m| m.len() as u64).sum();
+    let completed_bytes = AtomicU64::new(0);
+
+    let shards: Vec<mongo_core::MongoEngine> = tasks
+        .into_par_iter()
+        .map(|(file_idx, start, end, file_size)| {
+            let mmap = &mmaps[file_idx];
+            let mut engine = mongo_core::MongoEngine::new();
+            let read_end = (end + mongo_core::MONGO_LINE_EXTEND).min(file_size);
+            let slice = &mmap[start..read_end];
+            engine.parse_shard(slice, start as f64, end as f64, file_size as f64);
+
+            if let Some(app) = app_handle {
+                let task_bytes = (end - start) as u64;
+                let done = completed_bytes.fetch_add(task_bytes, Ordering::Relaxed) + task_bytes;
+                let percent = (done * 100)
+                    .checked_div(total_bytes)
+                    .map(|p| p.min(99) as u32)
+                    .unwrap_or(99);
+                emit_progress(
+                    Some(app),
+                    "parsing",
+                    done as usize,
+                    total_bytes as usize,
+                    percent,
+                );
+            }
+
+            engine
+        })
+        .collect();
+
+    // Tear down mmaps in side thread so IPC and UI first-paint are not blocked
+    std::thread::spawn(move || drop(mmaps));
+
+    emit_progress(
+        app_handle,
+        "complete",
+        total_bytes as usize,
+        total_bytes as usize,
+        100,
+    );
+
+    let mut engine = existing_engine.unwrap_or_default();
+    for shard in shards {
+        engine.merge(shard);
+    }
+
+    let json = engine.reaggregate(
+        options.op.as_deref().unwrap_or("all"),
+        options.plan_filter.unwrap_or(0),
+        options.min_duration_ms.unwrap_or(0),
+        options.collection.as_deref().unwrap_or("all"),
+        options.search_query.as_deref().unwrap_or(""),
+        options.high_scan_ratio_only.unwrap_or(false),
+        options.user.as_deref().unwrap_or("all"),
+    );
+
+    let slow_query_count = engine.slow_query_count();
+    let total_lines = engine.total_lines();
+    let elapsed = t0.elapsed().as_millis() as u64;
+
+    Ok((
+        engine,
+        MongoParseResult {
+            data: to_raw_value(json),
+            parse_wall_ms: elapsed,
+            slow_query_count,
+            total_lines,
+        },
+    ))
 }
 
 fn parse_pm2_items(
@@ -573,7 +681,12 @@ fn parse_pm2_items(
         }
     };
 
-    let mut shards: Vec<pm2_core::Pm2Engine> = tasks
+    let mode = mode_code(options.normalize_mode.as_deref());
+    let status = status_code(options.status_family.as_deref());
+    let min_ms = options.min_ms.unwrap_or(0.0);
+    let date_filter = options.date_filter.clone().unwrap_or_default();
+
+    let results: Vec<(pm2_core::Pm2Engine, pm2_core::DecodedPartial)> = tasks
         .into_par_iter()
         .map(|task| {
             let mut engine = pm2_core::Pm2Engine::new();
@@ -586,9 +699,17 @@ fn parse_pm2_items(
                 task.file_size as f64,
             );
             progress.add((task.end - task.start) as u64);
-            engine
+            let partial = engine.reaggregate_decoded(mode, status, min_ms, date_filter.as_bytes(), true);
+            (engine, partial)
         })
         .collect();
+
+    let mut shards = Vec::with_capacity(results.len());
+    let mut partials = Vec::with_capacity(results.len());
+    for (s, p) in results {
+        shards.push(s);
+        partials.push(p);
+    }
 
     // Clean up memory in background
     std::thread::spawn(move || drop(items));
@@ -604,7 +725,7 @@ fn parse_pm2_items(
         );
     }
 
-    let json = finalize::finalize_pm2(&mut shards, options)?;
+    let json = finalize::finalize_pm2_with_partials(&mut shards, options, partials)?;
     let total_hits: u32 = shards.iter().map(|s| s.hit_count()).sum();
     let total_unmatched: u32 = shards.iter().map(|s| s.unmatched_count()).sum();
     let combined_methods_mask: u8 = shards.iter().fold(0, |acc, s| acc | s.methods_mask());
@@ -632,6 +753,20 @@ pub fn parse_mongo_files_internal(
         return Err("No file paths provided".into());
     }
 
+    // Direct fast-path for single raw file (benchmarked path)
+    if paths.len() == 1 {
+        let path = &paths[0];
+        let p = Path::new(path);
+        if p.is_file() && !path.ends_with(".zip") && !path.ends_with(".gz") {
+            let file = File::open(path).map_err(|e| format!("Failed to open '{path}': {e}"))?;
+            let mmap = unsafe { MmapOptions::new().map(&file) }
+                .map_err(|e| format!("Failed to memory-map '{path}': {e}"))?;
+            if mmap.len() >= 4 && &mmap[..4] != b"PK\x03\x04" && &mmap[..2] != b"\x1f\x8b" {
+                return parse_mongo_raw_mmaps(vec![(path.clone(), mmap)], options, app_handle, None);
+            }
+        }
+    }
+
     let items = expand_log_sources(paths, app_handle)?;
     let mongo_items: Vec<_> = items
         .into_iter()
@@ -653,30 +788,61 @@ fn parse_mongo_items(
     shared_progress: Option<&SharedProgress>,
 ) -> Result<(mongo_core::MongoEngine, MongoParseResult), String> {
     let t0 = Instant::now();
-    let mut engine = existing_engine.unwrap_or_else(mongo_core::MongoEngine::new);
+    let cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let mut tasks = Vec::new();
 
-    let total_bytes: usize = items.iter().map(|i| i.size).sum();
+    for item in &items {
+        let file_size = item.size;
+        for (start, end) in mongo_shard_plan(file_size, cpus) {
+            tasks.push(ShardTaskRef {
+                data: &item.data,
+                start,
+                end,
+                file_size,
+            });
+        }
+    }
+
+    let total_bytes: u64 = items.iter().map(|i| i.size as u64).sum();
     let local_progress;
     let progress = match shared_progress {
         Some(shared) => shared,
         None => {
-            local_progress = SharedProgress::new(app_handle, total_bytes as u64);
+            local_progress = SharedProgress::new(app_handle, total_bytes);
             &local_progress
         }
     };
 
-    for item in &items {
-        let data: &[u8] = &item.data;
-        // Feed in chunks: splitting the byte stream is lossless (`feed_slice`
-        // keeps the partial line carry) and keeps progress live on huge logs.
-        for chunk in data.chunks(MONGO_FEED_CHUNK_BYTES) {
-            engine.feed_slice(chunk);
-            progress.add(chunk.len() as u64);
-        }
-        engine.end_shard();
-    }
+    let shards: Vec<mongo_core::MongoEngine> = tasks
+        .into_par_iter()
+        .map(|task| {
+            let mut engine = mongo_core::MongoEngine::new();
+            let read_end = (task.end + mongo_core::MONGO_LINE_EXTEND).min(task.file_size);
+            let slice = &task.data[task.start..read_end];
+            engine.parse_shard(slice, task.start as f64, task.end as f64, task.file_size as f64);
+            progress.add((task.end - task.start) as u64);
+            engine
+        })
+        .collect();
+
+    // Clean up memory in background
+    std::thread::spawn(move || drop(items));
+
     if shared_progress.is_none() {
-        emit_progress(app_handle, "complete", total_bytes, total_bytes, 100);
+        emit_progress(
+            app_handle,
+            "complete",
+            total_bytes as usize,
+            total_bytes as usize,
+            100,
+        );
+    }
+
+    let mut engine = existing_engine.unwrap_or_default();
+    for shard in shards {
+        engine.merge(shard);
     }
 
     let json = engine.reaggregate(
@@ -704,81 +870,7 @@ fn parse_mongo_items(
     ))
 }
 
-/// Window size and pool depth for the streaming ZIP ingest: reusing a few small
-/// buffers keeps the decompressed bytes cache-resident instead of faulting in a
-/// full-size allocation.
-const STREAM_WINDOW_BYTES: usize = 8 * 1024 * 1024;
-const STREAM_WINDOW_POOL: usize = 3;
 
-/// Inflate one deflated MongoDB log through a small window pool while a consumer
-/// thread feeds the engine, so the parse overlaps decompression and no
-/// full-size output buffer is allocated.
-fn parse_mongo_entry_streamed(
-    raw: &[u8],
-    options: &MongoFilterOptions,
-    progress: &SharedProgress,
-    existing_engine: Option<mongo_core::MongoEngine>,
-) -> Result<(mongo_core::MongoEngine, MongoParseResult), String> {
-    let t0 = Instant::now();
-    let mut engine = existing_engine.unwrap_or_else(mongo_core::MongoEngine::new);
-
-    let (full_tx, full_rx) = std::sync::mpsc::sync_channel::<(Vec<u8>, usize)>(STREAM_WINDOW_POOL);
-    let (free_tx, free_rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(STREAM_WINDOW_POOL);
-    for _ in 0..STREAM_WINDOW_POOL {
-        free_tx
-            .send(vec![0u8; STREAM_WINDOW_BYTES])
-            .map_err(|e| e.to_string())?;
-    }
-
-    let mut stream = archive::DeflateStream::new(raw);
-    std::thread::scope(|scope| -> Result<(), String> {
-        let engine_ref = &mut engine;
-        let progress_ref = progress;
-        let consumer = scope.spawn(move || {
-            while let Ok((buf, len)) = full_rx.recv() {
-                engine_ref.feed_slice(&buf[..len]);
-                progress_ref.add(len as u64 * 2);
-                let _ = free_tx.send(buf);
-            }
-        });
-
-        while !stream.finished() {
-            let mut buf = free_rx.recv().map_err(|e| e.to_string())?;
-            let len = stream.fill(&mut buf)?;
-            if len == 0 {
-                break;
-            }
-            full_tx.send((buf, len)).map_err(|e| e.to_string())?;
-        }
-        drop(full_tx);
-        consumer.join().map_err(|_| "mongo feed thread panicked")?;
-        Ok(())
-    })?;
-
-    engine.end_shard();
-    let json = engine.reaggregate(
-        options.op.as_deref().unwrap_or("all"),
-        options.plan_filter.unwrap_or(0),
-        options.min_duration_ms.unwrap_or(0),
-        options.collection.as_deref().unwrap_or("all"),
-        options.search_query.as_deref().unwrap_or(""),
-        options.high_scan_ratio_only.unwrap_or(false),
-        options.user.as_deref().unwrap_or("all"),
-    );
-    let slow_query_count = engine.slow_query_count();
-    let total_lines = engine.total_lines();
-    let elapsed = t0.elapsed().as_millis() as u64;
-
-    Ok((
-        engine,
-        MongoParseResult {
-            data: to_raw_value(json),
-            parse_wall_ms: elapsed,
-            slow_query_count,
-            total_lines,
-        },
-    ))
-}
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn ingest_single_zip(
@@ -912,35 +1004,6 @@ fn ingest_single_zip(
         || -> Result<Option<(mongo_core::MongoEngine, MongoParseResult, Vec<NativeFileInfo>)>, String> {
             if mongo_entries.is_empty() && extra_mongo.is_empty() {
                 return Ok(None);
-            }
-
-            // Streaming fast path: a single deflated entry is fed to the engine
-            // while it inflates, so the parse hides behind decompression.
-            if extra_mongo.is_empty()
-                && mongo_entries.len() == 1
-                && mongo_entries[0].compression_method == 8
-            {
-                let entry = &mongo_entries[0];
-                let raw = &mmap[entry.data_start..entry.data_start + entry.compressed_size];
-                let clean = entry.name.rsplit('/').next().unwrap_or(&entry.name);
-                let file_infos = vec![NativeFileInfo {
-                    name: clean.to_string(),
-                    path: format!("{}/{}", zip_path, entry.name),
-                    size: entry.uncompressed_size as u64,
-                    category: "mongo".into(),
-                }];
-                let existing = if upload_mode == Some("append") {
-                    state.mongo.lock().unwrap().take()
-                } else {
-                    None
-                };
-                let (engine, res) = parse_mongo_entry_streamed(
-                    raw,
-                    mongo_options,
-                    &progress,
-                    existing,
-                )?;
-                return Ok(Some((engine, res, file_infos)));
             }
 
             let mut items: Vec<LogSourceItem> = mongo_entries
@@ -1087,22 +1150,16 @@ pub fn ingest_native_internal(
                 let size = mmap.len() as u64;
 
                 if cat == LogCategory::Mongo {
-                    let (engine, res) = parse_mongo_items(
-                        vec![LogSourceItem {
-                            name: file_name.to_string(),
-                            path: path.clone(),
-                            data: LogData::Mmap(mmap),
-                            size: size as usize,
-                            category: LogCategory::Mongo,
-                        }],
+                    let existing = if upload_mode == Some("append") {
+                        state.mongo.lock().unwrap().take()
+                    } else {
+                        None
+                    };
+                    let (engine, res) = parse_mongo_raw_mmaps(
+                        vec![(path.clone(), mmap)],
                         mongo_options,
                         app_handle,
-                        if upload_mode == Some("append") {
-                            state.mongo.lock().unwrap().take()
-                        } else {
-                            None
-                        },
-                        None,
+                        existing,
                     )?;
                     *state.mongo.lock().unwrap() = Some(engine);
                     return Ok(NativeIngestResult {
@@ -1336,14 +1393,15 @@ async fn parse_mongo_files(
 async fn reaggregate_mongo(
     options: MongoFilterOptions,
     app: tauri::AppHandle,
-) -> Result<String, String> {
+) -> Result<MongoReaggResult, String> {
     let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<MongoReaggResult, String> {
+        let t0 = Instant::now();
         let state = handle.state::<AppState>();
         let lock = state.mongo.lock().unwrap();
         let engine = lock.as_ref().ok_or("MongoDB engine is not initialized")?;
 
-        Ok(engine.reaggregate(
+        let json = engine.reaggregate(
             options.op.as_deref().unwrap_or("all"),
             options.plan_filter.unwrap_or(0),
             options.min_duration_ms.unwrap_or(0),
@@ -1351,7 +1409,11 @@ async fn reaggregate_mongo(
             options.search_query.as_deref().unwrap_or(""),
             options.high_scan_ratio_only.unwrap_or(false),
             options.user.as_deref().unwrap_or("all"),
-        ))
+        );
+        Ok(MongoReaggResult {
+            data: to_raw_value(json),
+            reagg_wall_ms: t0.elapsed().as_millis() as u64,
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1547,6 +1609,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_native_mongo_sharded_parse_matches_single() {
+        let p = Path::new("../mongodb_logs_sample/methaq-mongod.log");
+        if !p.exists() {
+            eprintln!("Large mongo log not found, skipping");
+            return;
+        }
+        let (_engine, res) = parse_mongo_files_internal(
+            &["../mongodb_logs_sample/methaq-mongod.log".to_string()],
+            &MongoFilterOptions::default(),
+            None,
+        )
+        .expect("Failed to parse Mongo log");
+
+        assert!(res.total_lines > 0);
+        assert_eq!(res.total_lines, 141911);
+        assert_eq!(res.slow_query_count, 56872);
+        println!(
+            "Native Sharded Mongo parsed {} lines ({} slow) in {}ms",
+            res.total_lines, res.slow_query_count, res.parse_wall_ms
+        );
+    }
+
     fn mongo_reagg_json(engine: &mongo_core::MongoEngine) -> serde_json::Value {
         serde_json::from_str(&engine.reaggregate("all", 0, 0, "all", "", false, "all"))
             .expect("valid mongo result JSON")
@@ -1673,6 +1758,7 @@ mod tests {
 
     #[test]
     fn test_ingest_native_zip() {
+        configure_rayon_pool();
         let zip_path = Path::new("target/test_archive.zip");
         let pm2_data = b"2026-09-12 10:00:00: GET /api/v1/users 200 12.3 ms - 100\n2026-09-12 10:00:01: POST /api/v1/login 200 45.6 ms - 200\n";
         let mongo_data = b"{\"t\":{\"$date\":\"2026-09-12T10:00:00.000Z\"},\"s\":\"I\",\"c\":\"COMMAND\",\"ctx\":\"conn1\",\"msg\":\"Slow query\",\"attr\":{\"durationMillis\":120}}\n";

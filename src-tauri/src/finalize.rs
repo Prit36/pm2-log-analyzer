@@ -115,6 +115,18 @@ struct AggregatedResult {
     daily_stats: Vec<DaySummary>,
 }
 
+const NUM_MERGE_BUCKETS: usize = 16;
+
+struct MergedEndpoint {
+    count: u32,
+    sum: f64,
+    min: f32,
+    max: f32,
+    error_count: u32,
+    sketch: Box<pm2_core::RelHist>,
+}
+
+
 /// Finalize the stored shard engines into the exact `AggregatedResult` JSON the UI renders.
 pub fn finalize_pm2(shards: &mut [Pm2Engine], options: &Pm2ParseOptions) -> Result<String, String> {
     let mode = mode_code(options.normalize_mode.as_deref());
@@ -127,10 +139,79 @@ pub fn finalize_pm2(shards: &mut [Pm2Engine], options: &Pm2ParseOptions) -> Resu
         .map(|e| e.reaggregate_decoded(mode, status, min_ms, date_filter.as_bytes(), true))
         .collect();
 
+    finalize_pm2_with_partials(shards, options, partials)
+}
+
+/// Finalize using precomputed shard partials (skips redundant re-aggregation pass).
+pub fn finalize_pm2_with_partials(
+    shards: &mut [Pm2Engine],
+    options: &Pm2ParseOptions,
+    partials: Vec<pm2_core::DecodedPartial>,
+) -> Result<String, String> {
+    let date_filter = options.date_filter.clone().unwrap_or_default();
+
+    let mut total_matched = 0u32;
+    let mut total_unmatched = 0u32;
+    let mut sum_sum = 0.0f64;
+    let mut sum_max = 0.0f32;
+    let mut sum_errors = 0u32;
+    let mut sum_slow = 0u32;
+    let mut combined_summary_sketch = pm2_core::RelHist::new();
+    let mut has_summary = false;
+
+    // Partition endpoints by hash into 16 buckets in a single linear pass with ZERO clones
+    let mut partitioned: [Vec<pm2_core::DecodedEndpoint>; NUM_MERGE_BUCKETS] =
+        std::array::from_fn(|_| Vec::with_capacity(2048));
+
+    for p in partials {
+        total_matched += p.matched;
+        total_unmatched += p.unmatched;
+        if let Some(s) = &p.summary {
+            has_summary = true;
+            sum_sum += s.sum;
+            if s.max > sum_max {
+                sum_max = s.max;
+            }
+            sum_errors += s.errors;
+            sum_slow += s.slow;
+            combined_summary_sketch.merge(&s.sketch);
+        }
+        for ep in p.endpoints {
+            let b = (ep.hash as usize) & (NUM_MERGE_BUCKETS - 1);
+            partitioned[b].push(ep);
+        }
+    }
+
+    let summary = if has_summary {
+        LogSummary {
+            matched: total_matched,
+            unmatched: total_unmatched,
+            max: sum_max,
+            avg: if total_matched > 0 {
+                sum_sum / total_matched as f64
+            } else {
+                0.0
+            },
+            p95_ms: combined_summary_sketch.quantile_ms(0.95),
+            errors: sum_errors,
+            slow: sum_slow,
+        }
+    } else {
+        LogSummary {
+            matched: total_matched,
+            unmatched: total_unmatched,
+            max: 0.0,
+            avg: 0.0,
+            p95_ms: 0.0,
+            errors: 0,
+            slow: 0,
+        }
+    };
+
     let (
-        decoded,
+        api,
         (
-            total_unmatched,
+            _total_unmatched_shards,
             methods_mask,
             active_hourly,
             daily_stats,
@@ -140,7 +221,84 @@ pub fn finalize_pm2(shards: &mut [Pm2Engine], options: &Pm2ParseOptions) -> Resu
             unmatched_sample,
         ),
     ) = rayon::join(
-        || pm2_core::merge_decoded_partials(partials),
+        || {
+            let api_buckets: Vec<Vec<ApiRow>> = partitioned
+                .into_par_iter()
+                .map(|bucket_endpoints| {
+                    let mut maps: [hashbrown::HashMap<Vec<u8>, MergedEndpoint>; 6] = [
+                        hashbrown::HashMap::with_capacity(256),
+                        hashbrown::HashMap::with_capacity(64),
+                        hashbrown::HashMap::with_capacity(32),
+                        hashbrown::HashMap::with_capacity(16),
+                        hashbrown::HashMap::with_capacity(16),
+                        hashbrown::HashMap::with_capacity(16),
+                    ];
+
+                    for ep in bucket_endpoints {
+                        let m = (ep.method as usize).min(5);
+                        let map = &mut maps[m];
+                        if let Some(acc) = map.get_mut(&ep.path) {
+                            acc.count += ep.count;
+                            acc.sum += ep.sum;
+                            if ep.count > 0 && (acc.count == ep.count || ep.min < acc.min) {
+                                acc.min = ep.min;
+                            }
+                            if ep.max > acc.max {
+                                acc.max = ep.max;
+                            }
+                            acc.error_count += ep.error_count;
+                            acc.sketch.merge(&ep.sketch);
+                        } else {
+                            map.insert(
+                                ep.path,
+                                MergedEndpoint {
+                                    count: ep.count,
+                                    sum: ep.sum,
+                                    min: ep.min,
+                                    max: ep.max,
+                                    error_count: ep.error_count,
+                                    sketch: ep.sketch,
+                                },
+                            );
+                        }
+                    }
+
+                    let mut out = Vec::new();
+                    for (m, map) in maps.into_iter().enumerate() {
+                        let method = METHODS[m % METHODS.len()];
+                        for (path, me) in map {
+                            let path_str = String::from_utf8_lossy(&path).into_owned();
+                            let [p50_ms, p90_ms, p95_ms, p99_ms] = me.sketch.quantiles4_ms();
+                            out.push(ApiRow {
+                                method,
+                                path: path_str,
+                                count: me.count,
+                                avg_ms: round2(if me.count > 0 {
+                                    me.sum / me.count as f64
+                                } else {
+                                    0.0
+                                }),
+                                p50_ms: round2(p50_ms as f64) as f32,
+                                p90_ms: round2(p90_ms as f64) as f32,
+                                p95_ms: round2(p95_ms as f64) as f32,
+                                p99_ms: round2(p99_ms as f64) as f32,
+                                max_ms: round2(if me.count > 0 { me.max } else { 0.0 } as f64) as f32,
+                                min_ms: round2(if me.count > 0 { me.min } else { 0.0 } as f64) as f32,
+                                error_count: me.error_count,
+                            });
+                        }
+                    }
+                    out
+                })
+                .collect();
+
+            let total_unique: usize = api_buckets.iter().map(|b| b.len()).sum();
+            let mut api = Vec::with_capacity(total_unique);
+            for b in api_buckets {
+                api.extend(b);
+            }
+            api
+        },
         || {
             let total_unmatched: u32 = shards.iter().map(|s| s.unmatched_count()).sum();
             let methods_mask: u8 = shards.iter().fold(0u8, |acc, s| acc | s.methods_mask());
@@ -166,7 +324,7 @@ pub fn finalize_pm2(shards: &mut [Pm2Engine], options: &Pm2ParseOptions) -> Resu
                 }
             }
             let mut daily: Vec<DailyAcc> = daily_map.into_values().collect();
-            daily.sort_unstable_by(|a, b| a.date.cmp(&b.date));
+            daily.sort_unstable_by_key(|a| a.date);
 
             let mut dates_set: HashSet<[u8; 10]> = HashSet::with_capacity(32);
             for s in shards.iter() {
@@ -219,37 +377,6 @@ pub fn finalize_pm2(shards: &mut [Pm2Engine], options: &Pm2ParseOptions) -> Resu
             )
         },
     );
-    let summary = build_summary(&decoded, total_unmatched);
-
-    // Per-row `key` is intentionally absent: it is `method + ' ' + path`, and
-    // repeating it for every row added 2.2MB to the IPC body the UI pays for on
-    // every parse. The native bridge rebuilds it before anything reads a row.
-    let api: Vec<ApiRow> = decoded
-        .endpoints
-        .into_par_iter()
-        .map(|e| {
-            let method = METHODS[e.method as usize % METHODS.len()];
-            let path = String::from_utf8_lossy(&e.path).into_owned();
-            let [p50_ms, p90_ms, p95_ms, p99_ms] = e.sketch.quantiles4_ms();
-            ApiRow {
-                method,
-                path,
-                count: e.count,
-                avg_ms: round2(if e.count > 0 {
-                    e.sum / e.count as f64
-                } else {
-                    0.0
-                }),
-                p50_ms: round2(p50_ms as f64) as f32,
-                p90_ms: round2(p90_ms as f64) as f32,
-                p95_ms: round2(p95_ms as f64) as f32,
-                p99_ms: round2(p99_ms as f64) as f32,
-                max_ms: round2(if e.count > 0 { e.max } else { 0.0 } as f64) as f32,
-                min_ms: round2(if e.count > 0 { e.min } else { 0.0 } as f64) as f32,
-                error_count: e.error_count,
-            }
-        })
-        .collect();
 
     let result = AggregatedResult {
         api,
@@ -276,33 +403,6 @@ fn round2(value: f64) -> f64 {
     (value * 100.0).round() / 100.0
 }
 
-fn build_summary(decoded: &pm2_core::DecodedPartial, total_unmatched: u32) -> LogSummary {
-    let matched = decoded.matched;
-    match &decoded.summary {
-        Some(s) => LogSummary {
-            matched,
-            unmatched: total_unmatched,
-            max: s.max,
-            avg: if matched > 0 {
-                s.sum / matched as f64
-            } else {
-                0.0
-            },
-            p95_ms: s.sketch.quantile_ms(0.95),
-            errors: s.errors,
-            slow: s.slow,
-        },
-        None => LogSummary {
-            matched,
-            unmatched: total_unmatched,
-            max: 0.0,
-            avg: 0.0,
-            p95_ms: 0.0,
-            errors: 0,
-            slow: 0,
-        },
-    }
-}
 
 fn methods_from_mask(mask: u8) -> Vec<&'static str> {
     let mut out: Vec<&'static str> = METHODS

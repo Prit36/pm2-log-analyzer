@@ -33,11 +33,7 @@ pub fn classify_name(name: &str) -> LogCategory {
     }
 
     // Gzip extension check: if name before .gz classifies, note it
-    let clean_name = if file_name.ends_with(".gz") {
-        &file_name[..file_name.len() - 3]
-    } else {
-        file_name
-    };
+    let clean_name = file_name.strip_suffix(".gz").unwrap_or(file_name);
 
     // Mongo patterns: mongod.log*, mongodb.log*, mongo*.log*
     if clean_name.starts_with("mongod")

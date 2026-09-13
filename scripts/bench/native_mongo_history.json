@@ -1,0 +1,227 @@
+[
+  {
+    "id": "2026-09-13T04:02:38.655Z",
+    "method": "tauri-native",
+    "app": "mongodb",
+    "note": null,
+    "git": {
+      "commit": "6987be1",
+      "branch": "main",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\mongodb_logs_sample\\methaq-mongod.log",
+    "fileMB": 335.9213228225708,
+    "runs": 3,
+    "result": {
+      "slowQueryCount": 56872,
+      "collscanCount": 9656,
+      "patternsCount": 397,
+      "collectionsCount": 51,
+      "p95DurationMs": 3242
+    },
+    "summary": {
+      "uiReadyMs": {
+        "avg": 113.33333333333333,
+        "stddev": 8.73053390247253,
+        "min": 104,
+        "max": 125
+      },
+      "nativeMs": {
+        "avg": 66,
+        "stddev": 7.3484692283495345,
+        "min": 57,
+        "max": 75
+      },
+      "invokeMs": {
+        "avg": 83.66666666666667
+      },
+      "assembleMs": {
+        "avg": 3.6666666666666665
+      },
+      "throughputMBps": 3230.0127194477964,
+      "nativeThroughputMBps": 5893.356540746856,
+      "reaggAvgMs": 19.88888888888889,
+      "peakRssMB": 831.265625
+    }
+  },
+  {
+    "id": "2026-09-13T04:02:50.537Z",
+    "method": "tauri-native",
+    "app": "mongodb",
+    "note": null,
+    "git": {
+      "commit": "6987be1",
+      "branch": "main",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\mongodb_logs_sample\\eSanad-mongod.log",
+    "fileMB": 2.6113624572753906,
+    "runs": 3,
+    "result": {
+      "slowQueryCount": 841,
+      "collscanCount": 291,
+      "patternsCount": 85,
+      "collectionsCount": 27,
+      "p95DurationMs": 5835
+    },
+    "summary": {
+      "uiReadyMs": {
+        "avg": 42,
+        "stddev": 16.990193249832878,
+        "min": 29,
+        "max": 66
+      },
+      "nativeMs": {
+        "avg": 5.666666666666667,
+        "stddev": 1.699673171197595,
+        "min": 4,
+        "max": 8
+      },
+      "invokeMs": {
+        "avg": 15
+      },
+      "assembleMs": {
+        "avg": 3.3333333333333335
+      },
+      "throughputMBps": 90.0469812853583,
+      "nativeThroughputMBps": 652.8406143188477,
+      "reaggAvgMs": 11.555555555555555,
+      "peakRssMB": 792.4609375
+    }
+  },
+  {
+    "id": "2026-09-13T04:06:05.046Z",
+    "method": "tauri-native",
+    "app": "mongodb",
+    "note": null,
+    "git": {
+      "commit": "6987be1",
+      "branch": "main",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\mongodb_logs_sample\\methaq-mongod.log",
+    "fileMB": 335.9213228225708,
+    "runs": 3,
+    "result": {
+      "slowQueryCount": 56872,
+      "collscanCount": 9656,
+      "patternsCount": 397,
+      "collectionsCount": 51,
+      "p95DurationMs": 3242
+    },
+    "summary": {
+      "uiReadyMs": {
+        "avg": 106,
+        "stddev": 14.514360704718161,
+        "min": 92,
+        "max": 126
+      },
+      "nativeMs": {
+        "avg": 63,
+        "stddev": 5.354126134736337,
+        "min": 57,
+        "max": 70
+      },
+      "invokeMs": {
+        "avg": 78
+      },
+      "assembleMs": {
+        "avg": 3
+      },
+      "throughputMBps": 3651.3187263322916,
+      "nativeThroughputMBps": 5893.356540746856,
+      "reaggAvgMs": 19.88888888888889,
+      "peakRssMB": 822.37109375
+    }
+  },
+  {
+    "id": "2026-09-13T04:26:49.160Z",
+    "method": "tauri-native",
+    "app": "mongodb",
+    "note": null,
+    "git": {
+      "commit": "6987be1",
+      "branch": "main",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\mongodb_logs_sample\\methaq-mongod.log",
+    "fileMB": 335.9213228225708,
+    "runs": 3,
+    "result": {
+      "slowQueryCount": 56872,
+      "collscanCount": 9656,
+      "patternsCount": 397,
+      "collectionsCount": 51,
+      "p95DurationMs": 3242
+    },
+    "summary": {
+      "uiReadyMs": {
+        "avg": 116.33333333333333,
+        "stddev": 24.526629518862872,
+        "min": 98,
+        "max": 151
+      },
+      "nativeMs": {
+        "avg": 67.66666666666667,
+        "stddev": 0.4714045207910317,
+        "min": 67,
+        "max": 68
+      },
+      "invokeMs": {
+        "avg": 83.33333333333333
+      },
+      "assembleMs": {
+        "avg": 3
+      },
+      "throughputMBps": 3427.768600230314,
+      "nativeThroughputMBps": 5013.751086904042,
+      "reaggAvgMs": 21.333333333333332,
+      "peakRssMB": 793.6328125
+    }
+  },
+  {
+    "id": "2026-09-13T04:47:04.662Z",
+    "method": "tauri-native",
+    "app": "mongodb",
+    "note": null,
+    "git": {
+      "commit": "6987be1",
+      "branch": "main",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\mongodb_logs_sample\\methaq-mongod.log",
+    "fileMB": 335.9213228225708,
+    "runs": 3,
+    "result": {
+      "slowQueryCount": 56872,
+      "collscanCount": 9656,
+      "patternsCount": 397,
+      "collectionsCount": 51,
+      "p95DurationMs": 3242
+    },
+    "summary": {
+      "uiReadyMs": {
+        "avg": 106.33333333333333,
+        "stddev": 14.636332266733433,
+        "min": 95,
+        "max": 127
+      },
+      "nativeMs": {
+        "avg": 61,
+        "stddev": 5.715476066494082,
+        "min": 53,
+        "max": 66
+      },
+      "invokeMs": {
+        "avg": 76.33333333333333
+      },
+      "assembleMs": {
+        "avg": 3
+      },
+      "throughputMBps": 3536.013924448114,
+      "nativeThroughputMBps": 6338.1381664636,
+      "reaggAvgMs": 20.333333333333332,
+      "peakRssMB": 780.96484375
+    }
+  }
+]

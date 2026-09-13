@@ -142,12 +142,18 @@ export async function reaggregatePm2Native(): Promise<void> {
   }
 }
 
+interface MongoReaggNativeResult {
+  data?: MongoAggregationResult;
+  json?: string;
+  reagg_wall_ms?: number;
+}
+
 export async function reaggregateMongoNative(): Promise<void> {
   const { setResult, setError, filters } = useMongoStore.getState();
   const seq = ++mongoRequestSeq;
 
   try {
-    const json = await invoke<string>("reaggregate_mongo", {
+    const res = await invoke<MongoReaggNativeResult>("reaggregate_mongo", {
       options: {
         op: filters.operation,
         planFilter:
@@ -161,8 +167,8 @@ export async function reaggregateMongoNative(): Promise<void> {
     });
     if (seq !== mongoRequestSeq) return;
 
-    // SAFETY: json string is guaranteed MongoAggregationResult JSON schema emitted by mongo_core reaggregate
-    const parsed = JSON.parse(json) as MongoAggregationResult;
+    // SAFETY: data or parsed json conforms to MongoAggregationResult schema emitted by mongo_core
+    const parsed = (res.data ?? (res.json ? JSON.parse(res.json) : null)) as MongoAggregationResult;
     setResult(parsed);
   } catch (err) {
     if (seq !== mongoRequestSeq) return;
@@ -312,6 +318,28 @@ export async function handleNativePathsUpload(
         if (uploadMode === "append") appendMongoFiles(mongoFiles);
         else setMongoFiles(mongoFiles);
       }
+      const w = window;
+      if (!w.__MONGO_BENCH__) {
+        w.__MONGO_BENCH__ = {
+          at: new Date().toISOString(),
+          source: "native",
+          parseWallMs: 0,
+          slowQueryCount: 0,
+          collscanCount: 0,
+          patternsCount: 0,
+          collectionsCount: 0,
+          p95DurationMs: 0,
+          reaggTimes: [],
+        };
+      }
+      Object.assign(w.__MONGO_BENCH__, {
+        parseWallMs: mongoWallMs,
+        slowQueryCount: mongoSlowQueries,
+        collscanCount: parsed?.summary?.collscanCount ?? 0,
+        patternsCount: parsed?.patterns?.length ?? 0,
+        collectionsCount: parsed?.collections?.length ?? 0,
+        p95DurationMs: parsed?.summary?.p95DurationMs ?? 0,
+      });
       setMongoProgress({ stage: "complete", processed: 100, total: 100, percent: 100 });
       setMongoParsing(false);
     } else {
