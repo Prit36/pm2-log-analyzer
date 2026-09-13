@@ -2599,5 +2599,248 @@
         "jsHeapUsedAfterMB": 20.047313690185547
       }
     ]
+  },
+  {
+    "id": "2026-09-13T06:47:25.285Z",
+    "method": "browser-app",
+    "app": "zip-archive",
+    "note": "post rust-style refactor",
+    "git": {
+      "commit": "ce9aed5",
+      "branch": "main",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Downloads\\methaq-api&mongodb-07-09.zip",
+    "fileMB": 81.18695259094238,
+    "runs": 3,
+    "classification": {
+      "totalFiles": 2,
+      "pm2Files": 1,
+      "mongoFiles": 1,
+      "skippedFiles": 1
+    },
+    "summary": {
+      "extractWallSec": {
+        "avg": 0.5713333333333334,
+        "stddev": 0.025090945688745064,
+        "min": 0.543,
+        "max": 0.604
+      },
+      "uploadToReadySec": {
+        "avg": 1.5296233333333333,
+        "stddev": 0.21115861725962204,
+        "min": 1.3667046,
+        "max": 1.82782
+      },
+      "throughputMBps": {
+        "avg": 1216.601695301548,
+        "stddev": 52.90679718107846,
+        "min": 1148.606275091108,
+        "max": 1277.6393925506984
+      },
+      "browserRssPeakMB": {
+        "avg": 1621.6861979166667,
+        "stddev": 1.5641538556264791,
+        "min": 1619.90234375,
+        "max": 1623.7109375
+      },
+      "jsHeapPeakMB": {
+        "avg": 25.232507069905598,
+        "stddev": 2.7405350153559156,
+        "min": 21.357410430908203,
+        "max": 27.229366302490234
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "extractWallSec": 0.604,
+        "uploadToReadySec": 1.82782,
+        "throughputMBps": 1148.606275091108,
+        "browserRssPeakMB": 1621.4453125,
+        "jsHeapPeakMB": 27.11074447631836,
+        "jsHeapUsedAfterMB": 20.787105560302734
+      },
+      {
+        "run": 2,
+        "extractWallSec": 0.567,
+        "uploadToReadySec": 1.3943454,
+        "throughputMBps": 1223.5594182628383,
+        "browserRssPeakMB": 1623.7109375,
+        "jsHeapPeakMB": 27.229366302490234,
+        "jsHeapUsedAfterMB": 22.074054718017578
+      },
+      {
+        "run": 3,
+        "extractWallSec": 0.543,
+        "uploadToReadySec": 1.3667046,
+        "throughputMBps": 1277.6393925506984,
+        "browserRssPeakMB": 1619.90234375,
+        "jsHeapPeakMB": 21.357410430908203,
+        "jsHeapUsedAfterMB": 23.691265106201172
+      }
+    ]
+  },
+  {
+    "id": "2026-09-13T07:45:41.762Z",
+    "method": "browser-app",
+    "app": "zip-archive",
+    "note": "post full style pass",
+    "git": {
+      "commit": "ce9aed5",
+      "branch": "main",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Downloads\\methaq-api&mongodb-07-09.zip",
+    "fileMB": 81.18695259094238,
+    "runs": 3,
+    "classification": {
+      "totalFiles": 2,
+      "pm2Files": 1,
+      "mongoFiles": 1,
+      "skippedFiles": 1
+    },
+    "summary": {
+      "extractWallSec": {
+        "avg": 0.5936666666666667,
+        "stddev": 0.025249862485874137,
+        "min": 0.558,
+        "max": 0.613
+      },
+      "uploadToReadySec": {
+        "avg": 1.4326903333333334,
+        "stddev": 0.028105345205652447,
+        "min": 1.40882,
+        "max": 1.4721486
+      },
+      "throughputMBps": {
+        "avg": 1170.7817724893266,
+        "stddev": 51.324388130459056,
+        "min": 1131.7425614274541,
+        "max": 1243.2942475896582
+      },
+      "browserRssPeakMB": {
+        "avg": 1630.01171875,
+        "stddev": 5.82827946762459,
+        "min": 1624.390625,
+        "max": 1638.04296875
+      },
+      "jsHeapPeakMB": {
+        "avg": 24.57695134480794,
+        "stddev": 4.368979757551285,
+        "min": 18.400009155273438,
+        "max": 27.791973114013672
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "extractWallSec": 0.613,
+        "uploadToReadySec": 1.40882,
+        "throughputMBps": 1131.7425614274541,
+        "browserRssPeakMB": 1624.390625,
+        "jsHeapPeakMB": 27.791973114013672,
+        "jsHeapUsedAfterMB": 22.892990112304688
+      },
+      {
+        "run": 2,
+        "extractWallSec": 0.61,
+        "uploadToReadySec": 1.4721486,
+        "throughputMBps": 1137.3085084508677,
+        "browserRssPeakMB": 1627.6015625,
+        "jsHeapPeakMB": 27.53887176513672,
+        "jsHeapUsedAfterMB": 23.139633178710938
+      },
+      {
+        "run": 3,
+        "extractWallSec": 0.558,
+        "uploadToReadySec": 1.4171023999999997,
+        "throughputMBps": 1243.2942475896582,
+        "browserRssPeakMB": 1638.04296875,
+        "jsHeapPeakMB": 18.400009155273438,
+        "jsHeapUsedAfterMB": 23.427230834960938
+      }
+    ]
+  },
+  {
+    "id": "2026-09-13T08:48:15.042Z",
+    "method": "browser-app",
+    "app": "zip-archive",
+    "note": "post full style pass (final)",
+    "git": {
+      "commit": "ce9aed5",
+      "branch": "main",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Downloads\\methaq-api&mongodb-07-09.zip",
+    "fileMB": 81.18695259094238,
+    "runs": 3,
+    "classification": {
+      "totalFiles": 2,
+      "pm2Files": 1,
+      "mongoFiles": 1,
+      "skippedFiles": 1
+    },
+    "summary": {
+      "extractWallSec": {
+        "avg": 0.5259999999999999,
+        "stddev": 0.007874007874011818,
+        "min": 0.515,
+        "max": 0.533
+      },
+      "uploadToReadySec": {
+        "avg": 1.3571807666666666,
+        "stddev": 0.01460125372113269,
+        "min": 1.3365341,
+        "max": 1.3677892000000003
+      },
+      "throughputMBps": {
+        "avg": 1319.2303706630946,
+        "stddev": 19.937314804228453,
+        "min": 1301.610112861218,
+        "max": 1347.1032818544259
+      },
+      "browserRssPeakMB": {
+        "avg": 1624.5611979166667,
+        "stddev": 2.9688208142139065,
+        "min": 1622.17578125,
+        "max": 1628.74609375
+      },
+      "jsHeapPeakMB": {
+        "avg": 23.792287190755207,
+        "stddev": 2.793459067500503,
+        "min": 21.655136108398438,
+        "max": 27.738285064697266
+      }
+    },
+    "iterations": [
+      {
+        "run": 1,
+        "extractWallSec": 0.53,
+        "uploadToReadySec": 1.3677892000000003,
+        "throughputMBps": 1308.97771727364,
+        "browserRssPeakMB": 1628.74609375,
+        "jsHeapPeakMB": 21.655136108398438,
+        "jsHeapUsedAfterMB": 23.629959106445312
+      },
+      {
+        "run": 2,
+        "extractWallSec": 0.515,
+        "uploadToReadySec": 1.367219,
+        "throughputMBps": 1347.1032818544259,
+        "browserRssPeakMB": 1622.17578125,
+        "jsHeapPeakMB": 27.738285064697266,
+        "jsHeapUsedAfterMB": 22.257694244384766
+      },
+      {
+        "run": 3,
+        "extractWallSec": 0.533,
+        "uploadToReadySec": 1.3365341,
+        "throughputMBps": 1301.610112861218,
+        "browserRssPeakMB": 1622.76171875,
+        "jsHeapPeakMB": 21.983440399169922,
+        "jsHeapUsedAfterMB": 23.192825317382812
+      }
+    ]
   }
 ]
