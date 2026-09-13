@@ -5,6 +5,12 @@ import {
   type MongoAggregationResult,
   type MongoFilters,
 } from "../mongo/types";
+import MongoShardWorkerCtor from "./mongoShardWorker.ts?worker&inline";
+import type {
+  MongoShardParsed,
+  MongoShardRequest,
+  MongoShardResponse,
+} from "./mongoShardWorker";
 
 export type MongoWorkerMessage =
   | { type: "PARSE_FILE"; payload: { file: File; filters: MongoFilters } }
@@ -35,8 +41,92 @@ export type MongoWorkerResponse =
 let isCancelled = false;
 let engine: MongoEngine | null = null;
 let wasmMemory: WebAssembly.Memory | null = null;
+let wasmModule: WebAssembly.Module | null = null;
 let isReady = false;
 let currentFilters: MongoFilters = { ...DEFAULT_MONGO_FILTERS };
+
+let shardPool: Worker[] = [];
+let shardsReady = false;
+let epoch = 0;
+
+function poolSize(): number {
+  const hc = globalThis.navigator?.hardwareConcurrency ?? 4;
+  return Math.max(2, Math.min(4, hc));
+}
+
+function shardCountFor(fileSize: number): number {
+  if (fileSize <= 8 * 1024 * 1024) return 1;
+  return poolSize();
+}
+
+function waitShardReady(worker: Worker): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onMsg = (e: MessageEvent<MongoShardResponse>) => {
+      worker.removeEventListener("message", onMsg);
+      if (e.data.type === "SHARD_ERROR") {
+        reject(new Error(e.data.message));
+        return;
+      }
+      if (e.data.type === "SHARD_READY") resolve();
+    };
+    worker.addEventListener("message", onMsg);
+  });
+}
+
+async function ensureShardPool(n: number): Promise<void> {
+  if (!wasmModule) {
+    wasmModule = await compileMongoCoreModule();
+  }
+  if (shardPool.length === n && shardsReady) {
+    return;
+  }
+  for (const w of shardPool) w.terminate();
+  shardPool = [];
+  shardsReady = false;
+
+  const workers: Worker[] = [];
+  for (let i = 0; i < n; i++) workers.push(new MongoShardWorkerCtor());
+  await Promise.all(
+    workers.map(async (w) => {
+      const readyPromise = waitShardReady(w);
+      w.postMessage({ type: "INIT", module: wasmModule! } satisfies MongoShardRequest);
+      await readyPromise;
+    }),
+  );
+  shardPool = workers;
+  shardsReady = true;
+}
+
+function terminateShardPool() {
+  for (const w of shardPool) w.terminate();
+  shardPool = [];
+  shardsReady = false;
+}
+
+function runShardParsed(
+  worker: Worker,
+  req: Extract<MongoShardRequest, { type: "PARSE_SHARD" | "PARSE_SHARD_BUFFER" }>,
+  transfer?: Transferable[],
+): Promise<MongoShardParsed> {
+  return new Promise((resolve, reject) => {
+    const onMsg = (e: MessageEvent<MongoShardResponse>) => {
+      const data = e.data;
+      if (data.type !== "SHARD_PARSED" && data.type !== "SHARD_ERROR") return;
+      worker.removeEventListener("message", onMsg);
+      if (data.type === "SHARD_ERROR") {
+        reject(new Error(data.message));
+        return;
+      }
+      resolve(data);
+    };
+    worker.addEventListener("message", onMsg);
+    if (transfer && transfer.length > 0) {
+      worker.postMessage(req, transfer);
+    } else {
+      worker.postMessage(req);
+    }
+  });
+}
 
 async function ensureEngine(): Promise<MongoEngine> {
   if (isReady && engine) return engine;
@@ -178,16 +268,161 @@ function streamParseBuffer(
   eng.end_shard();
 }
 
+function mongoShardPlan(fileSize: number, poolCount: number): { start: number; end: number }[] {
+  const MAX_SHARD = 100 * 1024 * 1024;
+  const n = Math.max(poolCount, Math.ceil(fileSize / MAX_SHARD));
+  const chunk = Math.ceil(fileSize / n);
+  const ranges: { start: number; end: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const start = i * chunk;
+    const end = Math.min(fileSize, (i + 1) * chunk);
+    if (start >= fileSize) break;
+    ranges.push({ start, end });
+  }
+  return ranges;
+}
+
+async function parseFileSharded(
+  file: File,
+  eng: MongoEngine,
+  bytesOffset: number,
+  totalAllBytes: number,
+) {
+  const n = shardCountFor(file.size);
+  if (n === 1) {
+    await streamParseFile(file, bytesOffset, totalAllBytes);
+    return;
+  }
+
+  await ensureShardPool(n);
+  epoch++;
+  const ep = epoch;
+
+  const ranges = mongoShardPlan(file.size, n);
+  let nextTask = 0;
+  let completedBytes = 0;
+  const shardResults: MongoShardParsed[] = [];
+
+  const workerRun = async (w: Worker) => {
+    while (nextTask < ranges.length && !isCancelled && ep === epoch) {
+      const taskIdx = nextTask++;
+      const r = ranges[taskIdx]!;
+      const parsed = await runShardParsed(w, {
+        type: "PARSE_SHARD",
+        epoch: ep,
+        file,
+        start: r.start,
+        end: r.end,
+        shardIndex: taskIdx,
+        totalSize: file.size,
+      });
+      shardResults.push(parsed);
+      completedBytes += r.end - r.start;
+      const currentTotal = bytesOffset + completedBytes;
+      const percent = Math.min(95, Math.round((currentTotal / totalAllBytes) * 95));
+      self.postMessage({
+        type: "PROGRESS",
+        payload: {
+          stage: "parsing",
+          processed: currentTotal,
+          total: totalAllBytes,
+          percent,
+        },
+      } satisfies MongoWorkerResponse);
+    }
+  };
+
+  await Promise.all(shardPool.map((w) => workerRun(w)));
+
+  if (ep !== epoch || isCancelled) return;
+  shardResults.sort((a, b) => a.shardIndex - b.shardIndex);
+
+  for (const res of shardResults) {
+    eng.merge_shard_bytes(new Uint8Array(res.wire));
+  }
+}
+
+async function parseBufferSharded(
+  buffer: ArrayBuffer,
+  eng: MongoEngine,
+  bytesOffset: number,
+  totalAllBytes: number,
+) {
+  const total = buffer.byteLength;
+  const n = shardCountFor(total);
+  if (n === 1) {
+    streamParseBuffer(buffer, bytesOffset, totalAllBytes, eng);
+    return;
+  }
+
+  await ensureShardPool(n);
+  epoch++;
+  const ep = epoch;
+
+  const ranges = mongoShardPlan(total, n);
+  const LINE_EXTEND = 256 * 1024;
+  let nextTask = 0;
+  let completedBytes = 0;
+  const shardResults: MongoShardParsed[] = [];
+
+  const workerRun = async (w: Worker) => {
+    while (nextTask < ranges.length && !isCancelled && ep === epoch) {
+      const taskIdx = nextTask++;
+      const r = ranges[taskIdx]!;
+      const readEnd = Math.min(total, r.end + LINE_EXTEND);
+      const shardBuf = buffer.slice(r.start, readEnd);
+      const parsed = await runShardParsed(
+        w,
+        {
+          type: "PARSE_SHARD_BUFFER",
+          epoch: ep,
+          buf: shardBuf,
+          start: r.start,
+          end: r.end,
+          shardIndex: taskIdx,
+          totalSize: total,
+        },
+        [shardBuf],
+      );
+      shardResults.push(parsed);
+      completedBytes += r.end - r.start;
+      const currentTotal = bytesOffset + completedBytes;
+      const percent = Math.min(95, Math.round((currentTotal / totalAllBytes) * 95));
+      self.postMessage({
+        type: "PROGRESS",
+        payload: {
+          stage: "parsing",
+          processed: currentTotal,
+          total: totalAllBytes,
+          percent,
+        },
+      } satisfies MongoWorkerResponse);
+    }
+  };
+
+  await Promise.all(shardPool.map((w) => workerRun(w)));
+
+  if (ep !== epoch || isCancelled) return;
+  shardResults.sort((a, b) => a.shardIndex - b.shardIndex);
+
+  for (const res of shardResults) {
+    eng.merge_shard_bytes(new Uint8Array(res.wire));
+  }
+}
+
 self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
   const msg = e.data;
 
   if (msg.type === "CANCEL") {
     isCancelled = true;
+    epoch++;
+    terminateShardPool();
     return;
   }
 
   if (msg.type === "CLEAR") {
     if (engine) engine.clear();
+    terminateShardPool();
     return;
   }
 
@@ -218,9 +453,10 @@ self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
     let bytesSoFar = 0;
     for (const file of files) {
       if (isCancelled) break;
-      await streamParseFile(file, bytesSoFar, totalBytes);
+      await parseFileSharded(file, eng, bytesSoFar, totalBytes);
       bytesSoFar += file.size;
     }
+    terminateShardPool();
 
     if (isCancelled) return;
 
@@ -268,7 +504,8 @@ self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
 
     const t0 = performance.now();
     const { buffer } = msg.payload;
-    streamParseBuffer(buffer, 0, buffer.byteLength, eng);
+    await parseBufferSharded(buffer, eng, 0, buffer.byteLength);
+    terminateShardPool();
 
     if (isCancelled) return;
 

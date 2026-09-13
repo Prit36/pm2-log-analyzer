@@ -6,7 +6,7 @@ use memchr::memchr;
 use crate::fingerprint::{detect_op, generate_fingerprint, MongoOp};
 use crate::parse::{extract_command_slice, parse_line, ParsedLine};
 
-const INGEST_CAP: usize = 32 * 1024 * 1024; // 32MB streaming ingest window
+const INGEST_CAP: usize = 128 * 1024 * 1024; // 128MB streaming ingest window
 pub const MONGO_LINE_EXTEND: usize = 256 * 1024; // 256KB lookahead to complete trailing line crossing shard boundary
 
 #[derive(Clone, Default)]
@@ -198,6 +198,8 @@ impl Engine {
     }
 
     pub fn clear(&mut self) {
+        self.ingest.clear();
+        self.ingest.shrink_to_fit();
         self.carry.clear();
         self.carry_abs = 0;
         self.timestamps_ms.clear();
@@ -413,6 +415,366 @@ impl Engine {
         }
 
         self.durations_ms.len() - before
+    }
+
+    /// Parse shard slice directly from the Wasm ingest window without copying.
+    pub fn parse_shard_ingest(
+        &mut self,
+        len: u32,
+        shard_start: usize,
+        shard_end: usize,
+        file_size: usize,
+    ) -> usize {
+        let n = (len as usize).min(self.ingest.len());
+        let ingest = std::mem::take(&mut self.ingest);
+        let count = self.parse_shard(&ingest[..n], shard_start, shard_end, file_size);
+        self.ingest = ingest;
+        count
+    }
+
+    /// Serializes shard columnar data, string tables, and diagnostics into a compact
+    /// binary wire format for zero-copy transfer across Web Worker threads.
+    pub fn encode_shard(&self) -> Vec<u8> {
+        let n_slow = self.durations_ms.len();
+        let mut out = Vec::with_capacity(4096 + n_slow * 48);
+
+        // Magic header & version
+        out.extend_from_slice(b"MGSH");
+        out.extend_from_slice(&1u16.to_le_bytes());
+
+        // Diagnostics
+        out.extend_from_slice(&(self.total_lines as u64).to_le_bytes());
+        out.extend_from_slice(&self.conn_accepted.to_le_bytes());
+        out.extend_from_slice(&self.conn_ended.to_le_bytes());
+        out.extend_from_slice(&self.conn_peak.to_le_bytes());
+        out.extend_from_slice(&self.auth_success.to_le_bytes());
+        out.extend_from_slice(&self.auth_fail.to_le_bytes());
+        out.extend_from_slice(&self.ops_mask.to_le_bytes());
+
+        // Drivers
+        out.extend_from_slice(&(self.drivers.len() as u32).to_le_bytes());
+        for d in &self.drivers {
+            write_str_u16(&mut out, &d.name);
+            write_str_u16(&mut out, &d.version);
+            write_str_u16(&mut out, &d.platform);
+            write_str_u16(&mut out, &d.os_name);
+            write_str_u16(&mut out, &d.os_version);
+            out.extend_from_slice(&d.count.to_le_bytes());
+        }
+
+        // Errors
+        out.extend_from_slice(&(self.errors.len() as u32).to_le_bytes());
+        for e in &self.errors {
+            write_str_u16(&mut out, &e.timestamp);
+            out.push(e.severity);
+            out.extend_from_slice(&e.id.to_le_bytes());
+            write_str_u16(&mut out, &e.msg);
+            out.extend_from_slice(&e.count.to_le_bytes());
+        }
+
+        // Checkpoints
+        out.extend_from_slice(&(self.checkpoints.len() as u32).to_le_bytes());
+        for cp in &self.checkpoints {
+            write_str_u16(&mut out, &cp.timestamp);
+            write_str_u16(&mut out, &cp.msg);
+        }
+
+        // Dates
+        write_str_vec(&mut out, &self.dates);
+
+        // Arenas and Tables
+        write_str_vec(&mut out, &self.ns_strings);
+        write_str_vec(&mut out, &self.plan_strings);
+
+        out.extend_from_slice(&(self.fingerprint_strings.len() as u16).to_le_bytes());
+        for (i, fp) in self.fingerprint_strings.iter().enumerate() {
+            write_str_u16(&mut out, fp);
+            let sug = self.index_suggestions.get(i).map(|s| s.as_str()).unwrap_or("");
+            write_str_u16(&mut out, sug);
+        }
+
+        write_str_vec(&mut out, &self.remote_strings);
+        write_str_vec(&mut out, &self.user_strings);
+
+        out.extend_from_slice(&(self.user_meta.len() as u16).to_le_bytes());
+        for um in &self.user_meta {
+            write_str_u16(&mut out, &um.auth_db);
+            write_str_u16(&mut out, &um.app_name);
+            write_str_vec(&mut out, &um.client_ips);
+            out.extend_from_slice(&um.first_seen_ms.to_le_bytes());
+            out.extend_from_slice(&um.last_seen_ms.to_le_bytes());
+            out.extend_from_slice(&um.auth_success_count.to_le_bytes());
+            out.extend_from_slice(&um.auth_fail_count.to_le_bytes());
+        }
+
+        write_str_vec(&mut out, &self.ctx_strings);
+
+        out.extend_from_slice(&(self.ctx_to_user.len() as u16).to_le_bytes());
+        for u in &self.ctx_to_user {
+            out.extend_from_slice(&u.to_le_bytes());
+        }
+
+        out.extend_from_slice(&(self.ctx_auth_fails.len() as u16).to_le_bytes());
+        for f in &self.ctx_auth_fails {
+            out.extend_from_slice(&f.to_le_bytes());
+        }
+
+        write_str_vec(&mut out, &self.ctx_app_names);
+
+        // Columnar Store
+        let n = self.durations_ms.len() as u32;
+        out.extend_from_slice(&n.to_le_bytes());
+        if n > 0 {
+            for v in &self.timestamps_ms { out.extend_from_slice(&v.to_le_bytes()); }
+            for v in &self.durations_ms { out.extend_from_slice(&v.to_le_bytes()); }
+            for v in &self.ns_ids { out.extend_from_slice(&v.to_le_bytes()); }
+            out.extend_from_slice(&self.op_ids);
+            for v in &self.plan_ids { out.extend_from_slice(&v.to_le_bytes()); }
+            for v in &self.fingerprint_ids { out.extend_from_slice(&v.to_le_bytes()); }
+            for v in &self.docs_examined { out.extend_from_slice(&v.to_le_bytes()); }
+            for v in &self.keys_examined { out.extend_from_slice(&v.to_le_bytes()); }
+            for v in &self.nreturned { out.extend_from_slice(&v.to_le_bytes()); }
+            for v in &self.num_yields { out.extend_from_slice(&v.to_le_bytes()); }
+            for v in &self.reslens { out.extend_from_slice(&v.to_le_bytes()); }
+            for b in &self.is_collscan { out.push(if *b { 1 } else { 0 }); }
+            for v in &self.remote_ids { out.extend_from_slice(&v.to_le_bytes()); }
+            for v in &self.user_ids { out.extend_from_slice(&v.to_le_bytes()); }
+            for v in &self.ctx_ids { out.extend_from_slice(&v.to_le_bytes()); }
+        }
+
+        out
+    }
+
+    /// Decodes a serialized shard wire into an Engine.
+    pub fn decode_shard(data: &[u8]) -> Result<Engine, &'static str> {
+        let mut r = ShardReader::new(data);
+        let magic = r.take(4).ok_or("truncated shard header")?;
+        if magic != b"MGSH" {
+            return Err("invalid shard magic");
+        }
+        let version = r.u16().ok_or("truncated version")?;
+        if version != 1 {
+            return Err("unsupported shard version");
+        }
+
+        let total_lines = r.u64().ok_or("truncated total_lines")? as usize;
+        let conn_accepted = r.u32().ok_or("truncated conn_accepted")?;
+        let conn_ended = r.u32().ok_or("truncated conn_ended")?;
+        let conn_peak = r.u32().ok_or("truncated conn_peak")?;
+        let auth_success = r.u32().ok_or("truncated auth_success")?;
+        let auth_fail = r.u32().ok_or("truncated auth_fail")?;
+        let ops_mask = r.u16().ok_or("truncated ops_mask")?;
+
+        let n_drivers = r.u32().ok_or("truncated drivers count")? as usize;
+        let mut drivers = Vec::with_capacity(n_drivers);
+        for _ in 0..n_drivers {
+            drivers.push(DriverInfo {
+                name: r.str_u16().ok_or("truncated driver name")?,
+                version: r.str_u16().ok_or("truncated driver version")?,
+                platform: r.str_u16().ok_or("truncated driver platform")?,
+                os_name: r.str_u16().ok_or("truncated driver os_name")?,
+                os_version: r.str_u16().ok_or("truncated driver os_version")?,
+                count: r.u32().ok_or("truncated driver count")?,
+            });
+        }
+
+        let n_errors = r.u32().ok_or("truncated errors count")? as usize;
+        let mut errors = Vec::with_capacity(n_errors);
+        for _ in 0..n_errors {
+            errors.push(ErrorRecord {
+                timestamp: r.str_u16().ok_or("truncated error ts")?,
+                severity: r.u8().ok_or("truncated error sev")?,
+                id: r.u32().ok_or("truncated error id")?,
+                msg: r.str_u16().ok_or("truncated error msg")?,
+                count: r.u32().ok_or("truncated error count")?,
+            });
+        }
+
+        let n_cps = r.u32().ok_or("truncated checkpoints count")? as usize;
+        let mut checkpoints = Vec::with_capacity(n_cps);
+        for _ in 0..n_cps {
+            checkpoints.push(CheckpointRecord {
+                timestamp: r.str_u16().ok_or("truncated cp ts")?,
+                msg: r.str_u16().ok_or("truncated cp msg")?,
+            });
+        }
+
+        let dates = r.str_vec().ok_or("truncated dates")?;
+        let ns_strings = r.str_vec().ok_or("truncated ns_strings")?;
+        let plan_strings = r.str_vec().ok_or("truncated plan_strings")?;
+
+        let n_fps = r.u16().ok_or("truncated fps count")? as usize;
+        let mut fingerprint_strings = Vec::with_capacity(n_fps);
+        let mut index_suggestions = Vec::with_capacity(n_fps);
+        for _ in 0..n_fps {
+            fingerprint_strings.push(r.str_u16().ok_or("truncated fp")?);
+            index_suggestions.push(r.str_u16().ok_or("truncated sug")?);
+        }
+
+        let remote_strings = r.str_vec().ok_or("truncated remote_strings")?;
+        let user_strings = r.str_vec().ok_or("truncated user_strings")?;
+
+        let n_um = r.u16().ok_or("truncated user_meta count")? as usize;
+        let mut user_meta = Vec::with_capacity(n_um);
+        for _ in 0..n_um {
+            user_meta.push(UserMeta {
+                auth_db: r.str_u16().ok_or("truncated auth_db")?,
+                app_name: r.str_u16().ok_or("truncated app_name")?,
+                client_ips: r.str_vec().ok_or("truncated client_ips")?,
+                first_seen_ms: r.i64().ok_or("truncated first_seen_ms")?,
+                last_seen_ms: r.i64().ok_or("truncated last_seen_ms")?,
+                auth_success_count: r.u32().ok_or("truncated auth_success_count")?,
+                auth_fail_count: r.u32().ok_or("truncated auth_fail_count")?,
+            });
+        }
+
+        let ctx_strings = r.str_vec().ok_or("truncated ctx_strings")?;
+
+        let n_c2u = r.u16().ok_or("truncated ctx_to_user count")? as usize;
+        let mut ctx_to_user = Vec::with_capacity(n_c2u);
+        for _ in 0..n_c2u {
+            ctx_to_user.push(r.u16().ok_or("truncated ctx_to_user entry")?);
+        }
+
+        let n_caf = r.u16().ok_or("truncated ctx_auth_fails count")? as usize;
+        let mut ctx_auth_fails = Vec::with_capacity(n_caf);
+        for _ in 0..n_caf {
+            ctx_auth_fails.push(r.u32().ok_or("truncated ctx_auth_fails entry")?);
+        }
+
+        let ctx_app_names = r.str_vec().ok_or("truncated ctx_app_names")?;
+
+        let n = r.u32().ok_or("truncated columnar count")? as usize;
+        let mut timestamps_ms = Vec::with_capacity(n);
+        let mut durations_ms = Vec::with_capacity(n);
+        let mut ns_ids = Vec::with_capacity(n);
+        let mut op_ids = Vec::with_capacity(n);
+        let mut plan_ids = Vec::with_capacity(n);
+        let mut fingerprint_ids = Vec::with_capacity(n);
+        let mut docs_examined = Vec::with_capacity(n);
+        let mut keys_examined = Vec::with_capacity(n);
+        let mut nreturned = Vec::with_capacity(n);
+        let mut num_yields = Vec::with_capacity(n);
+        let mut reslens = Vec::with_capacity(n);
+        let mut is_collscan = Vec::with_capacity(n);
+        let mut remote_ids = Vec::with_capacity(n);
+        let mut user_ids = Vec::with_capacity(n);
+        let mut ctx_ids = Vec::with_capacity(n);
+
+        if n > 0 {
+            for _ in 0..n { timestamps_ms.push(r.i64().ok_or("truncated timestamps_ms")?); }
+            for _ in 0..n { durations_ms.push(r.u32().ok_or("truncated durations_ms")?); }
+            for _ in 0..n { ns_ids.push(r.u16().ok_or("truncated ns_ids")?); }
+            let op_slice = r.take(n).ok_or("truncated op_ids")?;
+            op_ids.extend_from_slice(op_slice);
+            for _ in 0..n { plan_ids.push(r.u16().ok_or("truncated plan_ids")?); }
+            for _ in 0..n { fingerprint_ids.push(r.u16().ok_or("truncated fingerprint_ids")?); }
+            for _ in 0..n { docs_examined.push(r.u32().ok_or("truncated docs_examined")?); }
+            for _ in 0..n { keys_examined.push(r.u32().ok_or("truncated keys_examined")?); }
+            for _ in 0..n { nreturned.push(r.u32().ok_or("truncated nreturned")?); }
+            for _ in 0..n { num_yields.push(r.u32().ok_or("truncated num_yields")?); }
+            for _ in 0..n { reslens.push(r.u32().ok_or("truncated reslens")?); }
+            let coll_slice = r.take(n).ok_or("truncated is_collscan")?;
+            is_collscan.extend(coll_slice.iter().map(|&b| b != 0));
+            for _ in 0..n { remote_ids.push(r.u16().ok_or("truncated remote_ids")?); }
+            for _ in 0..n { user_ids.push(r.u16().ok_or("truncated user_ids")?); }
+            for _ in 0..n { ctx_ids.push(r.u16().ok_or("truncated ctx_ids")?); }
+        }
+
+        let mut ns_table = HashMap::with_capacity(ns_strings.len());
+        for (i, s) in ns_strings.iter().enumerate() {
+            ns_table.insert(s.clone(), i as u16);
+        }
+
+        let mut plan_table = HashMap::with_capacity(plan_strings.len());
+        for (i, s) in plan_strings.iter().enumerate() {
+            plan_table.insert(s.clone(), i as u16);
+        }
+
+        let mut fingerprint_table = HashMap::with_capacity(fingerprint_strings.len());
+        for (i, s) in fingerprint_strings.iter().enumerate() {
+            fingerprint_table.insert(s.clone(), i as u16);
+        }
+
+        let mut remote_table = HashMap::with_capacity(remote_strings.len());
+        for (i, s) in remote_strings.iter().enumerate() {
+            remote_table.insert(s.clone(), i as u16);
+        }
+
+        let mut user_table = HashMap::with_capacity(user_strings.len());
+        for (i, s) in user_strings.iter().enumerate() {
+            user_table.insert(s.clone(), i as u16);
+        }
+
+        let mut ctx_table = HashMap::with_capacity(ctx_strings.len());
+        for (i, s) in ctx_strings.iter().enumerate() {
+            ctx_table.insert(s.clone(), i as u16);
+        }
+
+        Ok(Engine {
+            ingest: Vec::new(),
+            carry: Vec::new(),
+            carry_abs: 0,
+            file_size: 0,
+            timestamps_ms,
+            durations_ms,
+            ns_ids,
+            op_ids,
+            plan_ids,
+            fingerprint_ids,
+            docs_examined,
+            keys_examined,
+            nreturned,
+            num_yields,
+            reslens,
+            is_collscan,
+            remote_ids,
+            user_ids,
+            ctx_ids,
+            ns_strings,
+            ns_table,
+            plan_strings,
+            plan_table,
+            fingerprint_strings,
+            fingerprint_table,
+            index_suggestions,
+            remote_strings,
+            remote_table,
+            user_strings,
+            user_table,
+            user_meta,
+            ctx_to_user,
+            ctx_strings,
+            ctx_table,
+            ctx_auth_fails,
+            ctx_app_names,
+            ops_mask,
+            query_hash_cache: HashMap::new(),
+            last_ns_id: u16::MAX,
+            last_plan_id: u16::MAX,
+            last_remote_id: u16::MAX,
+            last_ctx_id: u16::MAX,
+            last_user_id: u16::MAX,
+            last_qhash: (u16::MAX, 0, (MongoOp::Other, u16::MAX)),
+            last_date: [0u8; 10],
+            conn_accepted,
+            conn_ended,
+            conn_peak,
+            auth_success,
+            auth_fail,
+            drivers,
+            errors,
+            checkpoints,
+            dates,
+            total_lines,
+        })
+    }
+
+    /// Decodes a serialized shard wire and merges it directly into `self`.
+    pub fn merge_shard_bytes(&mut self, data: &[u8]) -> Result<(), &'static str> {
+        let other = Self::decode_shard(data)?;
+        self.merge(other);
+        Ok(())
     }
 
     /// Fast zero-copy columnar merge of another Engine into `self`.
@@ -1036,3 +1398,84 @@ pub(crate) fn trim_line(bytes: &[u8]) -> &[u8] {
     }
     &bytes[start..end]
 }
+
+#[inline]
+fn write_str_u16(out: &mut Vec<u8>, s: &str) {
+    let bytes = s.as_bytes();
+    out.extend_from_slice(&(bytes.len() as u16).to_le_bytes());
+    out.extend_from_slice(bytes);
+}
+
+#[inline]
+fn write_str_vec(out: &mut Vec<u8>, vec: &[String]) {
+    out.extend_from_slice(&(vec.len() as u16).to_le_bytes());
+    for s in vec {
+        write_str_u16(out, s);
+    }
+}
+
+struct ShardReader<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> ShardReader<'a> {
+    #[inline]
+    fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
+    }
+
+    #[inline]
+    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
+        if self.pos + n <= self.data.len() {
+            let slice = &self.data[self.pos..self.pos + n];
+            self.pos += n;
+            Some(slice)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn u8(&mut self) -> Option<u8> {
+        self.take(1).map(|b| b[0])
+    }
+
+    #[inline]
+    fn u16(&mut self) -> Option<u16> {
+        self.take(2).map(|b| u16::from_le_bytes([b[0], b[1]]))
+    }
+
+    #[inline]
+    fn u32(&mut self) -> Option<u32> {
+        self.take(4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    }
+
+    #[inline]
+    fn u64(&mut self) -> Option<u64> {
+        self.take(8).map(|b| u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]))
+    }
+
+    #[inline]
+    fn i64(&mut self) -> Option<i64> {
+        self.take(8).map(|b| i64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]))
+    }
+
+    #[inline]
+    fn str_u16(&mut self) -> Option<String> {
+        let len = self.u16()? as usize;
+        let bytes = self.take(len)?;
+        Some(String::from_utf8_lossy(bytes).into_owned())
+    }
+
+    #[inline]
+    fn str_vec(&mut self) -> Option<Vec<String>> {
+        let count = self.u16()? as usize;
+        let mut out = Vec::with_capacity(count);
+        for _ in 0..count {
+            out.push(self.str_u16()?);
+        }
+        Some(out)
+    }
+}
+

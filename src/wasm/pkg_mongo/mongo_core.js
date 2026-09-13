@@ -15,6 +15,16 @@ export class MongoEngine {
         wasm.mongoengine_clear(this.__wbg_ptr);
     }
     /**
+     * Encode shard data into compact transferable byte array for web worker messaging
+     * @returns {Uint8Array}
+     */
+    encode_shard() {
+        const ret = wasm.mongoengine_encode_shard(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
      * Finish shard (flush carry). Call after all feeds.
      */
     end_shard() {
@@ -28,16 +38,6 @@ export class MongoEngine {
      */
     feed(len, abs_off) {
         const ret = wasm.mongoengine_feed(this.__wbg_ptr, len, abs_off);
-        return ret >>> 0;
-    }
-    /**
-     * @param {Uint8Array} data
-     * @returns {number}
-     */
-    feed_slice(data) {
-        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.mongoengine_feed_slice(this.__wbg_ptr, ptr0, len0);
         return ret >>> 0;
     }
     /**
@@ -58,6 +58,15 @@ export class MongoEngine {
         var ptr0 = other.__destroy_into_raw();
         wasm.mongoengine_merge(this.__wbg_ptr, ptr0);
     }
+    /**
+     * Merge shard byte array directly into this engine
+     * @param {Uint8Array} data
+     */
+    merge_shard_bytes(data) {
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.mongoengine_merge_shard_bytes(this.__wbg_ptr, ptr0, len0);
+    }
     constructor() {
         const ret = wasm.mongoengine_new();
         this.__wbg_ptr = ret;
@@ -65,17 +74,15 @@ export class MongoEngine {
         return this;
     }
     /**
-     * Parse shard slice [shard_start..shard_end] with lookahead up to MONGO_LINE_EXTEND
-     * @param {Uint8Array} slice
+     * Parse shard directly from the ingest window without extra copying
+     * @param {number} len
      * @param {number} shard_start
      * @param {number} shard_end
      * @param {number} file_size
      * @returns {number}
      */
-    parse_shard(slice, shard_start, shard_end, file_size) {
-        const ptr0 = passArray8ToWasm0(slice, wasm.__wbindgen_malloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.mongoengine_parse_shard(this.__wbg_ptr, ptr0, len0, shard_start, shard_end, file_size);
+    parse_shard_ingest(len, shard_start, shard_end, file_size) {
+        const ret = wasm.mongoengine_parse_shard_ingest(this.__wbg_ptr, len, shard_start, shard_end, file_size);
         return ret >>> 0;
     }
     /**
@@ -123,14 +130,6 @@ export class MongoEngine {
         const ret = wasm.mongoengine_total_lines(this.__wbg_ptr);
         return ret >>> 0;
     }
-    /**
-     * @param {Uint8Array} data
-     */
-    write_slice(data) {
-        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.mongoengine_write_slice(this.__wbg_ptr, ptr0, len0);
-    }
 }
 if (Symbol.dispose) MongoEngine.prototype[Symbol.dispose] = MongoEngine.prototype.free;
 function __wbg_get_imports() {
@@ -163,6 +162,11 @@ function _assertClass(instance, klass) {
     if (!(instance instanceof klass)) {
         throw new Error(`expected instance of ${klass.name}`);
     }
+}
+
+function getArrayU8FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
 }
 
 function getStringFromWasm0(ptr, len) {
