@@ -32,6 +32,9 @@ export default defineConfig({
     // build runs vs 0.5s idle). Nothing under src-tauri is part of the web app.
     watch: { ignored: ["**/src-tauri/**", "**/target/**"] },
   },
+  optimizeDeps: {
+    entries: ["index.html"],
+  },
   preview: { headers: coiHeaders },
   worker: {
     format: "es",
