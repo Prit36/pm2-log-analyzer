@@ -8,9 +8,18 @@ import { useMongoStore } from "../store/mongoStore";
 import { useAppModeStore } from "../store/appModeStore";
 import type { MongoAggregationResult } from "../mongo/types";
 
+/**
+ * Large results travel through the Rust loopback payload server instead of the
+ * `invoke` response: WebView2's IPC custom protocol caps around 140MB/s, while
+ * the localhost fetch moves the same bytes ~3x faster.
+ */
+type NativePayload = {
+  url: string;
+  bytes: number;
+};
+
 type Pm2NativeResult = {
-  data?: AggregatedResult;
-  json?: string;
+  payload?: NativePayload;
   hit_count: number;
   unmatched_count: number;
   methods_mask: number;
@@ -19,14 +28,12 @@ type Pm2NativeResult = {
 };
 
 type Pm2ReaggNativeResult = {
-  data?: AggregatedResult;
-  json?: string;
+  payload?: NativePayload;
   reagg_wall_ms: number;
 };
 
 type MongoNativeResult = {
-  data?: MongoAggregationResult;
-  json?: string;
+  payload?: NativePayload;
   parse_wall_ms: number;
   slow_query_count: number;
   total_lines: number;
@@ -56,7 +63,7 @@ type NativeProgressPayload = {
 
 /**
  * Native results omit the per-row `key` (it is always `method + " " + path`);
- * rebuilding it here keeps the IPC body ~2MB smaller without changing the
+ * rebuilding it here keeps the payload smaller without changing the
  * `AggregatedResult` contract the UI consumes.
  */
 function restoreApiKeys(result: AggregatedResult): AggregatedResult {
@@ -64,6 +71,16 @@ function restoreApiKeys(result: AggregatedResult): AggregatedResult {
     if (!row.key) row.key = `${row.method} ${row.path}`;
   }
   return result;
+}
+
+/** Fetch and parse one loopback payload; `null` when the result carried none. */
+async function readPayload<T>(ref: NativePayload | null | undefined): Promise<T | null> {
+  if (!ref) return null;
+  const response = await fetch(ref.url);
+  if (!response.ok) throw new Error(`payload fetch failed: HTTP ${response.status}`);
+  // SAFETY: the URL is served by the Rust payload server, which only publishes
+  // the JSON this module's result types describe.
+  return (await response.json()) as T;
 }
 
 function sec(ms: number): string {
@@ -128,12 +145,9 @@ export async function reaggregatePm2Native(): Promise<void> {
 
   try {
     const res = await invoke<Pm2ReaggNativeResult>("reaggregate_pm2", { options });
+    const payload = await readPayload<AggregatedResult>(res.payload);
     if (seq !== pm2RequestSeq) return;
-    // SAFETY: data or parsed json conforms to AggregatedResult schema emitted by Rust finalizer
-    const result = restoreApiKeys(
-      (res.data ?? (res.json ? JSON.parse(res.json) : null)) as AggregatedResult,
-    );
-    setResult(result);
+    setResult(payload ? restoreApiKeys(payload) : null);
   } catch (err) {
     if (seq !== pm2RequestSeq) return;
     const message = err instanceof Error ? err.message : String(err);
@@ -143,8 +157,7 @@ export async function reaggregatePm2Native(): Promise<void> {
 }
 
 interface MongoReaggNativeResult {
-  data?: MongoAggregationResult;
-  json?: string;
+  payload?: NativePayload;
   reagg_wall_ms?: number;
 }
 
@@ -167,9 +180,8 @@ export async function reaggregateMongoNative(): Promise<void> {
     });
     if (seq !== mongoRequestSeq) return;
 
-    // SAFETY: data or parsed json conforms to MongoAggregationResult schema emitted by mongo_core
-    const parsed = (res.data ?? (res.json ? JSON.parse(res.json) : null)) as MongoAggregationResult;
-    setResult(parsed);
+    const payload = await readPayload<MongoAggregationResult>(res.payload);
+    setResult(payload);
   } catch (err) {
     if (seq !== mongoRequestSeq) return;
     const message = err instanceof Error ? err.message : String(err);
@@ -286,12 +298,15 @@ export async function handleNativePathsUpload(
       }
     }
 
-    if (res.pm2) {
+    // Both payloads travel over the loopback server, so fetch them together.
+    const [pm2Result, mongoResult] = await Promise.all([
+      readPayload<AggregatedResult>(res.pm2?.payload),
+      readPayload<MongoAggregationResult>(res.mongo?.payload),
+    ]);
+
+    if (res.pm2 && pm2Result) {
       nativePm2Active = true;
-      // SAFETY: data or parsed json conforms to AggregatedResult schema emitted by Rust finalizer
-      const result = restoreApiKeys(
-        (res.pm2.data ?? (res.pm2.json ? JSON.parse(res.pm2.json) : null)) as AggregatedResult,
-      );
+      const result = restoreApiKeys(pm2Result);
       pm2Matched = result.summary.matched;
       pm2WallMs = res.pm2.parse_wall_ms;
       if (pm2Seq === pm2RequestSeq) {
@@ -305,11 +320,9 @@ export async function handleNativePathsUpload(
       setPm2Parsing(false);
     }
 
-    if (res.mongo) {
+    if (res.mongo && mongoResult) {
       nativeMongoActive = true;
-      // SAFETY: data or parsed json conforms to MongoAggregationResult schema emitted by mongo_core
-      const parsed = (res.mongo.data ??
-        (res.mongo.json ? JSON.parse(res.mongo.json) : null)) as MongoAggregationResult;
+      const parsed = mongoResult;
       mongoTotalLines = res.mongo.total_lines;
       mongoSlowQueries = res.mongo.slow_query_count;
       mongoWallMs = res.mongo.parse_wall_ms;

@@ -2,6 +2,7 @@ mod archive;
 mod cron;
 mod classifier;
 mod finalize;
+mod payload;
 
 use classifier::LogCategory;
 use memmap2::MmapOptions;
@@ -41,15 +42,28 @@ pub struct Pm2ParseOptions {
     pub cron_show_failed_only: Option<bool>,
 }
 
-fn to_raw_value(json: String) -> Box<serde_json::value::RawValue> {
-    serde_json::value::RawValue::from_string(json)
-        .unwrap_or_else(|_| serde_json::value::RawValue::from_string("{}".to_string()).unwrap())
+/// A large result payload the webview fetches over the loopback server.
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct PayloadRef {
+    pub url: String,
+    pub bytes: usize,
+}
+
+/// The loopback payload server, started once when the app boots.
+static PAYLOAD_SERVER: std::sync::OnceLock<std::sync::Arc<payload::PayloadServer>> =
+    std::sync::OnceLock::new();
+
+/// Hand a finished JSON result to the loopback server and describe where it is.
+fn publish_payload(json: String) -> Option<PayloadRef> {
+    let server = PAYLOAD_SERVER.get()?;
+    let (_, url, bytes) = server.publish(json.into_bytes());
+    Some(PayloadRef { url, bytes })
 }
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct Pm2ParseResult {
-    /// Raw unescaped JSON object for zero-copy direct IPC delivery
-    pub data: Box<serde_json::value::RawValue>,
+    /// Loopback URL the webview fetches the ready-to-render JSON from
+    pub payload: Option<PayloadRef>,
     pub hit_count: u32,
     pub unmatched_count: u32,
     pub methods_mask: u8,
@@ -59,13 +73,13 @@ pub struct Pm2ParseResult {
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct Pm2ReaggResult {
-    pub data: Box<serde_json::value::RawValue>,
+    pub payload: Option<PayloadRef>,
     pub reagg_wall_ms: u64,
 }
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct MongoReaggResult {
-    pub data: Box<serde_json::value::RawValue>,
+    pub payload: Option<PayloadRef>,
     pub reagg_wall_ms: u64,
 }
 
@@ -86,7 +100,7 @@ pub struct MongoFilterOptions {
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct MongoParseResult {
-    pub data: Box<serde_json::value::RawValue>,
+    pub payload: Option<PayloadRef>,
     pub parse_wall_ms: u64,
     pub slow_query_count: u32,
     pub total_lines: u32,
@@ -612,7 +626,7 @@ impl Pm2ShardOptions {
 /// The counters and payload every PM2 parse result carries.
 fn pm2_result(shards: &[pm2_core::Pm2Engine], json: String, elapsed_ms: u64) -> Pm2ParseResult {
     Pm2ParseResult {
-        data: to_raw_value(json),
+        payload: publish_payload(json),
         hit_count: shards.iter().map(|shard| shard.hit_count()).sum(),
         unmatched_count: shards.iter().map(|shard| shard.unmatched_count()).sum(),
         methods_mask: shards
@@ -626,7 +640,7 @@ fn pm2_result(shards: &[pm2_core::Pm2Engine], json: String, elapsed_ms: u64) -> 
 /// The payload every Mongo parse result carries.
 fn mongo_result(engine: &mongo_core::MongoEngine, json: String, elapsed_ms: u64) -> MongoParseResult {
     MongoParseResult {
-        data: to_raw_value(json),
+        payload: publish_payload(json),
         parse_wall_ms: elapsed_ms,
         slow_query_count: engine.slow_query_count(),
         total_lines: engine.total_lines(),
@@ -1275,7 +1289,7 @@ fn store_pm2_zip_outcome(
         .fold(0, |mask, shard| mask | shard.methods_mask());
     let shard_count = lock.len();
     Ok(Pm2ParseResult {
-        data: to_raw_value(json),
+        payload: publish_payload(json),
         hit_count,
         unmatched_count,
         methods_mask,
@@ -1684,7 +1698,7 @@ fn store_pm2_shards(
         .fold(0, |mask, shard| mask | shard.methods_mask());
     let shard_count = lock.len();
     Ok(Pm2ParseResult {
-        data: to_raw_value(json),
+        payload: publish_payload(json),
         hit_count,
         unmatched_count,
         methods_mask,
@@ -1747,7 +1761,7 @@ async fn reaggregate_pm2(
         }
         let json = finalize::finalize_pm2(lock.as_mut_slice(), &options)?;
         Ok(Pm2ReaggResult {
-            data: to_raw_value(json),
+            payload: publish_payload(json),
             reagg_wall_ms: t0.elapsed().as_millis() as u64,
         })
     })
@@ -1794,7 +1808,7 @@ async fn reaggregate_mongo(
             options.user.as_deref().unwrap_or("all"),
         );
         Ok(MongoReaggResult {
-            data: to_raw_value(json),
+            payload: publish_payload(json),
             reagg_wall_ms: t0.elapsed().as_millis() as u64,
         })
     })
@@ -1829,6 +1843,7 @@ async fn ingest_native_files(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     configure_rayon_pool();
+    let _ = PAYLOAD_SERVER.set(payload::PayloadServer::start());
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
