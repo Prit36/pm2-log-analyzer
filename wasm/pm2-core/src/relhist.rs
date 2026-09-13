@@ -1,8 +1,6 @@
 use hashbrown::HashMap;
 
-#[allow(dead_code)]
 const RELATIVE_ACCURACY: f64 = 0.01;
-#[allow(dead_code)]
 const GAMMA: f64 = (1.0 + RELATIVE_ACCURACY) / (1.0 - RELATIVE_ACCURACY);
 /// 1/ln(γ); precomputed so accept() never calls ln(γ) (value.ln() still per sample).
 pub const INV_LOG_GAMMA: f64 = 1.0 / 0.020000666688891502; // == 1.0 / GAMMA.ln()
@@ -10,11 +8,11 @@ pub const DENSE_LIMIT: usize = 512;
 
 #[inline(always)]
 pub fn relhist_key(value: f32) -> Option<i32> {
-    let v = value as f64;
-    if !(v > 0.0) || !v.is_finite() {
+    let value_f64 = value as f64;
+    if !(value_f64 > 0.0) || !value_f64.is_finite() {
         None
     } else {
-        Some((v.ln() * INV_LOG_GAMMA).ceil() as i32)
+        Some((value_f64.ln() * INV_LOG_GAMMA).ceil() as i32)
     }
 }
 
@@ -48,14 +46,14 @@ impl RelHist {
     pub fn accept_key(&mut self, key: i32) {
         self.count += 1;
         if key >= 0 && (key as usize) < DENSE_LIMIT {
-            let u = key as usize;
-            self.dense[u] += 1;
-            let k16 = u as u16;
-            if k16 < self.min_key {
-                self.min_key = k16;
+            let key_index = key as usize;
+            self.dense[key_index] += 1;
+            let key_u16 = key_index as u16;
+            if key_u16 < self.min_key {
+                self.min_key = key_u16;
             }
-            if k16 >= self.max_key {
-                self.max_key = k16 + 1;
+            if key_u16 >= self.max_key {
+                self.max_key = key_u16 + 1;
             }
         } else {
             *self.sparse.entry(key).or_insert(0) += 1;
@@ -89,23 +87,23 @@ impl RelHist {
         out.extend_from_slice(&self.count.to_le_bytes());
         out.extend_from_slice(&(total_n as u32).to_le_bytes());
 
-        for k in neg_keys {
-            let c = self.sparse[&k];
-            out.extend_from_slice(&k.to_le_bytes());
-            out.extend_from_slice(&c.to_le_bytes());
+        for key in neg_keys {
+            let count = self.sparse[&key];
+            out.extend_from_slice(&key.to_le_bytes());
+            out.extend_from_slice(&count.to_le_bytes());
         }
-        for i in start..end {
-            let c = self.dense[i];
-            if c > 0 {
-                let k = i as i32;
-                out.extend_from_slice(&k.to_le_bytes());
-                out.extend_from_slice(&c.to_le_bytes());
+        for index in start..end {
+            let count = self.dense[index];
+            if count > 0 {
+                let key = index as i32;
+                out.extend_from_slice(&key.to_le_bytes());
+                out.extend_from_slice(&count.to_le_bytes());
             }
         }
-        for k in high_keys {
-            let c = self.sparse[&k];
-            out.extend_from_slice(&k.to_le_bytes());
-            out.extend_from_slice(&c.to_le_bytes());
+        for key in high_keys {
+            let count = self.sparse[&key];
+            out.extend_from_slice(&key.to_le_bytes());
+            out.extend_from_slice(&count.to_le_bytes());
         }
         out
     }
@@ -130,10 +128,8 @@ impl RelHist {
         for i in start..end {
             self.dense[i] += other.dense[i];
         }
-        if !other.sparse.is_empty() {
-            for (&k, &v) in &other.sparse {
-                *self.sparse.entry(k).or_insert(0) += v;
-            }
+        for (&key, &count) in &other.sparse {
+            *self.sparse.entry(key).or_insert(0) += count;
         }
     }
 
@@ -156,14 +152,14 @@ impl RelHist {
             let cnt = u32::from_le_bytes(buf[off + 4..off + 8].try_into().ok()?);
             off += 8;
             if key >= 0 && (key as usize) < DENSE_LIMIT {
-                let u = key as usize;
-                dense[u] = cnt;
-                let k16 = u as u16;
-                if k16 < min_k {
-                    min_k = k16;
+                let key_index = key as usize;
+                dense[key_index] = cnt;
+                let key_u16 = key_index as u16;
+                if key_u16 < min_k {
+                    min_k = key_u16;
                 }
-                if k16 >= max_k {
-                    max_k = k16 + 1;
+                if key_u16 >= max_k {
+                    max_k = key_u16 + 1;
                 }
             } else {
                 sparse.insert(key, cnt);
@@ -213,19 +209,19 @@ impl RelHist {
     }
 
     /// Approximate quantile in milliseconds (parity with the JS `RelHist.quantile`).
-    pub fn quantile_ms(&self, q: f64) -> f32 {
+    pub fn quantile_ms(&self, quantile: f64) -> f32 {
         if self.count == 0 {
             return 0.0;
         }
         let keys = self.ordered_keys();
         let last = *keys.last().expect("count > 0 implies keys");
-        if q <= 0.0 {
+        if quantile <= 0.0 {
             return bucket_value(keys[0]);
         }
-        if q >= 1.0 {
+        if quantile >= 1.0 {
             return bucket_value(last);
         }
-        let target = q * (self.count as f64 - 1.0);
+        let target = quantile * (self.count as f64 - 1.0);
         let mut rank = 0u32;
         for &k in &keys {
             if (rank + self.count_at(k)) as f64 > target {
@@ -242,7 +238,7 @@ impl RelHist {
             return [0.0; 4];
         }
         let keys = self.ordered_keys();
-        let last_val = bucket_value(*keys.last().expect("count > 0 implies keys"));
+        let last_value = bucket_value(*keys.last().expect("count > 0 implies keys"));
         let count = self.count as f64;
         let targets = [
             0.5 * (count - 1.0),
@@ -252,22 +248,17 @@ impl RelHist {
         ];
         let mut out = [-1.0f32; 4];
         let mut rank = 0u32;
-        for &k in &keys {
-            let next_rank = rank + self.count_at(k);
-            let v = bucket_value(k);
-            for i in 0..4 {
-                if out[i] < 0.0 && next_rank as f64 > targets[i] {
-                    out[i] = v;
+        for &key in &keys {
+            let next_rank = rank + self.count_at(key);
+            let value = bucket_value(key);
+            for (slot, target) in out.iter_mut().zip(targets) {
+                if *slot < 0.0 && next_rank as f64 > target {
+                    *slot = value;
                 }
             }
             rank = next_rank;
         }
-        [
-            if out[0] < 0.0 { last_val } else { out[0] },
-            if out[1] < 0.0 { last_val } else { out[1] },
-            if out[2] < 0.0 { last_val } else { out[2] },
-            if out[3] < 0.0 { last_val } else { out[3] },
-        ]
+        out.map(|value| if value < 0.0 { last_value } else { value })
     }
 }
 
@@ -278,19 +269,19 @@ fn bucket_value(key: i32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{relhist_key, RelHist};
 
-    fn quantile(h: &RelHist, q: f64) -> f32 {
-        h.quantile_ms(q)
+    fn quantile(hist: &RelHist, quantile: f64) -> f32 {
+        hist.quantile_ms(quantile)
     }
 
     #[test]
     fn quantile_approx() {
-        let mut h = RelHist::new();
+        let mut hist = RelHist::new();
         for i in 1..=1000 {
-            h.accept_key(relhist_key((i * 10) as f32).unwrap());
+            hist.accept_key(relhist_key((i * 10) as f32).unwrap());
         }
-        let p95 = quantile(&h, 0.95);
+        let p95 = quantile(&hist, 0.95);
         assert!((p95 - 9500.0).abs() / 9500.0 < 0.02, "p95={p95}");
     }
 }

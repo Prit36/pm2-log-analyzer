@@ -11,8 +11,8 @@ pub enum NormalizeMode {
 }
 
 impl NormalizeMode {
-    pub fn from_u8(v: u8) -> Self {
-        match v {
+    pub fn from_u8(value: u8) -> Self {
+        match value {
             1 => Self::StripQuery,
             2 => Self::CollapseIds,
             _ => Self::Exact,
@@ -75,22 +75,22 @@ fn eq_ignore_ascii_case_prefix(hay: &[u8], needle: &[u8]) -> bool {
 
 fn is_code_id(seg: &[u8]) -> bool {
     // [A-Z]{2,}-[A-Z]{2,}-\d{6,}
-    let Some(d1) = memchr::memchr(b'-', seg) else {
+    let Some(first_dash) = memchr::memchr(b'-', seg) else {
         return false;
     };
-    let a = &seg[..d1];
-    let rest = &seg[d1 + 1..];
-    let Some(d2) = memchr::memchr(b'-', rest) else {
+    let first_letters = &seg[..first_dash];
+    let rest = &seg[first_dash + 1..];
+    let Some(second_dash) = memchr::memchr(b'-', rest) else {
         return false;
     };
-    let b = &rest[..d2];
-    let digits = &rest[d2 + 1..];
-    a.len() >= 2
-        && a.iter().all(|&c| c.is_ascii_alphabetic())
-        && b.len() >= 2
-        && b.iter().all(|&c| c.is_ascii_alphabetic())
-        && digits.len() >= 6
-        && digits.iter().all(|&c| c.is_ascii_digit())
+    let second_letters = &rest[..second_dash];
+    let trailing_digits = &rest[second_dash + 1..];
+    first_letters.len() >= 2
+        && first_letters.iter().all(|&c| c.is_ascii_alphabetic())
+        && second_letters.len() >= 2
+        && second_letters.iter().all(|&c| c.is_ascii_alphabetic())
+        && trailing_digits.len() >= 6
+        && trailing_digits.iter().all(|&c| c.is_ascii_digit())
 }
 
 fn collapse_segment(seg: &[u8]) -> &[u8] {
@@ -107,57 +107,66 @@ pub fn normalize_path(path: &[u8], mode: NormalizeMode) -> Cow<'_, [u8]> {
     if mode == NormalizeMode::Exact {
         return Cow::Borrowed(path);
     }
-    let mut p = path;
-    if matches!(mode, NormalizeMode::StripQuery | NormalizeMode::CollapseIds) {
-        if let Some(q) = memchr::memchr(b'?', path) {
-            p = &path[..q];
-        }
-    }
+    let path = strip_query(path);
     if mode != NormalizeMode::CollapseIds {
-        // StripQuery: borrow the (possibly query-trimmed) slice — no alloc.
-        return Cow::Borrowed(p);
+        // StripQuery: borrow the query-trimmed slice — no alloc.
+        return Cow::Borrowed(path);
     }
     // CollapseIds: borrow when no segment needs collapsing.
+    if !has_collapsible_segment(path) {
+        return Cow::Borrowed(path);
+    }
+    Cow::Owned(collapse_segments(path))
+}
+
+/// Drop the query string (`?…`) when the mode keeps the path at all.
+fn strip_query(path: &[u8]) -> &[u8] {
+    match memchr::memchr(b'?', path) {
+        Some(query_start) => &path[..query_start],
+        None => path,
+    }
+}
+
+fn has_collapsible_segment(path: &[u8]) -> bool {
     let mut start = 0usize;
-    let mut needs_collapse = false;
-    for i in 0..=p.len() {
-        if i == p.len() || p[i] == b'/' {
-            let seg = &p[start..i];
-            if collapse_segment(seg) != seg {
-                needs_collapse = true;
-                break;
+    for index in 0..=path.len() {
+        if index == path.len() || path[index] == b'/' {
+            let segment = &path[start..index];
+            if collapse_segment(segment) != segment {
+                return true;
             }
-            start = i + 1;
+            start = index + 1;
         }
     }
-    if !needs_collapse {
-        return Cow::Borrowed(p);
-    }
-    let mut out = Vec::with_capacity(p.len());
-    start = 0;
-    for i in 0..=p.len() {
-        if i == p.len() || p[i] == b'/' {
-            let seg = &p[start..i];
-            out.extend_from_slice(collapse_segment(seg));
-            if i < p.len() {
+    false
+}
+
+fn collapse_segments(path: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(path.len());
+    let mut start = 0usize;
+    for index in 0..=path.len() {
+        if index == path.len() || path[index] == b'/' {
+            out.extend_from_slice(collapse_segment(&path[start..index]));
+            if index < path.len() {
                 out.push(b'/');
             }
-            start = i + 1;
+            start = index + 1;
         }
     }
-    Cow::Owned(out)
+    out
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{normalize_path, NormalizeMode};
+    use std::borrow::Cow;
 
     #[test]
     fn collapse_object_id() {
-        let p = b"/api/users/507f1f77bcf86cd799439011/profile";
+        let path = b"/api/users/507f1f77bcf86cd799439011/profile";
         assert_eq!(
-            normalize_path(p, NormalizeMode::CollapseIds).as_ref(),
-            b"/api/users/:id/profile"
+            normalize_path(path, NormalizeMode::CollapseIds).as_ref(),
+            b"/api/users/:id/profile",
         );
     }
 
@@ -170,17 +179,17 @@ mod tests {
 
     #[test]
     fn collapse_noop_borrows() {
-        let p = b"/api/health";
-        let out = normalize_path(p, NormalizeMode::CollapseIds);
-        assert_eq!(out.as_ref(), p);
+        let path = b"/api/health";
+        let out = normalize_path(path, NormalizeMode::CollapseIds);
+        assert_eq!(out.as_ref(), path);
         assert!(matches!(out, Cow::Borrowed(_)));
     }
 
     #[test]
     fn exact_keeps_query() {
-        let p = b"/api/x?foo=1";
-        let out = normalize_path(p, NormalizeMode::Exact);
-        assert_eq!(out.as_ref(), p);
+        let path = b"/api/x?foo=1";
+        let out = normalize_path(path, NormalizeMode::Exact);
+        assert_eq!(out.as_ref(), path);
         assert!(matches!(out, Cow::Borrowed(_)));
     }
 }
