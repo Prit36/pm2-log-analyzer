@@ -12,6 +12,8 @@
     "typecheck": "tsc --noEmit",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
+    "clean": "cargo clean --manifest-path src-tauri/Cargo.toml && cargo clean --manifest-path wasm/pm2-core/Cargo.toml && cargo clean --manifest-path wasm/mongo-core/Cargo.toml && cargo clean --manifest-path wasm/zip-core/Cargo.toml",
+    "clean:rust": "cargo clean --manifest-path src-tauri/Cargo.toml && cargo clean --manifest-path wasm/pm2-core/Cargo.toml && cargo clean --manifest-path wasm/mongo-core/Cargo.toml && cargo clean --manifest-path wasm/zip-core/Cargo.toml",
     "wasm:build": "node scripts/wasm-build.mjs",
     "bench": "node scripts/bench/bench.mjs",
     "bench:mongo": "node scripts/bench/bench_mongo.mjs",
