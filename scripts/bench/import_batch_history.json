@@ -1,0 +1,5612 @@
+[
+  {
+    "at": "2026-09-25T08:10:55.040Z",
+    "note": "baseline",
+    "target": "both",
+    "runs": 2,
+    "gitCommit": "3febea3",
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v26.5.0"
+    },
+    "inputs": [
+      {
+        "name": "monday-14-09.zip",
+        "bytes": 90757691
+      },
+      {
+        "name": "16-09-api.zip",
+        "bytes": 38724885
+      },
+      {
+        "name": "21-09-api.zip",
+        "bytes": 42413764
+      },
+      {
+        "name": "12-days-pm2logs-5-to-16-sep.zip",
+        "bytes": 35517
+      },
+      {
+        "name": "pm2.log.2.gz",
+        "bytes": 6041
+      },
+      {
+        "name": "api-error.log.2.gz",
+        "bytes": 51498
+      },
+      {
+        "name": "24-09-api.zip",
+        "bytes": 4079011
+      },
+      {
+        "name": "api-out.log.2.gz",
+        "bytes": 43697321
+      },
+      {
+        "name": "22-09-all-logs.zip",
+        "bytes": 39900982
+      }
+    ],
+    "inputBytes": 259666710,
+    "summary": {
+      "browser": {
+        "uploadToReadyMs": {
+          "avg": 6577.532350000001,
+          "min": 6375.688600000001,
+          "max": 6779.376100000001
+        },
+        "rssPeakMB": {
+          "avg": 3642.98828125,
+          "min": 3185.86328125,
+          "max": 4100.11328125
+        },
+        "jsHeapPeakMB": {
+          "avg": 57.0511360168457,
+          "min": 46.39856719970703,
+          "max": 67.70370483398438
+        },
+        "nativeMs": null
+      },
+      "native": {
+        "uploadToReadyMs": {
+          "avg": 1391.5,
+          "min": 1387,
+          "max": 1396
+        },
+        "rssPeakMB": {
+          "avg": 2355.833984375,
+          "min": 2288.2109375,
+          "max": 2423.45703125
+        },
+        "jsHeapPeakMB": null,
+        "nativeMs": {
+          "avg": 1158,
+          "min": 1153,
+          "max": 1163
+        }
+      }
+    },
+    "iterations": {
+      "browser": [
+        {
+          "uploadToReadyMs": 6779.376100000001,
+          "rssBeforeMB": 275.0546875,
+          "rssPeakMB": 4100.11328125,
+          "rssAfterMB": 3180.5625,
+          "jsHeapPeakMB": 67.70370483398438,
+          "samples": 9,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 2726,
+            "requests": 3721413,
+            "endpoints": 111212
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 723,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 2726ms"
+        },
+        {
+          "uploadToReadyMs": 6375.688600000001,
+          "rssBeforeMB": 273.0625,
+          "rssPeakMB": 3185.86328125,
+          "rssAfterMB": 3185.86328125,
+          "jsHeapPeakMB": 46.39856719970703,
+          "samples": 9,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 3071,
+            "requests": 3721413,
+            "endpoints": 111212
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 908,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 3071ms"
+        }
+      ],
+      "native": [
+        {
+          "uiReadyMs": 1387,
+          "invokeMs": 1156,
+          "assembleMs": 108,
+          "nativeMs": 1153,
+          "wallMs": 1986,
+          "rssBeforeMB": 408.6640625,
+          "rssPeakMB": 2288.2109375,
+          "rssAfterMB": 752.5078125,
+          "samples": 3,
+          "maxFrameGapMs": 129,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 1.39s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        },
+        {
+          "uiReadyMs": 1396,
+          "invokeMs": 1167,
+          "assembleMs": 105,
+          "nativeMs": 1163,
+          "wallMs": 2005,
+          "rssBeforeMB": 405.0703125,
+          "rssPeakMB": 2423.45703125,
+          "rssAfterMB": 761.15625,
+          "samples": 3,
+          "maxFrameGapMs": 133,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 1.40s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-09-25T08:19:04.265Z",
+    "note": "worker-cap-and-parallel-expand",
+    "target": "both",
+    "runs": 2,
+    "gitCommit": "3febea3",
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v26.5.0"
+    },
+    "inputs": [
+      {
+        "name": "monday-14-09.zip",
+        "bytes": 90757691
+      },
+      {
+        "name": "16-09-api.zip",
+        "bytes": 38724885
+      },
+      {
+        "name": "21-09-api.zip",
+        "bytes": 42413764
+      },
+      {
+        "name": "12-days-pm2logs-5-to-16-sep.zip",
+        "bytes": 35517
+      },
+      {
+        "name": "pm2.log.2.gz",
+        "bytes": 6041
+      },
+      {
+        "name": "api-error.log.2.gz",
+        "bytes": 51498
+      },
+      {
+        "name": "24-09-api.zip",
+        "bytes": 4079011
+      },
+      {
+        "name": "api-out.log.2.gz",
+        "bytes": 43697321
+      },
+      {
+        "name": "22-09-all-logs.zip",
+        "bytes": 39900982
+      }
+    ],
+    "inputBytes": 259666710,
+    "summary": {
+      "browser": {
+        "uploadToReadyMs": {
+          "avg": 6412.926349999998,
+          "min": 6384.544199999997,
+          "max": 6441.308499999999
+        },
+        "rssPeakMB": {
+          "avg": 3169.662109375,
+          "min": 3156.8046875,
+          "max": 3182.51953125
+        },
+        "jsHeapPeakMB": {
+          "avg": 45.59096336364746,
+          "min": 45.06443405151367,
+          "max": 46.11749267578125
+        },
+        "nativeMs": null
+      },
+      "native": {
+        "uploadToReadyMs": {
+          "avg": 908,
+          "min": 905,
+          "max": 911
+        },
+        "rssPeakMB": {
+          "avg": 748.19921875,
+          "min": 747.1484375,
+          "max": 749.25
+        },
+        "jsHeapPeakMB": null,
+        "nativeMs": {
+          "avg": 665.5,
+          "min": 664,
+          "max": 667
+        }
+      }
+    },
+    "iterations": {
+      "browser": [
+        {
+          "uploadToReadyMs": 6441.308499999999,
+          "rssBeforeMB": 272.87109375,
+          "rssPeakMB": 3182.51953125,
+          "rssAfterMB": 3182.51953125,
+          "jsHeapPeakMB": 45.06443405151367,
+          "samples": 9,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 3124,
+            "requests": 3721413,
+            "endpoints": 111212
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 1045,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 3124ms"
+        },
+        {
+          "uploadToReadyMs": 6384.544199999997,
+          "rssBeforeMB": 275.609375,
+          "rssPeakMB": 3156.8046875,
+          "rssAfterMB": 3156.8046875,
+          "jsHeapPeakMB": 46.11749267578125,
+          "samples": 9,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 3034,
+            "requests": 3721413,
+            "endpoints": 111212
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 1086,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 3034ms"
+        }
+      ],
+      "native": [
+        {
+          "uiReadyMs": 905,
+          "invokeMs": 667,
+          "assembleMs": 111,
+          "nativeMs": 664,
+          "wallMs": 1798,
+          "rssBeforeMB": 403.70703125,
+          "rssPeakMB": 749.25,
+          "rssAfterMB": 749.25,
+          "samples": 3,
+          "maxFrameGapMs": 139,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 0.91s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        },
+        {
+          "uiReadyMs": 911,
+          "invokeMs": 670,
+          "assembleMs": 114,
+          "nativeMs": 667,
+          "wallMs": 1824,
+          "rssBeforeMB": 403.2734375,
+          "rssPeakMB": 747.1484375,
+          "rssAfterMB": 747.1484375,
+          "samples": 3,
+          "maxFrameGapMs": 135,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 0.91s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-09-25T08:25:47.138Z",
+    "note": "baseline-100ms-sampler",
+    "target": "both",
+    "runs": 2,
+    "gitCommit": "3febea3",
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v26.5.0"
+    },
+    "inputs": [
+      {
+        "name": "monday-14-09.zip",
+        "bytes": 90757691
+      },
+      {
+        "name": "16-09-api.zip",
+        "bytes": 38724885
+      },
+      {
+        "name": "21-09-api.zip",
+        "bytes": 42413764
+      },
+      {
+        "name": "12-days-pm2logs-5-to-16-sep.zip",
+        "bytes": 35517
+      },
+      {
+        "name": "pm2.log.2.gz",
+        "bytes": 6041
+      },
+      {
+        "name": "api-error.log.2.gz",
+        "bytes": 51498
+      },
+      {
+        "name": "24-09-api.zip",
+        "bytes": 4079011
+      },
+      {
+        "name": "api-out.log.2.gz",
+        "bytes": 43697321
+      },
+      {
+        "name": "22-09-all-logs.zip",
+        "bytes": 39900982
+      }
+    ],
+    "inputBytes": 259666710,
+    "summary": {
+      "browser": {
+        "uploadToReadyMs": {
+          "avg": 6153.271650000002,
+          "min": 6021.725100000003,
+          "max": 6284.8182000000015
+        },
+        "rssPeakMB": {
+          "avg": 4419.837890625,
+          "min": 4386.87109375,
+          "max": 4452.8046875
+        },
+        "jsHeapPeakMB": {
+          "avg": 67.13324546813965,
+          "min": 65.16466522216797,
+          "max": 69.10182571411133
+        },
+        "nativeMs": null
+      },
+      "native": {
+        "uploadToReadyMs": {
+          "avg": 1385,
+          "min": 1384,
+          "max": 1386
+        },
+        "rssPeakMB": {
+          "avg": 2163.912109375,
+          "min": 1985.44140625,
+          "max": 2342.3828125
+        },
+        "jsHeapPeakMB": null,
+        "nativeMs": {
+          "avg": 1151,
+          "min": 1150,
+          "max": 1152
+        }
+      }
+    },
+    "iterations": {
+      "browser": [
+        {
+          "uploadToReadyMs": 6284.8182000000015,
+          "rssBeforeMB": 272.1953125,
+          "rssPeakMB": 4452.8046875,
+          "rssAfterMB": 3192.96875,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 272.1953125
+            },
+            {
+              "ms": 122,
+              "rssMB": 571.4921875
+            },
+            {
+              "ms": 248,
+              "rssMB": 778.8359375
+            },
+            {
+              "ms": 360,
+              "rssMB": 974.3984375
+            },
+            {
+              "ms": 472,
+              "rssMB": 1335.140625
+            },
+            {
+              "ms": 586,
+              "rssMB": 1820.47265625
+            },
+            {
+              "ms": 720,
+              "rssMB": 1692.82421875
+            },
+            {
+              "ms": 834,
+              "rssMB": 1753.7734375
+            },
+            {
+              "ms": 945,
+              "rssMB": 1538.22265625
+            },
+            {
+              "ms": 1058,
+              "rssMB": 1627.79296875
+            },
+            {
+              "ms": 1179,
+              "rssMB": 1716.23046875
+            },
+            {
+              "ms": 1290,
+              "rssMB": 2212.9296875
+            },
+            {
+              "ms": 1413,
+              "rssMB": 2026.18359375
+            },
+            {
+              "ms": 1517,
+              "rssMB": 2069.65234375
+            },
+            {
+              "ms": 1629,
+              "rssMB": 2155.53125
+            },
+            {
+              "ms": 1739,
+              "rssMB": 2236.54296875
+            },
+            {
+              "ms": 1852,
+              "rssMB": 2770.44140625
+            },
+            {
+              "ms": 1978,
+              "rssMB": 2006.6484375
+            },
+            {
+              "ms": 2087,
+              "rssMB": 1808.2421875
+            },
+            {
+              "ms": 2196,
+              "rssMB": 1952.48828125
+            },
+            {
+              "ms": 2307,
+              "rssMB": 2034.25
+            },
+            {
+              "ms": 2417,
+              "rssMB": 2116.375
+            },
+            {
+              "ms": 2529,
+              "rssMB": 2176.14453125
+            },
+            {
+              "ms": 2657,
+              "rssMB": 2629.3671875
+            },
+            {
+              "ms": 2773,
+              "rssMB": 2992.58203125
+            },
+            {
+              "ms": 2883,
+              "rssMB": 2736.953125
+            },
+            {
+              "ms": 2993,
+              "rssMB": 2736.953125
+            },
+            {
+              "ms": 3106,
+              "rssMB": 2953.6484375
+            },
+            {
+              "ms": 3225,
+              "rssMB": 3032.17578125
+            },
+            {
+              "ms": 3337,
+              "rssMB": 3192.41796875
+            },
+            {
+              "ms": 3459,
+              "rssMB": 3848.15625
+            },
+            {
+              "ms": 3582,
+              "rssMB": 4250.01953125
+            },
+            {
+              "ms": 3710,
+              "rssMB": 4452.8046875
+            },
+            {
+              "ms": 3832,
+              "rssMB": 4298.23046875
+            },
+            {
+              "ms": 3958,
+              "rssMB": 3091.96484375
+            },
+            {
+              "ms": 4078,
+              "rssMB": 2669.4765625
+            },
+            {
+              "ms": 4195,
+              "rssMB": 2388.3984375
+            },
+            {
+              "ms": 4317,
+              "rssMB": 2588.33203125
+            },
+            {
+              "ms": 4436,
+              "rssMB": 2526.25390625
+            },
+            {
+              "ms": 4564,
+              "rssMB": 2561.22265625
+            },
+            {
+              "ms": 4688,
+              "rssMB": 2597.53515625
+            },
+            {
+              "ms": 4809,
+              "rssMB": 2621.4140625
+            },
+            {
+              "ms": 4919,
+              "rssMB": 2642.02734375
+            },
+            {
+              "ms": 5040,
+              "rssMB": 2661.71875
+            },
+            {
+              "ms": 5157,
+              "rssMB": 2678.2890625
+            },
+            {
+              "ms": 5275,
+              "rssMB": 2694.51953125
+            },
+            {
+              "ms": 5386,
+              "rssMB": 2708.4140625
+            },
+            {
+              "ms": 5504,
+              "rssMB": 2833.296875
+            },
+            {
+              "ms": 5613,
+              "rssMB": 2795.96484375
+            },
+            {
+              "ms": 5722,
+              "rssMB": 2922.453125
+            },
+            {
+              "ms": 5839,
+              "rssMB": 2944.07421875
+            },
+            {
+              "ms": 5955,
+              "rssMB": 3024.93359375
+            },
+            {
+              "ms": 6078,
+              "rssMB": 3138.25
+            },
+            {
+              "ms": 6189,
+              "rssMB": 3172.77734375
+            },
+            {
+              "ms": 6308,
+              "rssMB": 3189.7578125
+            },
+            {
+              "ms": 6425,
+              "rssMB": 3191.9296875
+            },
+            {
+              "ms": 6540,
+              "rssMB": 3192.96875
+            }
+          ],
+          "jsHeapPeakMB": 69.10182571411133,
+          "samples": 57,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 3091,
+            "requests": 3721413,
+            "endpoints": 111212
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 729,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 3091ms"
+        },
+        {
+          "uploadToReadyMs": 6021.725100000003,
+          "rssBeforeMB": 281.515625,
+          "rssPeakMB": 4386.87109375,
+          "rssAfterMB": 3139.63671875,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 281.515625
+            },
+            {
+              "ms": 115,
+              "rssMB": 553.72265625
+            },
+            {
+              "ms": 227,
+              "rssMB": 748.25390625
+            },
+            {
+              "ms": 354,
+              "rssMB": 971.06640625
+            },
+            {
+              "ms": 467,
+              "rssMB": 1227.51953125
+            },
+            {
+              "ms": 590,
+              "rssMB": 1875.3203125
+            },
+            {
+              "ms": 724,
+              "rssMB": 1684.78125
+            },
+            {
+              "ms": 837,
+              "rssMB": 1776.33203125
+            },
+            {
+              "ms": 960,
+              "rssMB": 1576.24609375
+            },
+            {
+              "ms": 1089,
+              "rssMB": 1679.23046875
+            },
+            {
+              "ms": 1211,
+              "rssMB": 1792.70703125
+            },
+            {
+              "ms": 1327,
+              "rssMB": 2034.1875
+            },
+            {
+              "ms": 1442,
+              "rssMB": 2031.42578125
+            },
+            {
+              "ms": 1554,
+              "rssMB": 2119.67578125
+            },
+            {
+              "ms": 1679,
+              "rssMB": 2215.3046875
+            },
+            {
+              "ms": 1807,
+              "rssMB": 2625.2890625
+            },
+            {
+              "ms": 1934,
+              "rssMB": 1946.2890625
+            },
+            {
+              "ms": 2057,
+              "rssMB": 1809.0078125
+            },
+            {
+              "ms": 2173,
+              "rssMB": 1960.796875
+            },
+            {
+              "ms": 2281,
+              "rssMB": 2046.890625
+            },
+            {
+              "ms": 2393,
+              "rssMB": 2135.203125
+            },
+            {
+              "ms": 2503,
+              "rssMB": 2186.671875
+            },
+            {
+              "ms": 2617,
+              "rssMB": 2502.89453125
+            },
+            {
+              "ms": 2745,
+              "rssMB": 2959.9140625
+            },
+            {
+              "ms": 2857,
+              "rssMB": 2747.453125
+            },
+            {
+              "ms": 2971,
+              "rssMB": 2747.453125
+            },
+            {
+              "ms": 3082,
+              "rssMB": 2971.4453125
+            },
+            {
+              "ms": 3192,
+              "rssMB": 2984.02734375
+            },
+            {
+              "ms": 3305,
+              "rssMB": 3135.33984375
+            },
+            {
+              "ms": 3432,
+              "rssMB": 3786.44140625
+            },
+            {
+              "ms": 3556,
+              "rssMB": 4286.1953125
+            },
+            {
+              "ms": 3680,
+              "rssMB": 4386.87109375
+            },
+            {
+              "ms": 3810,
+              "rssMB": 4224.921875
+            },
+            {
+              "ms": 3940,
+              "rssMB": 2996.1015625
+            },
+            {
+              "ms": 4058,
+              "rssMB": 2348.15234375
+            },
+            {
+              "ms": 4183,
+              "rssMB": 2648.078125
+            },
+            {
+              "ms": 4293,
+              "rssMB": 2395.06640625
+            },
+            {
+              "ms": 4404,
+              "rssMB": 2426.140625
+            },
+            {
+              "ms": 4529,
+              "rssMB": 2457.80859375
+            },
+            {
+              "ms": 4641,
+              "rssMB": 2478.30078125
+            },
+            {
+              "ms": 4761,
+              "rssMB": 2494.70703125
+            },
+            {
+              "ms": 4877,
+              "rssMB": 2515.67578125
+            },
+            {
+              "ms": 4988,
+              "rssMB": 2478.14453125
+            },
+            {
+              "ms": 5096,
+              "rssMB": 2531.5625
+            },
+            {
+              "ms": 5209,
+              "rssMB": 2550.8125
+            },
+            {
+              "ms": 5331,
+              "rssMB": 2653.453125
+            },
+            {
+              "ms": 5445,
+              "rssMB": 2850.66796875
+            },
+            {
+              "ms": 5561,
+              "rssMB": 2894.1015625
+            },
+            {
+              "ms": 5674,
+              "rssMB": 2963.34375
+            },
+            {
+              "ms": 5792,
+              "rssMB": 3081.203125
+            },
+            {
+              "ms": 5903,
+              "rssMB": 3122.4375
+            },
+            {
+              "ms": 6022,
+              "rssMB": 3136.3046875
+            },
+            {
+              "ms": 6127,
+              "rssMB": 3139.63671875
+            }
+          ],
+          "jsHeapPeakMB": 65.16466522216797,
+          "samples": 53,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 2848,
+            "requests": 3721413,
+            "endpoints": 111212
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 721,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 2848ms"
+        }
+      ],
+      "native": [
+        {
+          "uiReadyMs": 1384,
+          "invokeMs": 1155,
+          "assembleMs": 107,
+          "nativeMs": 1152,
+          "wallMs": 1499,
+          "rssBeforeMB": 401.83984375,
+          "rssPeakMB": 2342.3828125,
+          "rssAfterMB": 733.67578125,
+          "rssSamples": [
+            {
+              "ms": 0,
+              "rssMB": 401.83984375
+            },
+            {
+              "ms": 115,
+              "rssMB": 1157.10546875
+            },
+            {
+              "ms": 221,
+              "rssMB": 1203.8203125
+            },
+            {
+              "ms": 330,
+              "rssMB": 1373.92578125
+            },
+            {
+              "ms": 440,
+              "rssMB": 1621.94921875
+            },
+            {
+              "ms": 550,
+              "rssMB": 1647.91796875
+            },
+            {
+              "ms": 664,
+              "rssMB": 1902.01171875
+            },
+            {
+              "ms": 783,
+              "rssMB": 1907.99609375
+            },
+            {
+              "ms": 978,
+              "rssMB": 2342.3828125
+            },
+            {
+              "ms": 1106,
+              "rssMB": 823.08203125
+            },
+            {
+              "ms": 1219,
+              "rssMB": 687.92578125
+            },
+            {
+              "ms": 1337,
+              "rssMB": 741.03515625
+            },
+            {
+              "ms": 1448,
+              "rssMB": 733.67578125
+            }
+          ],
+          "samples": 13,
+          "maxFrameGapMs": 131,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 1.38s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        },
+        {
+          "uiReadyMs": 1386,
+          "invokeMs": 1153,
+          "assembleMs": 106,
+          "nativeMs": 1150,
+          "wallMs": 1500,
+          "rssBeforeMB": 403.94921875,
+          "rssPeakMB": 1985.44140625,
+          "rssAfterMB": 728.77734375,
+          "rssSamples": [
+            {
+              "ms": 0,
+              "rssMB": 403.94921875
+            },
+            {
+              "ms": 115,
+              "rssMB": 1159.921875
+            },
+            {
+              "ms": 236,
+              "rssMB": 1207.75390625
+            },
+            {
+              "ms": 344,
+              "rssMB": 1378.47265625
+            },
+            {
+              "ms": 453,
+              "rssMB": 1626.0703125
+            },
+            {
+              "ms": 562,
+              "rssMB": 1652.92578125
+            },
+            {
+              "ms": 671,
+              "rssMB": 1905.484375
+            },
+            {
+              "ms": 933,
+              "rssMB": 1985.44140625
+            },
+            {
+              "ms": 1071,
+              "rssMB": 1313.46484375
+            },
+            {
+              "ms": 1190,
+              "rssMB": 675.84765625
+            },
+            {
+              "ms": 1303,
+              "rssMB": 737.14453125
+            },
+            {
+              "ms": 1418,
+              "rssMB": 728.77734375
+            }
+          ],
+          "samples": 12,
+          "maxFrameGapMs": 136,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 1.39s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-09-25T08:27:24.021Z",
+    "note": "optimized-100ms-sampler",
+    "target": "both",
+    "runs": 2,
+    "gitCommit": "3febea3",
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v26.5.0"
+    },
+    "inputs": [
+      {
+        "name": "monday-14-09.zip",
+        "bytes": 90757691
+      },
+      {
+        "name": "16-09-api.zip",
+        "bytes": 38724885
+      },
+      {
+        "name": "21-09-api.zip",
+        "bytes": 42413764
+      },
+      {
+        "name": "12-days-pm2logs-5-to-16-sep.zip",
+        "bytes": 35517
+      },
+      {
+        "name": "pm2.log.2.gz",
+        "bytes": 6041
+      },
+      {
+        "name": "api-error.log.2.gz",
+        "bytes": 51498
+      },
+      {
+        "name": "24-09-api.zip",
+        "bytes": 4079011
+      },
+      {
+        "name": "api-out.log.2.gz",
+        "bytes": 43697321
+      },
+      {
+        "name": "22-09-all-logs.zip",
+        "bytes": 39900982
+      }
+    ],
+    "inputBytes": 259666710,
+    "summary": {
+      "browser": {
+        "uploadToReadyMs": {
+          "avg": 5787.536749999999,
+          "min": 5701.701300000001,
+          "max": 5873.372199999998
+        },
+        "rssPeakMB": {
+          "avg": 4017.8046875,
+          "min": 4012.90625,
+          "max": 4022.703125
+        },
+        "jsHeapPeakMB": {
+          "avg": 64.37808609008789,
+          "min": 61.763370513916016,
+          "max": 66.99280166625977
+        },
+        "nativeMs": null
+      },
+      "native": {
+        "uploadToReadyMs": {
+          "avg": 908,
+          "min": 893,
+          "max": 923
+        },
+        "rssPeakMB": {
+          "avg": 2351.189453125,
+          "min": 2330.86328125,
+          "max": 2371.515625
+        },
+        "jsHeapPeakMB": null,
+        "nativeMs": {
+          "avg": 674,
+          "min": 657,
+          "max": 691
+        }
+      }
+    },
+    "iterations": {
+      "browser": [
+        {
+          "uploadToReadyMs": 5873.372199999998,
+          "rssBeforeMB": 279.90234375,
+          "rssPeakMB": 4012.90625,
+          "rssAfterMB": 3160.1875,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 279.90234375
+            },
+            {
+              "ms": 108,
+              "rssMB": 546.1484375
+            },
+            {
+              "ms": 221,
+              "rssMB": 757.46484375
+            },
+            {
+              "ms": 330,
+              "rssMB": 948.1015625
+            },
+            {
+              "ms": 445,
+              "rssMB": 1198.10546875
+            },
+            {
+              "ms": 576,
+              "rssMB": 1871.0859375
+            },
+            {
+              "ms": 704,
+              "rssMB": 1984.68359375
+            },
+            {
+              "ms": 817,
+              "rssMB": 1735.6640625
+            },
+            {
+              "ms": 932,
+              "rssMB": 1550.6484375
+            },
+            {
+              "ms": 1054,
+              "rssMB": 1623.48828125
+            },
+            {
+              "ms": 1191,
+              "rssMB": 1726.37109375
+            },
+            {
+              "ms": 1309,
+              "rssMB": 2190.58203125
+            },
+            {
+              "ms": 1433,
+              "rssMB": 1963.34375
+            },
+            {
+              "ms": 1542,
+              "rssMB": 2075.15234375
+            },
+            {
+              "ms": 1654,
+              "rssMB": 2163.28125
+            },
+            {
+              "ms": 1766,
+              "rssMB": 2256.71875
+            },
+            {
+              "ms": 1886,
+              "rssMB": 2316.9453125
+            },
+            {
+              "ms": 2003,
+              "rssMB": 2058.58203125
+            },
+            {
+              "ms": 2114,
+              "rssMB": 1854.05859375
+            },
+            {
+              "ms": 2233,
+              "rssMB": 1987.0546875
+            },
+            {
+              "ms": 2345,
+              "rssMB": 2073.44921875
+            },
+            {
+              "ms": 2452,
+              "rssMB": 2154.38671875
+            },
+            {
+              "ms": 2562,
+              "rssMB": 2183.85546875
+            },
+            {
+              "ms": 2675,
+              "rssMB": 2711.38671875
+            },
+            {
+              "ms": 2799,
+              "rssMB": 2805.41796875
+            },
+            {
+              "ms": 2919,
+              "rssMB": 2744.59765625
+            },
+            {
+              "ms": 3028,
+              "rssMB": 2744.59765625
+            },
+            {
+              "ms": 3139,
+              "rssMB": 3088.1015625
+            },
+            {
+              "ms": 3252,
+              "rssMB": 3112.6015625
+            },
+            {
+              "ms": 3380,
+              "rssMB": 3387.63671875
+            },
+            {
+              "ms": 3505,
+              "rssMB": 3803.6953125
+            },
+            {
+              "ms": 3615,
+              "rssMB": 4012.90625
+            },
+            {
+              "ms": 3740,
+              "rssMB": 3952.734375
+            },
+            {
+              "ms": 3851,
+              "rssMB": 4010.328125
+            },
+            {
+              "ms": 3982,
+              "rssMB": 3470.8046875
+            },
+            {
+              "ms": 4099,
+              "rssMB": 2514.83203125
+            },
+            {
+              "ms": 4206,
+              "rssMB": 2515.0625
+            },
+            {
+              "ms": 4315,
+              "rssMB": 2533.23828125
+            },
+            {
+              "ms": 4426,
+              "rssMB": 2576.4453125
+            },
+            {
+              "ms": 4538,
+              "rssMB": 2603.69140625
+            },
+            {
+              "ms": 4660,
+              "rssMB": 2627.90234375
+            },
+            {
+              "ms": 4782,
+              "rssMB": 2649.5390625
+            },
+            {
+              "ms": 4895,
+              "rssMB": 2667.9765625
+            },
+            {
+              "ms": 5016,
+              "rssMB": 2700.3125
+            },
+            {
+              "ms": 5126,
+              "rssMB": 2715.11328125
+            },
+            {
+              "ms": 5247,
+              "rssMB": 2792.1796875
+            },
+            {
+              "ms": 5374,
+              "rssMB": 2874.953125
+            },
+            {
+              "ms": 5496,
+              "rssMB": 2948.8359375
+            },
+            {
+              "ms": 5606,
+              "rssMB": 3064.22265625
+            },
+            {
+              "ms": 5713,
+              "rssMB": 3131.2265625
+            },
+            {
+              "ms": 5838,
+              "rssMB": 3144.05078125
+            },
+            {
+              "ms": 5963,
+              "rssMB": 3155.6015625
+            },
+            {
+              "ms": 6079,
+              "rssMB": 3160.1875
+            }
+          ],
+          "jsHeapPeakMB": 66.99280166625977,
+          "samples": 53,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 2684,
+            "requests": 3721413,
+            "endpoints": 111212
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 784,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 2684ms"
+        },
+        {
+          "uploadToReadyMs": 5701.701300000001,
+          "rssBeforeMB": 275.05859375,
+          "rssPeakMB": 4022.703125,
+          "rssAfterMB": 3159.87890625,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 275.05859375
+            },
+            {
+              "ms": 125,
+              "rssMB": 566.72265625
+            },
+            {
+              "ms": 252,
+              "rssMB": 789.4765625
+            },
+            {
+              "ms": 362,
+              "rssMB": 976.37890625
+            },
+            {
+              "ms": 477,
+              "rssMB": 1389.75
+            },
+            {
+              "ms": 599,
+              "rssMB": 1902.265625
+            },
+            {
+              "ms": 717,
+              "rssMB": 1729.26953125
+            },
+            {
+              "ms": 833,
+              "rssMB": 1753.67578125
+            },
+            {
+              "ms": 942,
+              "rssMB": 1560.43359375
+            },
+            {
+              "ms": 1055,
+              "rssMB": 1649.69921875
+            },
+            {
+              "ms": 1176,
+              "rssMB": 1741.515625
+            },
+            {
+              "ms": 1292,
+              "rssMB": 1955.92578125
+            },
+            {
+              "ms": 1408,
+              "rssMB": 1997.92578125
+            },
+            {
+              "ms": 1519,
+              "rssMB": 2091.875
+            },
+            {
+              "ms": 1630,
+              "rssMB": 2182.06640625
+            },
+            {
+              "ms": 1742,
+              "rssMB": 2373.31640625
+            },
+            {
+              "ms": 1854,
+              "rssMB": 2122.63671875
+            },
+            {
+              "ms": 1965,
+              "rssMB": 1931.05078125
+            },
+            {
+              "ms": 2082,
+              "rssMB": 1857.57421875
+            },
+            {
+              "ms": 2190,
+              "rssMB": 1982.66015625
+            },
+            {
+              "ms": 2301,
+              "rssMB": 2066.1015625
+            },
+            {
+              "ms": 2411,
+              "rssMB": 2150.6015625
+            },
+            {
+              "ms": 2520,
+              "rssMB": 2179.37109375
+            },
+            {
+              "ms": 2633,
+              "rssMB": 2717.6953125
+            },
+            {
+              "ms": 2745,
+              "rssMB": 2903.19921875
+            },
+            {
+              "ms": 2860,
+              "rssMB": 2740.73828125
+            },
+            {
+              "ms": 2973,
+              "rssMB": 2740.73828125
+            },
+            {
+              "ms": 3085,
+              "rssMB": 3033.78515625
+            },
+            {
+              "ms": 3199,
+              "rssMB": 3089.59375
+            },
+            {
+              "ms": 3325,
+              "rssMB": 3333.37109375
+            },
+            {
+              "ms": 3441,
+              "rssMB": 3792.73046875
+            },
+            {
+              "ms": 3556,
+              "rssMB": 3968.58203125
+            },
+            {
+              "ms": 3668,
+              "rssMB": 3998.4140625
+            },
+            {
+              "ms": 3779,
+              "rssMB": 4022.703125
+            },
+            {
+              "ms": 3903,
+              "rssMB": 3389.91796875
+            },
+            {
+              "ms": 4010,
+              "rssMB": 2449.875
+            },
+            {
+              "ms": 4119,
+              "rssMB": 2651.921875
+            },
+            {
+              "ms": 4226,
+              "rssMB": 2277.9375
+            },
+            {
+              "ms": 4342,
+              "rssMB": 2296.3828125
+            },
+            {
+              "ms": 4461,
+              "rssMB": 2343.12109375
+            },
+            {
+              "ms": 4574,
+              "rssMB": 2459.89453125
+            },
+            {
+              "ms": 4691,
+              "rssMB": 2495.375
+            },
+            {
+              "ms": 4807,
+              "rssMB": 2521.8046875
+            },
+            {
+              "ms": 4915,
+              "rssMB": 2543.46484375
+            },
+            {
+              "ms": 5030,
+              "rssMB": 2736.21484375
+            },
+            {
+              "ms": 5160,
+              "rssMB": 2863.98046875
+            },
+            {
+              "ms": 5273,
+              "rssMB": 2923.51171875
+            },
+            {
+              "ms": 5389,
+              "rssMB": 3004.078125
+            },
+            {
+              "ms": 5514,
+              "rssMB": 3113.109375
+            },
+            {
+              "ms": 5642,
+              "rssMB": 3138.57421875
+            },
+            {
+              "ms": 5757,
+              "rssMB": 3152.375
+            },
+            {
+              "ms": 5876,
+              "rssMB": 3157.3203125
+            },
+            {
+              "ms": 5991,
+              "rssMB": 3157.66015625
+            },
+            {
+              "ms": 6109,
+              "rssMB": 3159.87890625
+            }
+          ],
+          "jsHeapPeakMB": 61.763370513916016,
+          "samples": 54,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 2558,
+            "requests": 3721413,
+            "endpoints": 111212
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 771,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 2558ms"
+        }
+      ],
+      "native": [
+        {
+          "uiReadyMs": 923,
+          "invokeMs": 694,
+          "assembleMs": 105,
+          "nativeMs": 691,
+          "wallMs": 1044,
+          "rssBeforeMB": 407.1875,
+          "rssPeakMB": 2371.515625,
+          "rssAfterMB": 719.03515625,
+          "rssSamples": [
+            {
+              "ms": 0,
+              "rssMB": 407.1875
+            },
+            {
+              "ms": 115,
+              "rssMB": 1952.1953125
+            },
+            {
+              "ms": 223,
+              "rssMB": 2057.9296875
+            },
+            {
+              "ms": 383,
+              "rssMB": 1975.1328125
+            },
+            {
+              "ms": 537,
+              "rssMB": 2371.515625
+            },
+            {
+              "ms": 655,
+              "rssMB": 671.4453125
+            },
+            {
+              "ms": 766,
+              "rssMB": 689.0625
+            },
+            {
+              "ms": 873,
+              "rssMB": 729.3359375
+            },
+            {
+              "ms": 983,
+              "rssMB": 719.03515625
+            }
+          ],
+          "samples": 9,
+          "maxFrameGapMs": 133,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 0.92s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        },
+        {
+          "uiReadyMs": 893,
+          "invokeMs": 660,
+          "assembleMs": 106,
+          "nativeMs": 657,
+          "wallMs": 1005,
+          "rssBeforeMB": 404.62109375,
+          "rssPeakMB": 2330.86328125,
+          "rssAfterMB": 717.78125,
+          "rssSamples": [
+            {
+              "ms": 0,
+              "rssMB": 404.62109375
+            },
+            {
+              "ms": 116,
+              "rssMB": 1952.03515625
+            },
+            {
+              "ms": 226,
+              "rssMB": 2065.0703125
+            },
+            {
+              "ms": 492,
+              "rssMB": 2330.86328125
+            },
+            {
+              "ms": 623,
+              "rssMB": 635.52734375
+            },
+            {
+              "ms": 745,
+              "rssMB": 691.81640625
+            },
+            {
+              "ms": 859,
+              "rssMB": 725.29296875
+            },
+            {
+              "ms": 989,
+              "rssMB": 717.78125
+            }
+          ],
+          "samples": 8,
+          "maxFrameGapMs": 135,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 0.89s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-09-25T08:29:34.392Z",
+    "note": "native-expand-two-groups",
+    "target": "native",
+    "runs": 2,
+    "gitCommit": "3febea3",
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v26.5.0"
+    },
+    "inputs": [
+      {
+        "name": "monday-14-09.zip",
+        "bytes": 90757691
+      },
+      {
+        "name": "16-09-api.zip",
+        "bytes": 38724885
+      },
+      {
+        "name": "21-09-api.zip",
+        "bytes": 42413764
+      },
+      {
+        "name": "12-days-pm2logs-5-to-16-sep.zip",
+        "bytes": 35517
+      },
+      {
+        "name": "pm2.log.2.gz",
+        "bytes": 6041
+      },
+      {
+        "name": "api-error.log.2.gz",
+        "bytes": 51498
+      },
+      {
+        "name": "24-09-api.zip",
+        "bytes": 4079011
+      },
+      {
+        "name": "api-out.log.2.gz",
+        "bytes": 43697321
+      },
+      {
+        "name": "22-09-all-logs.zip",
+        "bytes": 39900982
+      }
+    ],
+    "inputBytes": 259666710,
+    "summary": {
+      "native": {
+        "uploadToReadyMs": {
+          "avg": 1216,
+          "min": 1213,
+          "max": 1219
+        },
+        "rssPeakMB": {
+          "avg": 2384.859375,
+          "min": 2372.4296875,
+          "max": 2397.2890625
+        },
+        "jsHeapPeakMB": null,
+        "nativeMs": {
+          "avg": 975,
+          "min": 975,
+          "max": 975
+        }
+      }
+    },
+    "iterations": {
+      "native": [
+        {
+          "uiReadyMs": 1213,
+          "invokeMs": 978,
+          "assembleMs": 105,
+          "nativeMs": 975,
+          "wallMs": 1328,
+          "rssBeforeMB": 400.37109375,
+          "rssPeakMB": 2397.2890625,
+          "rssAfterMB": 721.31640625,
+          "rssSamples": [
+            {
+              "ms": 0,
+              "rssMB": 400.37109375
+            },
+            {
+              "ms": 114,
+              "rssMB": 1435.95703125
+            },
+            {
+              "ms": 225,
+              "rssMB": 1505.5078125
+            },
+            {
+              "ms": 337,
+              "rssMB": 1641.94140625
+            },
+            {
+              "ms": 445,
+              "rssMB": 1888.82421875
+            },
+            {
+              "ms": 554,
+              "rssMB": 1915.08203125
+            },
+            {
+              "ms": 830,
+              "rssMB": 2397.2890625
+            },
+            {
+              "ms": 950,
+              "rssMB": 637.7421875
+            },
+            {
+              "ms": 1088,
+              "rssMB": 730.2265625
+            },
+            {
+              "ms": 1208,
+              "rssMB": 721.31640625
+            }
+          ],
+          "samples": 10,
+          "maxFrameGapMs": 140,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 1.21s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        },
+        {
+          "uiReadyMs": 1219,
+          "invokeMs": 978,
+          "assembleMs": 106,
+          "nativeMs": 975,
+          "wallMs": 1332,
+          "rssBeforeMB": 401.95703125,
+          "rssPeakMB": 2372.4296875,
+          "rssAfterMB": 732.63671875,
+          "rssSamples": [
+            {
+              "ms": 0,
+              "rssMB": 401.95703125
+            },
+            {
+              "ms": 127,
+              "rssMB": 1443.6328125
+            },
+            {
+              "ms": 233,
+              "rssMB": 1510.42578125
+            },
+            {
+              "ms": 343,
+              "rssMB": 1642.7578125
+            },
+            {
+              "ms": 451,
+              "rssMB": 1890
+            },
+            {
+              "ms": 561,
+              "rssMB": 1915.96875
+            },
+            {
+              "ms": 826,
+              "rssMB": 2372.4296875
+            },
+            {
+              "ms": 948,
+              "rssMB": 642.828125
+            },
+            {
+              "ms": 1069,
+              "rssMB": 698.9296875
+            },
+            {
+              "ms": 1190,
+              "rssMB": 742.0859375
+            },
+            {
+              "ms": 1305,
+              "rssMB": 732.63671875
+            }
+          ],
+          "samples": 11,
+          "maxFrameGapMs": 139,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 1.22s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-09-25T08:32:42.868Z",
+    "note": "native-mongo-shards-2",
+    "target": "native",
+    "runs": 3,
+    "gitCommit": "3febea3",
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v26.5.0"
+    },
+    "inputs": [
+      {
+        "name": "monday-14-09.zip",
+        "bytes": 90757691
+      },
+      {
+        "name": "16-09-api.zip",
+        "bytes": 38724885
+      },
+      {
+        "name": "21-09-api.zip",
+        "bytes": 42413764
+      },
+      {
+        "name": "12-days-pm2logs-5-to-16-sep.zip",
+        "bytes": 35517
+      },
+      {
+        "name": "pm2.log.2.gz",
+        "bytes": 6041
+      },
+      {
+        "name": "api-error.log.2.gz",
+        "bytes": 51498
+      },
+      {
+        "name": "24-09-api.zip",
+        "bytes": 4079011
+      },
+      {
+        "name": "api-out.log.2.gz",
+        "bytes": 43697321
+      },
+      {
+        "name": "22-09-all-logs.zip",
+        "bytes": 39900982
+      }
+    ],
+    "inputBytes": 259666710,
+    "summary": {
+      "native": {
+        "uploadToReadyMs": {
+          "avg": 878.3333333333334,
+          "min": 873,
+          "max": 888
+        },
+        "rssPeakMB": {
+          "avg": 2166.1888020833335,
+          "min": 2048.5,
+          "max": 2388.3203125
+        },
+        "jsHeapPeakMB": null,
+        "nativeMs": {
+          "avg": 643,
+          "min": 637,
+          "max": 649
+        }
+      }
+    },
+    "iterations": {
+      "native": [
+        {
+          "uiReadyMs": 888,
+          "invokeMs": 653,
+          "assembleMs": 108,
+          "nativeMs": 649,
+          "wallMs": 1004,
+          "rssBeforeMB": 404.59765625,
+          "rssPeakMB": 2388.3203125,
+          "rssAfterMB": 716.7890625,
+          "rssSamples": [
+            {
+              "ms": 0,
+              "rssMB": 404.59765625
+            },
+            {
+              "ms": 119,
+              "rssMB": 1957.625
+            },
+            {
+              "ms": 237,
+              "rssMB": 2040.33203125
+            },
+            {
+              "ms": 390,
+              "rssMB": 2024.13671875
+            },
+            {
+              "ms": 506,
+              "rssMB": 2388.3203125
+            },
+            {
+              "ms": 618,
+              "rssMB": 629.359375
+            },
+            {
+              "ms": 739,
+              "rssMB": 689.609375
+            },
+            {
+              "ms": 858,
+              "rssMB": 725.83984375
+            },
+            {
+              "ms": 978,
+              "rssMB": 716.7890625
+            }
+          ],
+          "samples": 9,
+          "maxFrameGapMs": 135,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 616,
+          "toast": "UI ready in 0.89s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        },
+        {
+          "uiReadyMs": 873,
+          "invokeMs": 641,
+          "assembleMs": 109,
+          "nativeMs": 637,
+          "wallMs": 987,
+          "rssBeforeMB": 403.05859375,
+          "rssPeakMB": 2061.74609375,
+          "rssAfterMB": 715.92578125,
+          "rssSamples": [
+            {
+              "ms": 0,
+              "rssMB": 403.05859375
+            },
+            {
+              "ms": 116,
+              "rssMB": 1949.84765625
+            },
+            {
+              "ms": 224,
+              "rssMB": 2061.74609375
+            },
+            {
+              "ms": 356,
+              "rssMB": 2040.65234375
+            },
+            {
+              "ms": 501,
+              "rssMB": 1916.53125
+            },
+            {
+              "ms": 621,
+              "rssMB": 633.73046875
+            },
+            {
+              "ms": 729,
+              "rssMB": 688.328125
+            },
+            {
+              "ms": 851,
+              "rssMB": 723.015625
+            },
+            {
+              "ms": 970,
+              "rssMB": 715.92578125
+            }
+          ],
+          "samples": 9,
+          "maxFrameGapMs": 132,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 616,
+          "toast": "UI ready in 0.87s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        },
+        {
+          "uiReadyMs": 874,
+          "invokeMs": 646,
+          "assembleMs": 100,
+          "nativeMs": 643,
+          "wallMs": 989,
+          "rssBeforeMB": 403.015625,
+          "rssPeakMB": 2048.5,
+          "rssAfterMB": 716.078125,
+          "rssSamples": [
+            {
+              "ms": 0,
+              "rssMB": 403.015625
+            },
+            {
+              "ms": 117,
+              "rssMB": 1954.41796875
+            },
+            {
+              "ms": 231,
+              "rssMB": 2032.6015625
+            },
+            {
+              "ms": 376,
+              "rssMB": 2048.5
+            },
+            {
+              "ms": 495,
+              "rssMB": 1897.8125
+            },
+            {
+              "ms": 611,
+              "rssMB": 626.31640625
+            },
+            {
+              "ms": 724,
+              "rssMB": 689.13671875
+            },
+            {
+              "ms": 831,
+              "rssMB": 726.265625
+            },
+            {
+              "ms": 954,
+              "rssMB": 716.078125
+            }
+          ],
+          "samples": 9,
+          "maxFrameGapMs": 131,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 616,
+          "toast": "UI ready in 0.87s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-09-25T08:35:12.177Z",
+    "note": "browser-large-mongo-shards-2",
+    "target": "both",
+    "runs": 2,
+    "gitCommit": "3febea3",
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v26.5.0"
+    },
+    "inputs": [
+      {
+        "name": "monday-14-09.zip",
+        "bytes": 90757691
+      },
+      {
+        "name": "16-09-api.zip",
+        "bytes": 38724885
+      },
+      {
+        "name": "21-09-api.zip",
+        "bytes": 42413764
+      },
+      {
+        "name": "12-days-pm2logs-5-to-16-sep.zip",
+        "bytes": 35517
+      },
+      {
+        "name": "pm2.log.2.gz",
+        "bytes": 6041
+      },
+      {
+        "name": "api-error.log.2.gz",
+        "bytes": 51498
+      },
+      {
+        "name": "24-09-api.zip",
+        "bytes": 4079011
+      },
+      {
+        "name": "api-out.log.2.gz",
+        "bytes": 43697321
+      },
+      {
+        "name": "22-09-all-logs.zip",
+        "bytes": 39900982
+      }
+    ],
+    "inputBytes": 259666710,
+    "summary": {
+      "browser": {
+        "uploadToReadyMs": {
+          "avg": 5997.569300000003,
+          "min": 5970.646200000003,
+          "max": 6024.492400000003
+        },
+        "rssPeakMB": {
+          "avg": 4079.09765625,
+          "min": 4027.8515625,
+          "max": 4130.34375
+        },
+        "jsHeapPeakMB": {
+          "avg": 65.72724342346191,
+          "min": 65.4442138671875,
+          "max": 66.01027297973633
+        },
+        "nativeMs": null
+      },
+      "native": {
+        "uploadToReadyMs": {
+          "avg": 1388,
+          "min": 1383,
+          "max": 1393
+        },
+        "rssPeakMB": {
+          "avg": 2258.6328125,
+          "min": 2136.80078125,
+          "max": 2380.46484375
+        },
+        "jsHeapPeakMB": null,
+        "nativeMs": {
+          "avg": 1155,
+          "min": 1148,
+          "max": 1162
+        }
+      }
+    },
+    "iterations": {
+      "browser": [
+        {
+          "uploadToReadyMs": 6024.492400000003,
+          "rssBeforeMB": 282.44140625,
+          "rssPeakMB": 4130.34375,
+          "rssAfterMB": 3142.12109375,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 282.44140625
+            },
+            {
+              "ms": 97,
+              "rssMB": 526.2421875
+            },
+            {
+              "ms": 208,
+              "rssMB": 714.828125
+            },
+            {
+              "ms": 318,
+              "rssMB": 897.14453125
+            },
+            {
+              "ms": 431,
+              "rssMB": 1100.1015625
+            },
+            {
+              "ms": 545,
+              "rssMB": 1942.20703125
+            },
+            {
+              "ms": 666,
+              "rssMB": 2313.05078125
+            },
+            {
+              "ms": 774,
+              "rssMB": 1568.31640625
+            },
+            {
+              "ms": 885,
+              "rssMB": 1886.203125
+            },
+            {
+              "ms": 995,
+              "rssMB": 1594.45703125
+            },
+            {
+              "ms": 1113,
+              "rssMB": 1683
+            },
+            {
+              "ms": 1232,
+              "rssMB": 1943.96875
+            },
+            {
+              "ms": 1340,
+              "rssMB": 2054.84375
+            },
+            {
+              "ms": 1446,
+              "rssMB": 2034.72265625
+            },
+            {
+              "ms": 1557,
+              "rssMB": 2125.59765625
+            },
+            {
+              "ms": 1667,
+              "rssMB": 2213.0390625
+            },
+            {
+              "ms": 1779,
+              "rssMB": 2549.546875
+            },
+            {
+              "ms": 1887,
+              "rssMB": 1867.3359375
+            },
+            {
+              "ms": 1995,
+              "rssMB": 1776.48046875
+            },
+            {
+              "ms": 2103,
+              "rssMB": 1869.34765625
+            },
+            {
+              "ms": 2212,
+              "rssMB": 2002.13671875
+            },
+            {
+              "ms": 2322,
+              "rssMB": 2086.140625
+            },
+            {
+              "ms": 2432,
+              "rssMB": 2179.515625
+            },
+            {
+              "ms": 2543,
+              "rssMB": 2255.01953125
+            },
+            {
+              "ms": 2664,
+              "rssMB": 2832.26953125
+            },
+            {
+              "ms": 2772,
+              "rssMB": 2746.98046875
+            },
+            {
+              "ms": 2882,
+              "rssMB": 2747.00390625
+            },
+            {
+              "ms": 2993,
+              "rssMB": 2747.00390625
+            },
+            {
+              "ms": 3111,
+              "rssMB": 3032.8515625
+            },
+            {
+              "ms": 3232,
+              "rssMB": 3226.01171875
+            },
+            {
+              "ms": 3342,
+              "rssMB": 3527.2421875
+            },
+            {
+              "ms": 3468,
+              "rssMB": 3768.99609375
+            },
+            {
+              "ms": 3597,
+              "rssMB": 4130.34375
+            },
+            {
+              "ms": 3723,
+              "rssMB": 3930.20703125
+            },
+            {
+              "ms": 3844,
+              "rssMB": 3844.71875
+            },
+            {
+              "ms": 3977,
+              "rssMB": 3173.796875
+            },
+            {
+              "ms": 4088,
+              "rssMB": 2632.4921875
+            },
+            {
+              "ms": 4207,
+              "rssMB": 2307.015625
+            },
+            {
+              "ms": 4334,
+              "rssMB": 2273.00390625
+            },
+            {
+              "ms": 4453,
+              "rssMB": 2312.5078125
+            },
+            {
+              "ms": 4581,
+              "rssMB": 2343.98828125
+            },
+            {
+              "ms": 4701,
+              "rssMB": 2368.6171875
+            },
+            {
+              "ms": 4817,
+              "rssMB": 2390.1953125
+            },
+            {
+              "ms": 4941,
+              "rssMB": 2409.6796875
+            },
+            {
+              "ms": 5063,
+              "rssMB": 2428.0625
+            },
+            {
+              "ms": 5182,
+              "rssMB": 2545.9140625
+            },
+            {
+              "ms": 5296,
+              "rssMB": 2606.55078125
+            },
+            {
+              "ms": 5416,
+              "rssMB": 2737.25390625
+            },
+            {
+              "ms": 5537,
+              "rssMB": 2860.9375
+            },
+            {
+              "ms": 5645,
+              "rssMB": 2933.18359375
+            },
+            {
+              "ms": 5762,
+              "rssMB": 3048.6875
+            },
+            {
+              "ms": 5869,
+              "rssMB": 3117.6640625
+            },
+            {
+              "ms": 5982,
+              "rssMB": 3128.96484375
+            },
+            {
+              "ms": 6097,
+              "rssMB": 3142.12109375
+            }
+          ],
+          "jsHeapPeakMB": 65.4442138671875,
+          "samples": 54,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 2891,
+            "requests": 3721413,
+            "endpoints": 111212
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 825,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 2891ms"
+        },
+        {
+          "uploadToReadyMs": 5970.646200000003,
+          "rssBeforeMB": 278,
+          "rssPeakMB": 4027.8515625,
+          "rssAfterMB": 3159.2265625,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 278
+            },
+            {
+              "ms": 102,
+              "rssMB": 517.83984375
+            },
+            {
+              "ms": 212,
+              "rssMB": 722.03125
+            },
+            {
+              "ms": 324,
+              "rssMB": 913.4296875
+            },
+            {
+              "ms": 436,
+              "rssMB": 1156.31640625
+            },
+            {
+              "ms": 558,
+              "rssMB": 1654.45703125
+            },
+            {
+              "ms": 679,
+              "rssMB": 2306.24609375
+            },
+            {
+              "ms": 798,
+              "rssMB": 1664.8671875
+            },
+            {
+              "ms": 911,
+              "rssMB": 1878.97265625
+            },
+            {
+              "ms": 1026,
+              "rssMB": 1636.1171875
+            },
+            {
+              "ms": 1148,
+              "rssMB": 1726.62109375
+            },
+            {
+              "ms": 1264,
+              "rssMB": 2070.01953125
+            },
+            {
+              "ms": 1374,
+              "rssMB": 2166.3515625
+            },
+            {
+              "ms": 1488,
+              "rssMB": 2065.109375
+            },
+            {
+              "ms": 1616,
+              "rssMB": 2164.80078125
+            },
+            {
+              "ms": 1727,
+              "rssMB": 2258.73828125
+            },
+            {
+              "ms": 1850,
+              "rssMB": 2240.3671875
+            },
+            {
+              "ms": 1975,
+              "rssMB": 1899.76171875
+            },
+            {
+              "ms": 2093,
+              "rssMB": 1856.203125
+            },
+            {
+              "ms": 2200,
+              "rssMB": 1991.53515625
+            },
+            {
+              "ms": 2310,
+              "rssMB": 2077.0390625
+            },
+            {
+              "ms": 2423,
+              "rssMB": 2171.4140625
+            },
+            {
+              "ms": 2534,
+              "rssMB": 2214.1640625
+            },
+            {
+              "ms": 2662,
+              "rssMB": 2821.7265625
+            },
+            {
+              "ms": 2775,
+              "rssMB": 2743.57421875
+            },
+            {
+              "ms": 2888,
+              "rssMB": 2743.58984375
+            },
+            {
+              "ms": 2999,
+              "rssMB": 2743.58984375
+            },
+            {
+              "ms": 3116,
+              "rssMB": 3037.8359375
+            },
+            {
+              "ms": 3228,
+              "rssMB": 3221.6796875
+            },
+            {
+              "ms": 3347,
+              "rssMB": 3520.390625
+            },
+            {
+              "ms": 3476,
+              "rssMB": 3771.625
+            },
+            {
+              "ms": 3618,
+              "rssMB": 3990.05859375
+            },
+            {
+              "ms": 3739,
+              "rssMB": 4027.8515625
+            },
+            {
+              "ms": 3873,
+              "rssMB": 3374.41796875
+            },
+            {
+              "ms": 3987,
+              "rssMB": 2799.13671875
+            },
+            {
+              "ms": 4098,
+              "rssMB": 2648.04296875
+            },
+            {
+              "ms": 4222,
+              "rssMB": 2287.62109375
+            },
+            {
+              "ms": 4348,
+              "rssMB": 2299.203125
+            },
+            {
+              "ms": 4462,
+              "rssMB": 2338.24609375
+            },
+            {
+              "ms": 4578,
+              "rssMB": 2376.578125
+            },
+            {
+              "ms": 4685,
+              "rssMB": 2399.40625
+            },
+            {
+              "ms": 4793,
+              "rssMB": 2420.390625
+            },
+            {
+              "ms": 4903,
+              "rssMB": 2438.53125
+            },
+            {
+              "ms": 5023,
+              "rssMB": 2456.16015625
+            },
+            {
+              "ms": 5145,
+              "rssMB": 2473.4375
+            },
+            {
+              "ms": 5269,
+              "rssMB": 2572.6875
+            },
+            {
+              "ms": 5398,
+              "rssMB": 2928.390625
+            },
+            {
+              "ms": 5512,
+              "rssMB": 2896.4375
+            },
+            {
+              "ms": 5624,
+              "rssMB": 2961.8828125
+            },
+            {
+              "ms": 5733,
+              "rssMB": 3081.49609375
+            },
+            {
+              "ms": 5843,
+              "rssMB": 3137.6796875
+            },
+            {
+              "ms": 5948,
+              "rssMB": 3152.8359375
+            },
+            {
+              "ms": 6060,
+              "rssMB": 3159.2265625
+            }
+          ],
+          "jsHeapPeakMB": 66.01027297973633,
+          "samples": 53,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 2830,
+            "requests": 3721413,
+            "endpoints": 111212
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 790,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 2830ms"
+        }
+      ],
+      "native": [
+        {
+          "uiReadyMs": 1393,
+          "invokeMs": 1166,
+          "assembleMs": 105,
+          "nativeMs": 1162,
+          "wallMs": 1505,
+          "rssBeforeMB": 402.55859375,
+          "rssPeakMB": 2380.46484375,
+          "rssAfterMB": 732.94921875,
+          "rssSamples": [
+            {
+              "ms": 0,
+              "rssMB": 402.55859375
+            },
+            {
+              "ms": 115,
+              "rssMB": 1154.58203125
+            },
+            {
+              "ms": 221,
+              "rssMB": 1201.15234375
+            },
+            {
+              "ms": 332,
+              "rssMB": 1371.140625
+            },
+            {
+              "ms": 440,
+              "rssMB": 1618.76171875
+            },
+            {
+              "ms": 550,
+              "rssMB": 1644.94140625
+            },
+            {
+              "ms": 658,
+              "rssMB": 1896.6953125
+            },
+            {
+              "ms": 768,
+              "rssMB": 1923.1640625
+            },
+            {
+              "ms": 994,
+              "rssMB": 2380.46484375
+            },
+            {
+              "ms": 1120,
+              "rssMB": 730.98046875
+            },
+            {
+              "ms": 1228,
+              "rssMB": 685.46484375
+            },
+            {
+              "ms": 1337,
+              "rssMB": 737.921875
+            },
+            {
+              "ms": 1448,
+              "rssMB": 732.94921875
+            }
+          ],
+          "samples": 13,
+          "maxFrameGapMs": 132,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 1.39s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        },
+        {
+          "uiReadyMs": 1383,
+          "invokeMs": 1152,
+          "assembleMs": 108,
+          "nativeMs": 1148,
+          "wallMs": 1497,
+          "rssBeforeMB": 402.83203125,
+          "rssPeakMB": 2136.80078125,
+          "rssAfterMB": 732.421875,
+          "rssSamples": [
+            {
+              "ms": 0,
+              "rssMB": 402.83203125
+            },
+            {
+              "ms": 113,
+              "rssMB": 1155.26171875
+            },
+            {
+              "ms": 221,
+              "rssMB": 1202.4140625
+            },
+            {
+              "ms": 330,
+              "rssMB": 1371.9140625
+            },
+            {
+              "ms": 440,
+              "rssMB": 1619.5234375
+            },
+            {
+              "ms": 548,
+              "rssMB": 1645.66015625
+            },
+            {
+              "ms": 657,
+              "rssMB": 1897.6015625
+            },
+            {
+              "ms": 767,
+              "rssMB": 1924.1640625
+            },
+            {
+              "ms": 986,
+              "rssMB": 2136.80078125
+            },
+            {
+              "ms": 1105,
+              "rssMB": 695.0546875
+            },
+            {
+              "ms": 1220,
+              "rssMB": 684.05859375
+            },
+            {
+              "ms": 1329,
+              "rssMB": 737.66015625
+            },
+            {
+              "ms": 1440,
+              "rssMB": 732.421875
+            }
+          ],
+          "samples": 13,
+          "maxFrameGapMs": 129,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 1.38s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-09-25T08:37:27.444Z",
+    "note": "native-multi-pm2-shards-4",
+    "target": "native",
+    "runs": 3,
+    "gitCommit": "3febea3",
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v26.5.0"
+    },
+    "inputs": [
+      {
+        "name": "monday-14-09.zip",
+        "bytes": 90757691
+      },
+      {
+        "name": "16-09-api.zip",
+        "bytes": 38724885
+      },
+      {
+        "name": "21-09-api.zip",
+        "bytes": 42413764
+      },
+      {
+        "name": "12-days-pm2logs-5-to-16-sep.zip",
+        "bytes": 35517
+      },
+      {
+        "name": "pm2.log.2.gz",
+        "bytes": 6041
+      },
+      {
+        "name": "api-error.log.2.gz",
+        "bytes": 51498
+      },
+      {
+        "name": "24-09-api.zip",
+        "bytes": 4079011
+      },
+      {
+        "name": "api-out.log.2.gz",
+        "bytes": 43697321
+      },
+      {
+        "name": "22-09-all-logs.zip",
+        "bytes": 39900982
+      }
+    ],
+    "inputBytes": 259666710,
+    "summary": {
+      "native": {
+        "uploadToReadyMs": {
+          "avg": 1480.6666666666667,
+          "min": 1468,
+          "max": 1499
+        },
+        "rssPeakMB": {
+          "avg": 2272.45703125,
+          "min": 2252.4765625,
+          "max": 2297.796875
+        },
+        "jsHeapPeakMB": null,
+        "nativeMs": {
+          "avg": 1246,
+          "min": 1236,
+          "max": 1264
+        }
+      }
+    },
+    "iterations": {
+      "native": [
+        {
+          "uiReadyMs": 1499,
+          "invokeMs": 1268,
+          "assembleMs": 101,
+          "nativeMs": 1264,
+          "wallMs": 1608,
+          "rssBeforeMB": 401.65234375,
+          "rssPeakMB": 2297.796875,
+          "rssAfterMB": 720.70703125,
+          "rssSamples": [
+            {
+              "ms": 0,
+              "rssMB": 401.65234375
+            },
+            {
+              "ms": 113,
+              "rssMB": 1155.21875
+            },
+            {
+              "ms": 223,
+              "rssMB": 1196.671875
+            },
+            {
+              "ms": 331,
+              "rssMB": 1367.21875
+            },
+            {
+              "ms": 442,
+              "rssMB": 1382.15234375
+            },
+            {
+              "ms": 551,
+              "rssMB": 1640.875
+            },
+            {
+              "ms": 658,
+              "rssMB": 1892.92578125
+            },
+            {
+              "ms": 768,
+              "rssMB": 1918.61328125
+            },
+            {
+              "ms": 896,
+              "rssMB": 2005.1171875
+            },
+            {
+              "ms": 1004,
+              "rssMB": 2297.796875
+            },
+            {
+              "ms": 1112,
+              "rssMB": 1952.1328125
+            },
+            {
+              "ms": 1231,
+              "rssMB": 674.12109375
+            },
+            {
+              "ms": 1339,
+              "rssMB": 688.38671875
+            },
+            {
+              "ms": 1463,
+              "rssMB": 728.99609375
+            },
+            {
+              "ms": 1578,
+              "rssMB": 720.70703125
+            }
+          ],
+          "samples": 15,
+          "maxFrameGapMs": 132,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 1.50s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        },
+        {
+          "uiReadyMs": 1468,
+          "invokeMs": 1242,
+          "assembleMs": 102,
+          "nativeMs": 1238,
+          "wallMs": 1590,
+          "rssBeforeMB": 403.0234375,
+          "rssPeakMB": 2267.09765625,
+          "rssAfterMB": 718.70703125,
+          "rssSamples": [
+            {
+              "ms": 0,
+              "rssMB": 403.0234375
+            },
+            {
+              "ms": 110,
+              "rssMB": 1156.87109375
+            },
+            {
+              "ms": 219,
+              "rssMB": 1202.9453125
+            },
+            {
+              "ms": 329,
+              "rssMB": 1372.671875
+            },
+            {
+              "ms": 437,
+              "rssMB": 1620.01953125
+            },
+            {
+              "ms": 553,
+              "rssMB": 1647.41796875
+            },
+            {
+              "ms": 668,
+              "rssMB": 1900.98828125
+            },
+            {
+              "ms": 795,
+              "rssMB": 1893.984375
+            },
+            {
+              "ms": 974,
+              "rssMB": 2267.09765625
+            },
+            {
+              "ms": 1081,
+              "rssMB": 1944.5546875
+            },
+            {
+              "ms": 1190,
+              "rssMB": 923.39453125
+            },
+            {
+              "ms": 1304,
+              "rssMB": 674.40234375
+            },
+            {
+              "ms": 1419,
+              "rssMB": 727.05078125
+            },
+            {
+              "ms": 1528,
+              "rssMB": 718.70703125
+            }
+          ],
+          "samples": 14,
+          "maxFrameGapMs": 132,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 1.47s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        },
+        {
+          "uiReadyMs": 1475,
+          "invokeMs": 1240,
+          "assembleMs": 103,
+          "nativeMs": 1236,
+          "wallMs": 1589,
+          "rssBeforeMB": 402.046875,
+          "rssPeakMB": 2252.4765625,
+          "rssAfterMB": 718.0703125,
+          "rssSamples": [
+            {
+              "ms": 0,
+              "rssMB": 402.046875
+            },
+            {
+              "ms": 122,
+              "rssMB": 1156.9453125
+            },
+            {
+              "ms": 236,
+              "rssMB": 1203.88671875
+            },
+            {
+              "ms": 357,
+              "rssMB": 1376.796875
+            },
+            {
+              "ms": 464,
+              "rssMB": 1624.0234375
+            },
+            {
+              "ms": 575,
+              "rssMB": 1650.13671875
+            },
+            {
+              "ms": 682,
+              "rssMB": 1901.01171875
+            },
+            {
+              "ms": 790,
+              "rssMB": 1927.0546875
+            },
+            {
+              "ms": 972,
+              "rssMB": 2252.4765625
+            },
+            {
+              "ms": 1076,
+              "rssMB": 1941.171875
+            },
+            {
+              "ms": 1202,
+              "rssMB": 929.421875
+            },
+            {
+              "ms": 1308,
+              "rssMB": 681.24609375
+            },
+            {
+              "ms": 1416,
+              "rssMB": 727.328125
+            },
+            {
+              "ms": 1527,
+              "rssMB": 718.0703125
+            }
+          ],
+          "samples": 14,
+          "maxFrameGapMs": 135,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 1.48s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-09-25T08:38:47.733Z",
+    "note": "final-verified-browser-shard2",
+    "target": "both",
+    "runs": 1,
+    "gitCommit": "3febea3",
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v26.5.0"
+    },
+    "inputs": [
+      {
+        "name": "monday-14-09.zip",
+        "bytes": 90757691
+      },
+      {
+        "name": "16-09-api.zip",
+        "bytes": 38724885
+      },
+      {
+        "name": "21-09-api.zip",
+        "bytes": 42413764
+      },
+      {
+        "name": "12-days-pm2logs-5-to-16-sep.zip",
+        "bytes": 35517
+      },
+      {
+        "name": "pm2.log.2.gz",
+        "bytes": 6041
+      },
+      {
+        "name": "api-error.log.2.gz",
+        "bytes": 51498
+      },
+      {
+        "name": "24-09-api.zip",
+        "bytes": 4079011
+      },
+      {
+        "name": "api-out.log.2.gz",
+        "bytes": 43697321
+      },
+      {
+        "name": "22-09-all-logs.zip",
+        "bytes": 39900982
+      }
+    ],
+    "inputBytes": 259666710,
+    "summary": {
+      "browser": {
+        "uploadToReadyMs": {
+          "avg": 5881.6878,
+          "min": 5881.6878,
+          "max": 5881.6878
+        },
+        "rssPeakMB": {
+          "avg": 4032.35546875,
+          "min": 4032.35546875,
+          "max": 4032.35546875
+        },
+        "jsHeapPeakMB": {
+          "avg": 66.9500617980957,
+          "min": 66.9500617980957,
+          "max": 66.9500617980957
+        },
+        "nativeMs": null
+      },
+      "native": {
+        "uploadToReadyMs": {
+          "avg": 1384,
+          "min": 1384,
+          "max": 1384
+        },
+        "rssPeakMB": {
+          "avg": 2330.91796875,
+          "min": 2330.91796875,
+          "max": 2330.91796875
+        },
+        "jsHeapPeakMB": null,
+        "nativeMs": {
+          "avg": 1151,
+          "min": 1151,
+          "max": 1151
+        }
+      }
+    },
+    "iterations": {
+      "browser": [
+        {
+          "uploadToReadyMs": 5881.6878,
+          "rssBeforeMB": 271.16015625,
+          "rssPeakMB": 4032.35546875,
+          "rssAfterMB": 3189.43359375,
+          "rssSamples": [
+            {
+              "ms": -2,
+              "rssMB": 271.16015625
+            },
+            {
+              "ms": 118,
+              "rssMB": 554.515625
+            },
+            {
+              "ms": 230,
+              "rssMB": 757.72265625
+            },
+            {
+              "ms": 339,
+              "rssMB": 954.9296875
+            },
+            {
+              "ms": 449,
+              "rssMB": 1267.30859375
+            },
+            {
+              "ms": 565,
+              "rssMB": 1765.47265625
+            },
+            {
+              "ms": 689,
+              "rssMB": 2148.27734375
+            },
+            {
+              "ms": 821,
+              "rssMB": 1762.875
+            },
+            {
+              "ms": 935,
+              "rssMB": 1574.3203125
+            },
+            {
+              "ms": 1047,
+              "rssMB": 1659.6953125
+            },
+            {
+              "ms": 1170,
+              "rssMB": 1746.3828125
+            },
+            {
+              "ms": 1288,
+              "rssMB": 1993.1640625
+            },
+            {
+              "ms": 1400,
+              "rssMB": 2010.62890625
+            },
+            {
+              "ms": 1511,
+              "rssMB": 2099.50390625
+            },
+            {
+              "ms": 1625,
+              "rssMB": 2190.9453125
+            },
+            {
+              "ms": 1737,
+              "rssMB": 2481.57421875
+            },
+            {
+              "ms": 1855,
+              "rssMB": 2103.61328125
+            },
+            {
+              "ms": 1963,
+              "rssMB": 1766.80859375
+            },
+            {
+              "ms": 2071,
+              "rssMB": 1866.484375
+            },
+            {
+              "ms": 2179,
+              "rssMB": 1994.09375
+            },
+            {
+              "ms": 2291,
+              "rssMB": 2080.4140625
+            },
+            {
+              "ms": 2404,
+              "rssMB": 2175.6640625
+            },
+            {
+              "ms": 2516,
+              "rssMB": 2281.125
+            },
+            {
+              "ms": 2624,
+              "rssMB": 2795.44921875
+            },
+            {
+              "ms": 2742,
+              "rssMB": 2736.0703125
+            },
+            {
+              "ms": 2853,
+              "rssMB": 2736.078125
+            },
+            {
+              "ms": 2962,
+              "rssMB": 2736.078125
+            },
+            {
+              "ms": 3076,
+              "rssMB": 3157.55859375
+            },
+            {
+              "ms": 3187,
+              "rssMB": 3145.1171875
+            },
+            {
+              "ms": 3300,
+              "rssMB": 3337.41796875
+            },
+            {
+              "ms": 3423,
+              "rssMB": 3787.52734375
+            },
+            {
+              "ms": 3535,
+              "rssMB": 3992.7265625
+            },
+            {
+              "ms": 3660,
+              "rssMB": 4032.35546875
+            },
+            {
+              "ms": 3783,
+              "rssMB": 3994.0390625
+            },
+            {
+              "ms": 3907,
+              "rssMB": 3465.8359375
+            },
+            {
+              "ms": 4026,
+              "rssMB": 2464.77734375
+            },
+            {
+              "ms": 4140,
+              "rssMB": 2665.7890625
+            },
+            {
+              "ms": 4257,
+              "rssMB": 2385.46484375
+            },
+            {
+              "ms": 4373,
+              "rssMB": 2405.53515625
+            },
+            {
+              "ms": 4482,
+              "rssMB": 2438.078125
+            },
+            {
+              "ms": 4587,
+              "rssMB": 2465.67578125
+            },
+            {
+              "ms": 4697,
+              "rssMB": 2489.7421875
+            },
+            {
+              "ms": 4805,
+              "rssMB": 2487.72265625
+            },
+            {
+              "ms": 4919,
+              "rssMB": 2514.4140625
+            },
+            {
+              "ms": 5035,
+              "rssMB": 2536.046875
+            },
+            {
+              "ms": 5156,
+              "rssMB": 2670.67578125
+            },
+            {
+              "ms": 5264,
+              "rssMB": 2723.625
+            },
+            {
+              "ms": 5379,
+              "rssMB": 2902.83203125
+            },
+            {
+              "ms": 5507,
+              "rssMB": 2976.93359375
+            },
+            {
+              "ms": 5631,
+              "rssMB": 3098.9453125
+            },
+            {
+              "ms": 5756,
+              "rssMB": 3164.95703125
+            },
+            {
+              "ms": 5871,
+              "rssMB": 3184.09765625
+            },
+            {
+              "ms": 5987,
+              "rssMB": 3185.05078125
+            },
+            {
+              "ms": 6105,
+              "rssMB": 3189.43359375
+            }
+          ],
+          "jsHeapPeakMB": 66.9500617980957,
+          "samples": 54,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 2772,
+            "requests": 3721413,
+            "endpoints": 111212
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 808,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 2772ms"
+        }
+      ],
+      "native": [
+        {
+          "uiReadyMs": 1384,
+          "invokeMs": 1155,
+          "assembleMs": 107,
+          "nativeMs": 1151,
+          "wallMs": 1499,
+          "rssBeforeMB": 401.9921875,
+          "rssPeakMB": 2330.91796875,
+          "rssAfterMB": 738.03125,
+          "rssSamples": [
+            {
+              "ms": 0,
+              "rssMB": 401.9921875
+            },
+            {
+              "ms": 120,
+              "rssMB": 1156.98046875
+            },
+            {
+              "ms": 239,
+              "rssMB": 1204.62109375
+            },
+            {
+              "ms": 362,
+              "rssMB": 1378.4140625
+            },
+            {
+              "ms": 470,
+              "rssMB": 1626.69140625
+            },
+            {
+              "ms": 590,
+              "rssMB": 1655.6171875
+            },
+            {
+              "ms": 699,
+              "rssMB": 1907.5625
+            },
+            {
+              "ms": 820,
+              "rssMB": 1914.37890625
+            },
+            {
+              "ms": 991,
+              "rssMB": 2330.91796875
+            },
+            {
+              "ms": 1110,
+              "rssMB": 684.71484375
+            },
+            {
+              "ms": 1215,
+              "rssMB": 682.21484375
+            },
+            {
+              "ms": 1324,
+              "rssMB": 738.89453125
+            },
+            {
+              "ms": 1442,
+              "rssMB": 738.03125
+            }
+          ],
+          "samples": 13,
+          "maxFrameGapMs": 131,
+          "mongoSlowQueries": 81846,
+          "mongoPatterns": 626,
+          "toast": "UI ready in 1.38s · 37,21,413 requests + 1,28,827 MongoDB lines (both tabs populated)"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-09-25T08:48:54.796Z",
+    "note": "wasm-profile-with-pm2-stages",
+    "target": "browser",
+    "runs": 1,
+    "gitCommit": "3febea3",
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v26.5.0"
+    },
+    "inputs": [
+      {
+        "name": "monday-14-09.zip",
+        "bytes": 90757691
+      },
+      {
+        "name": "16-09-api.zip",
+        "bytes": 38724885
+      },
+      {
+        "name": "21-09-api.zip",
+        "bytes": 42413764
+      },
+      {
+        "name": "12-days-pm2logs-5-to-16-sep.zip",
+        "bytes": 35517
+      },
+      {
+        "name": "pm2.log.2.gz",
+        "bytes": 6041
+      },
+      {
+        "name": "api-error.log.2.gz",
+        "bytes": 51498
+      },
+      {
+        "name": "24-09-api.zip",
+        "bytes": 4079011
+      },
+      {
+        "name": "api-out.log.2.gz",
+        "bytes": 43697321
+      },
+      {
+        "name": "22-09-all-logs.zip",
+        "bytes": 39900982
+      }
+    ],
+    "inputBytes": 259666710,
+    "summary": {
+      "browser": {
+        "uploadToReadyMs": {
+          "avg": 6007.0463,
+          "min": 6007.0463,
+          "max": 6007.0463
+        },
+        "rssPeakMB": {
+          "avg": 4048.16796875,
+          "min": 4048.16796875,
+          "max": 4048.16796875
+        },
+        "jsHeapPeakMB": {
+          "avg": 64.90411758422852,
+          "min": 64.90411758422852,
+          "max": 64.90411758422852
+        },
+        "nativeMs": null
+      }
+    },
+    "iterations": {
+      "browser": [
+        {
+          "uploadToReadyMs": 6007.0463,
+          "rssBeforeMB": 272.51171875,
+          "rssPeakMB": 4048.16796875,
+          "rssAfterMB": 3170.3515625,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 272.51171875
+            },
+            {
+              "ms": 114,
+              "rssMB": 531.9921875
+            },
+            {
+              "ms": 226,
+              "rssMB": 740.3359375
+            },
+            {
+              "ms": 337,
+              "rssMB": 937.0859375
+            },
+            {
+              "ms": 447,
+              "rssMB": 1195.40625
+            },
+            {
+              "ms": 571,
+              "rssMB": 1787.19921875
+            },
+            {
+              "ms": 697,
+              "rssMB": 2050.08203125
+            },
+            {
+              "ms": 815,
+              "rssMB": 1733.71484375
+            },
+            {
+              "ms": 942,
+              "rssMB": 1530.078125
+            },
+            {
+              "ms": 1066,
+              "rssMB": 1628.40234375
+            },
+            {
+              "ms": 1188,
+              "rssMB": 1726.65234375
+            },
+            {
+              "ms": 1309,
+              "rssMB": 2021.1640625
+            },
+            {
+              "ms": 1418,
+              "rssMB": 2044.1796875
+            },
+            {
+              "ms": 1524,
+              "rssMB": 2073.171875
+            },
+            {
+              "ms": 1636,
+              "rssMB": 2161.17578125
+            },
+            {
+              "ms": 1745,
+              "rssMB": 2249.34765625
+            },
+            {
+              "ms": 1852,
+              "rssMB": 2532.8203125
+            },
+            {
+              "ms": 1978,
+              "rssMB": 2029.6015625
+            },
+            {
+              "ms": 2099,
+              "rssMB": 1846.95703125
+            },
+            {
+              "ms": 2219,
+              "rssMB": 1977.91015625
+            },
+            {
+              "ms": 2346,
+              "rssMB": 2076.6953125
+            },
+            {
+              "ms": 2459,
+              "rssMB": 2169.91796875
+            },
+            {
+              "ms": 2570,
+              "rssMB": 2222.9453125
+            },
+            {
+              "ms": 2683,
+              "rssMB": 2781.1875
+            },
+            {
+              "ms": 2791,
+              "rssMB": 2738.17578125
+            },
+            {
+              "ms": 2906,
+              "rssMB": 2738.19140625
+            },
+            {
+              "ms": 3034,
+              "rssMB": 2738.19140625
+            },
+            {
+              "ms": 3159,
+              "rssMB": 2882.3515625
+            },
+            {
+              "ms": 3279,
+              "rssMB": 3140.8828125
+            },
+            {
+              "ms": 3392,
+              "rssMB": 3605.0234375
+            },
+            {
+              "ms": 3519,
+              "rssMB": 3866.40625
+            },
+            {
+              "ms": 3653,
+              "rssMB": 3997.77734375
+            },
+            {
+              "ms": 3772,
+              "rssMB": 4048.16796875
+            },
+            {
+              "ms": 3904,
+              "rssMB": 3421.59375
+            },
+            {
+              "ms": 4017,
+              "rssMB": 2803.2109375
+            },
+            {
+              "ms": 4138,
+              "rssMB": 2640.90234375
+            },
+            {
+              "ms": 4246,
+              "rssMB": 2237.76171875
+            },
+            {
+              "ms": 4359,
+              "rssMB": 2244.17578125
+            },
+            {
+              "ms": 4484,
+              "rssMB": 2288.765625
+            },
+            {
+              "ms": 4596,
+              "rssMB": 2318.3359375
+            },
+            {
+              "ms": 4720,
+              "rssMB": 2345.34375
+            },
+            {
+              "ms": 4845,
+              "rssMB": 2369.98828125
+            },
+            {
+              "ms": 4962,
+              "rssMB": 2390.25
+            },
+            {
+              "ms": 5083,
+              "rssMB": 2404.94921875
+            },
+            {
+              "ms": 5195,
+              "rssMB": 2502.53125
+            },
+            {
+              "ms": 5315,
+              "rssMB": 2638.609375
+            },
+            {
+              "ms": 5431,
+              "rssMB": 2869.94140625
+            },
+            {
+              "ms": 5546,
+              "rssMB": 2909.14453125
+            },
+            {
+              "ms": 5660,
+              "rssMB": 2982.703125
+            },
+            {
+              "ms": 5780,
+              "rssMB": 3101.79296875
+            },
+            {
+              "ms": 5893,
+              "rssMB": 3149.32421875
+            },
+            {
+              "ms": 6017,
+              "rssMB": 3166.6015625
+            },
+            {
+              "ms": 6130,
+              "rssMB": 3170.3515625
+            }
+          ],
+          "jsHeapPeakMB": 64.90411758422852,
+          "samples": 53,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 2837,
+            "requests": 3721413,
+            "endpoints": 111212,
+            "workerWasmHeapMB": 1133.6875,
+            "stages": {
+              "kind": "parse",
+              "wasmCompileMs": 5.054999999701977,
+              "shardPoolInitMs": 29.769999999552965,
+              "readMs": 2616.370000012219,
+              "copyIngestMs": 60.35999999195337,
+              "feedMs": 459.57999999821186,
+              "endShardMs": 51.83999999985099,
+              "metaWireMs": 8.189999997615814,
+              "shardWallMaxMs": 3172.165000010282,
+              "mergeMetaMs": 0,
+              "shardCount": 4,
+              "workerWasmHeapMB": 1133.6875,
+              "paths": 576481,
+              "shardReaggMaxMs": 59.934999998658895,
+              "decodePartialsMs": 102.10500000044703,
+              "finishApiMs": 86.87000000104308,
+              "firstReaggMs": 249.160000000149,
+              "totalParseMs": 2579.779999997467
+            },
+            "reaggStages": []
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 797,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 2837ms"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-09-25T09:03:28.540Z",
+    "note": "wasm-buffer-file-shards-v1",
+    "target": "browser",
+    "runs": 2,
+    "gitCommit": "3febea3",
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v26.5.0"
+    },
+    "inputs": [
+      {
+        "name": "monday-14-09.zip",
+        "bytes": 90757691
+      },
+      {
+        "name": "16-09-api.zip",
+        "bytes": 38724885
+      },
+      {
+        "name": "21-09-api.zip",
+        "bytes": 42413764
+      },
+      {
+        "name": "12-days-pm2logs-5-to-16-sep.zip",
+        "bytes": 35517
+      },
+      {
+        "name": "pm2.log.2.gz",
+        "bytes": 6041
+      },
+      {
+        "name": "api-error.log.2.gz",
+        "bytes": 51498
+      },
+      {
+        "name": "24-09-api.zip",
+        "bytes": 4079011
+      },
+      {
+        "name": "api-out.log.2.gz",
+        "bytes": 43697321
+      },
+      {
+        "name": "22-09-all-logs.zip",
+        "bytes": 39900982
+      }
+    ],
+    "inputBytes": 259666710,
+    "summary": {
+      "browser": {
+        "uploadToReadyMs": {
+          "avg": 5166.47825,
+          "min": 5142.8379,
+          "max": 5190.1186
+        },
+        "rssPeakMB": {
+          "avg": 4348.150390625,
+          "min": 4347.48046875,
+          "max": 4348.8203125
+        },
+        "jsHeapPeakMB": {
+          "avg": 54.090999603271484,
+          "min": 53.878910064697266,
+          "max": 54.3030891418457
+        },
+        "nativeMs": null
+      }
+    },
+    "iterations": {
+      "browser": [
+        {
+          "uploadToReadyMs": 5190.1186,
+          "rssBeforeMB": 281.8359375,
+          "rssPeakMB": 4347.48046875,
+          "rssAfterMB": 4153.68359375,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 281.8359375
+            },
+            {
+              "ms": 112,
+              "rssMB": 536.796875
+            },
+            {
+              "ms": 224,
+              "rssMB": 722.94140625
+            },
+            {
+              "ms": 349,
+              "rssMB": 944.3359375
+            },
+            {
+              "ms": 478,
+              "rssMB": 1333.08984375
+            },
+            {
+              "ms": 593,
+              "rssMB": 1601.72265625
+            },
+            {
+              "ms": 714,
+              "rssMB": 1563.09375
+            },
+            {
+              "ms": 838,
+              "rssMB": 1959.31640625
+            },
+            {
+              "ms": 962,
+              "rssMB": 1628.765625
+            },
+            {
+              "ms": 1079,
+              "rssMB": 1712.828125
+            },
+            {
+              "ms": 1199,
+              "rssMB": 1582.6875
+            },
+            {
+              "ms": 1311,
+              "rssMB": 1356.3984375
+            },
+            {
+              "ms": 1421,
+              "rssMB": 1443.5078125
+            },
+            {
+              "ms": 1532,
+              "rssMB": 1530.9453125
+            },
+            {
+              "ms": 1644,
+              "rssMB": 1824.51171875
+            },
+            {
+              "ms": 1751,
+              "rssMB": 1549.44140625
+            },
+            {
+              "ms": 1860,
+              "rssMB": 1675.6484375
+            },
+            {
+              "ms": 1969,
+              "rssMB": 1763.28125
+            },
+            {
+              "ms": 2083,
+              "rssMB": 1852.96875
+            },
+            {
+              "ms": 2194,
+              "rssMB": 1889.546875
+            },
+            {
+              "ms": 2311,
+              "rssMB": 2189.06640625
+            },
+            {
+              "ms": 2422,
+              "rssMB": 2189.09765625
+            },
+            {
+              "ms": 2531,
+              "rssMB": 2189.1640625
+            },
+            {
+              "ms": 2650,
+              "rssMB": 2115.26171875
+            },
+            {
+              "ms": 2772,
+              "rssMB": 2595.10546875
+            },
+            {
+              "ms": 2893,
+              "rssMB": 2817.39453125
+            },
+            {
+              "ms": 3017,
+              "rssMB": 2758.3046875
+            },
+            {
+              "ms": 3128,
+              "rssMB": 2303.72265625
+            },
+            {
+              "ms": 3248,
+              "rssMB": 2334.1484375
+            },
+            {
+              "ms": 3358,
+              "rssMB": 2373.7421875
+            },
+            {
+              "ms": 3476,
+              "rssMB": 2404.16015625
+            },
+            {
+              "ms": 3601,
+              "rssMB": 2428.47265625
+            },
+            {
+              "ms": 3714,
+              "rssMB": 2447.63671875
+            },
+            {
+              "ms": 3832,
+              "rssMB": 2552.34375
+            },
+            {
+              "ms": 3941,
+              "rssMB": 2915.78125
+            },
+            {
+              "ms": 4059,
+              "rssMB": 2889.85546875
+            },
+            {
+              "ms": 4179,
+              "rssMB": 3431.94921875
+            },
+            {
+              "ms": 4304,
+              "rssMB": 3813.35546875
+            },
+            {
+              "ms": 4435,
+              "rssMB": 4227.08203125
+            },
+            {
+              "ms": 4565,
+              "rssMB": 4337.62890625
+            },
+            {
+              "ms": 4683,
+              "rssMB": 4213.265625
+            },
+            {
+              "ms": 4794,
+              "rssMB": 4292.07421875
+            },
+            {
+              "ms": 4901,
+              "rssMB": 4347.48046875
+            },
+            {
+              "ms": 5013,
+              "rssMB": 4343.90625
+            },
+            {
+              "ms": 5131,
+              "rssMB": 4146.33203125
+            },
+            {
+              "ms": 5248,
+              "rssMB": 4154.34375
+            },
+            {
+              "ms": 5363,
+              "rssMB": 4155.31640625
+            },
+            {
+              "ms": 5479,
+              "rssMB": 4153.68359375
+            }
+          ],
+          "jsHeapPeakMB": 53.878910064697266,
+          "samples": 48,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 2512,
+            "requests": 3721413,
+            "endpoints": 111212,
+            "workerWasmHeapMB": 1135.4375,
+            "stages": {
+              "kind": "parse",
+              "wasmCompileMs": 4.2349999994039536,
+              "shardPoolInitMs": 13.345000002533197,
+              "readMs": 0,
+              "copyIngestMs": 55.51000000536442,
+              "feedMs": 431.2499999962747,
+              "endShardMs": 47.724999997764826,
+              "metaWireMs": 7.550000000745058,
+              "shardWallMaxMs": 523.7949999980628,
+              "mergeMetaMs": 0,
+              "shardCount": 4,
+              "workerWasmHeapMB": 1135.4375,
+              "paths": 574990,
+              "shardReaggMaxMs": 80.8099999986589,
+              "decodePartialsMs": 134.29500000178814,
+              "finishApiMs": 112.20500000193715,
+              "firstReaggMs": 327.625,
+              "totalParseMs": 2200.830000001937
+            },
+            "reaggStages": []
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 507,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 2512ms"
+        },
+        {
+          "uploadToReadyMs": 5142.8379,
+          "rssBeforeMB": 279.30078125,
+          "rssPeakMB": 4348.8203125,
+          "rssAfterMB": 4073.16796875,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 279.30078125
+            },
+            {
+              "ms": 113,
+              "rssMB": 567.390625
+            },
+            {
+              "ms": 239,
+              "rssMB": 794.2890625
+            },
+            {
+              "ms": 349,
+              "rssMB": 989.9140625
+            },
+            {
+              "ms": 462,
+              "rssMB": 1358.515625
+            },
+            {
+              "ms": 579,
+              "rssMB": 1688.17578125
+            },
+            {
+              "ms": 699,
+              "rssMB": 1601.84375
+            },
+            {
+              "ms": 812,
+              "rssMB": 1948.453125
+            },
+            {
+              "ms": 919,
+              "rssMB": 1611.4921875
+            },
+            {
+              "ms": 1031,
+              "rssMB": 1699.87109375
+            },
+            {
+              "ms": 1181,
+              "rssMB": 1400.16796875
+            },
+            {
+              "ms": 1289,
+              "rssMB": 1368.1796875
+            },
+            {
+              "ms": 1402,
+              "rssMB": 1453.55859375
+            },
+            {
+              "ms": 1512,
+              "rssMB": 1539.62109375
+            },
+            {
+              "ms": 1633,
+              "rssMB": 1525.58984375
+            },
+            {
+              "ms": 1748,
+              "rssMB": 1583.90234375
+            },
+            {
+              "ms": 1864,
+              "rssMB": 1713.0703125
+            },
+            {
+              "ms": 1973,
+              "rssMB": 1791.57421875
+            },
+            {
+              "ms": 2083,
+              "rssMB": 1882.140625
+            },
+            {
+              "ms": 2195,
+              "rssMB": 1948.328125
+            },
+            {
+              "ms": 2313,
+              "rssMB": 2188.35546875
+            },
+            {
+              "ms": 2439,
+              "rssMB": 2188.3828125
+            },
+            {
+              "ms": 2567,
+              "rssMB": 2249.6796875
+            },
+            {
+              "ms": 2687,
+              "rssMB": 2350.90234375
+            },
+            {
+              "ms": 2798,
+              "rssMB": 2629.70703125
+            },
+            {
+              "ms": 2920,
+              "rssMB": 2839.8671875
+            },
+            {
+              "ms": 3032,
+              "rssMB": 2770.125
+            },
+            {
+              "ms": 3161,
+              "rssMB": 2304.1015625
+            },
+            {
+              "ms": 3284,
+              "rssMB": 2358.94921875
+            },
+            {
+              "ms": 3401,
+              "rssMB": 2392.07421875
+            },
+            {
+              "ms": 3510,
+              "rssMB": 2414.88671875
+            },
+            {
+              "ms": 3621,
+              "rssMB": 2501.8984375
+            },
+            {
+              "ms": 3735,
+              "rssMB": 2901.04296875
+            },
+            {
+              "ms": 3862,
+              "rssMB": 2818.12890625
+            },
+            {
+              "ms": 3983,
+              "rssMB": 2839.06640625
+            },
+            {
+              "ms": 4091,
+              "rssMB": 3156.859375
+            },
+            {
+              "ms": 4214,
+              "rssMB": 3798.23046875
+            },
+            {
+              "ms": 4338,
+              "rssMB": 4161.23046875
+            },
+            {
+              "ms": 4456,
+              "rssMB": 4280.1171875
+            },
+            {
+              "ms": 4578,
+              "rssMB": 4192.59375
+            },
+            {
+              "ms": 4684,
+              "rssMB": 4234.07421875
+            },
+            {
+              "ms": 4798,
+              "rssMB": 4348.8203125
+            },
+            {
+              "ms": 4921,
+              "rssMB": 4324.0625
+            },
+            {
+              "ms": 5033,
+              "rssMB": 4065.60546875
+            },
+            {
+              "ms": 5151,
+              "rssMB": 4071.4609375
+            },
+            {
+              "ms": 5265,
+              "rssMB": 4072.55859375
+            },
+            {
+              "ms": 5382,
+              "rssMB": 4072.95703125
+            },
+            {
+              "ms": 5499,
+              "rssMB": 4073.16796875
+            }
+          ],
+          "jsHeapPeakMB": 54.3030891418457,
+          "samples": 48,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 2501,
+            "requests": 3721413,
+            "endpoints": 111212,
+            "workerWasmHeapMB": 1135.4375,
+            "stages": {
+              "kind": "parse",
+              "wasmCompileMs": 5.665000002831221,
+              "shardPoolInitMs": 15.214999999850988,
+              "readMs": 0,
+              "copyIngestMs": 54.70499999076128,
+              "feedMs": 455.7800000049174,
+              "endShardMs": 52.30000000074506,
+              "metaWireMs": 4.189999997615814,
+              "shardWallMaxMs": 545.5849999934435,
+              "mergeMetaMs": 0,
+              "shardCount": 4,
+              "workerWasmHeapMB": 1135.4375,
+              "paths": 574990,
+              "shardReaggMaxMs": 68.82500000298023,
+              "decodePartialsMs": 129.30000000074506,
+              "finishApiMs": 101.87999999895692,
+              "firstReaggMs": 300.339999999851,
+              "totalParseMs": 2177.690000001341
+            },
+            "reaggStages": []
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 519,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 2501ms"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-09-25T09:06:05.129Z",
+    "note": "wasm-buffer-file-shards-sequential-v2",
+    "target": "browser",
+    "runs": 2,
+    "gitCommit": "3febea3",
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v26.5.0"
+    },
+    "inputs": [
+      {
+        "name": "monday-14-09.zip",
+        "bytes": 90757691
+      },
+      {
+        "name": "16-09-api.zip",
+        "bytes": 38724885
+      },
+      {
+        "name": "21-09-api.zip",
+        "bytes": 42413764
+      },
+      {
+        "name": "12-days-pm2logs-5-to-16-sep.zip",
+        "bytes": 35517
+      },
+      {
+        "name": "pm2.log.2.gz",
+        "bytes": 6041
+      },
+      {
+        "name": "api-error.log.2.gz",
+        "bytes": 51498
+      },
+      {
+        "name": "24-09-api.zip",
+        "bytes": 4079011
+      },
+      {
+        "name": "api-out.log.2.gz",
+        "bytes": 43697321
+      },
+      {
+        "name": "22-09-all-logs.zip",
+        "bytes": 39900982
+      }
+    ],
+    "inputBytes": 259666710,
+    "summary": {
+      "browser": {
+        "uploadToReadyMs": {
+          "avg": 5192.428749999999,
+          "min": 5183.559799999999,
+          "max": 5201.2977
+        },
+        "rssPeakMB": {
+          "avg": 4363.984375,
+          "min": 4319.16796875,
+          "max": 4408.80078125
+        },
+        "jsHeapPeakMB": {
+          "avg": 53.46369552612305,
+          "min": 52.99928283691406,
+          "max": 53.92810821533203
+        },
+        "nativeMs": null
+      }
+    },
+    "iterations": {
+      "browser": [
+        {
+          "uploadToReadyMs": 5201.2977,
+          "rssBeforeMB": 274.8203125,
+          "rssPeakMB": 4408.80078125,
+          "rssAfterMB": 3038.92578125,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 274.8203125
+            },
+            {
+              "ms": 110,
+              "rssMB": 537.921875
+            },
+            {
+              "ms": 222,
+              "rssMB": 723.92578125
+            },
+            {
+              "ms": 333,
+              "rssMB": 921.13671875
+            },
+            {
+              "ms": 442,
+              "rssMB": 1126.1875
+            },
+            {
+              "ms": 553,
+              "rssMB": 1425.48828125
+            },
+            {
+              "ms": 674,
+              "rssMB": 1524.5546875
+            },
+            {
+              "ms": 794,
+              "rssMB": 1811.34765625
+            },
+            {
+              "ms": 904,
+              "rssMB": 1588.50390625
+            },
+            {
+              "ms": 1031,
+              "rssMB": 1691.19140625
+            },
+            {
+              "ms": 1183,
+              "rssMB": 1483.90234375
+            },
+            {
+              "ms": 1298,
+              "rssMB": 1358.859375
+            },
+            {
+              "ms": 1424,
+              "rssMB": 1448.890625
+            },
+            {
+              "ms": 1534,
+              "rssMB": 1535.515625
+            },
+            {
+              "ms": 1662,
+              "rssMB": 1522.74609375
+            },
+            {
+              "ms": 1772,
+              "rssMB": 1600.6015625
+            },
+            {
+              "ms": 1890,
+              "rssMB": 1713.3671875
+            },
+            {
+              "ms": 2016,
+              "rssMB": 1811.39453125
+            },
+            {
+              "ms": 2144,
+              "rssMB": 1884.09375
+            },
+            {
+              "ms": 2257,
+              "rssMB": 2152.796875
+            },
+            {
+              "ms": 2371,
+              "rssMB": 2183.484375
+            },
+            {
+              "ms": 2480,
+              "rssMB": 2183.5546875
+            },
+            {
+              "ms": 2590,
+              "rssMB": 2377.10546875
+            },
+            {
+              "ms": 2713,
+              "rssMB": 2514.6171875
+            },
+            {
+              "ms": 2826,
+              "rssMB": 2666.38671875
+            },
+            {
+              "ms": 2961,
+              "rssMB": 2699.05078125
+            },
+            {
+              "ms": 3086,
+              "rssMB": 2290.421875
+            },
+            {
+              "ms": 3198,
+              "rssMB": 2310.53125
+            },
+            {
+              "ms": 3310,
+              "rssMB": 2355.6015625
+            },
+            {
+              "ms": 3439,
+              "rssMB": 2391.09375
+            },
+            {
+              "ms": 3564,
+              "rssMB": 2417.50390625
+            },
+            {
+              "ms": 3688,
+              "rssMB": 2438.15234375
+            },
+            {
+              "ms": 3808,
+              "rssMB": 2783.0234375
+            },
+            {
+              "ms": 3925,
+              "rssMB": 3051.88671875
+            },
+            {
+              "ms": 4047,
+              "rssMB": 2834.5859375
+            },
+            {
+              "ms": 4173,
+              "rssMB": 3311.46875
+            },
+            {
+              "ms": 4303,
+              "rssMB": 4082.6171875
+            },
+            {
+              "ms": 4426,
+              "rssMB": 4408.80078125
+            },
+            {
+              "ms": 4564,
+              "rssMB": 4181.02734375
+            },
+            {
+              "ms": 4687,
+              "rssMB": 3160.3359375
+            },
+            {
+              "ms": 4812,
+              "rssMB": 3231.9453125
+            },
+            {
+              "ms": 4942,
+              "rssMB": 3304.234375
+            },
+            {
+              "ms": 5064,
+              "rssMB": 3025.91015625
+            },
+            {
+              "ms": 5179,
+              "rssMB": 3034.6640625
+            },
+            {
+              "ms": 5290,
+              "rssMB": 3039.1484375
+            },
+            {
+              "ms": 5407,
+              "rssMB": 3038.8515625
+            },
+            {
+              "ms": 5524,
+              "rssMB": 3038.92578125
+            }
+          ],
+          "jsHeapPeakMB": 52.99928283691406,
+          "samples": 47,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 2560,
+            "requests": 3721413,
+            "endpoints": 111212,
+            "workerWasmHeapMB": 1135.4375,
+            "stages": {
+              "kind": "parse",
+              "wasmCompileMs": 6.170000001788139,
+              "shardPoolInitMs": 11.964999999850988,
+              "readMs": 0,
+              "copyIngestMs": 52.019999988377094,
+              "feedMs": 456.5400000065565,
+              "endShardMs": 55.70499999821186,
+              "metaWireMs": 5.305000003427267,
+              "shardWallMaxMs": 545.8699999935925,
+              "mergeMetaMs": 0,
+              "shardCount": 4,
+              "workerWasmHeapMB": 1135.4375,
+              "paths": 574990,
+              "shardReaggMaxMs": 122.43500000238419,
+              "decodePartialsMs": 112.3449999988079,
+              "finishApiMs": 100.77500000223517,
+              "firstReaggMs": 335.8800000026822,
+              "totalParseMs": 2257.730000000447
+            },
+            "reaggStages": []
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 495,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 2560ms"
+        },
+        {
+          "uploadToReadyMs": 5183.559799999999,
+          "rssBeforeMB": 274.59375,
+          "rssPeakMB": 4319.16796875,
+          "rssAfterMB": 3042.546875,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 274.59375
+            },
+            {
+              "ms": 109,
+              "rssMB": 549.9375
+            },
+            {
+              "ms": 221,
+              "rssMB": 751.00390625
+            },
+            {
+              "ms": 331,
+              "rssMB": 925.64453125
+            },
+            {
+              "ms": 442,
+              "rssMB": 1219.4609375
+            },
+            {
+              "ms": 553,
+              "rssMB": 1379.8515625
+            },
+            {
+              "ms": 666,
+              "rssMB": 1847.4140625
+            },
+            {
+              "ms": 789,
+              "rssMB": 1766.33984375
+            },
+            {
+              "ms": 912,
+              "rssMB": 1585.05078125
+            },
+            {
+              "ms": 1022,
+              "rssMB": 1671.8671875
+            },
+            {
+              "ms": 1144,
+              "rssMB": 1832.0859375
+            },
+            {
+              "ms": 1260,
+              "rssMB": 1322.5
+            },
+            {
+              "ms": 1384,
+              "rssMB": 1422.9375
+            },
+            {
+              "ms": 1511,
+              "rssMB": 1523.33984375
+            },
+            {
+              "ms": 1625,
+              "rssMB": 1793.546875
+            },
+            {
+              "ms": 1736,
+              "rssMB": 1574.33203125
+            },
+            {
+              "ms": 1850,
+              "rssMB": 1690.4375
+            },
+            {
+              "ms": 1961,
+              "rssMB": 1777.72265625
+            },
+            {
+              "ms": 2089,
+              "rssMB": 1883.3671875
+            },
+            {
+              "ms": 2202,
+              "rssMB": 1914.29296875
+            },
+            {
+              "ms": 2310,
+              "rssMB": 2183.0078125
+            },
+            {
+              "ms": 2431,
+              "rssMB": 2183.12109375
+            },
+            {
+              "ms": 2543,
+              "rssMB": 2183.12109375
+            },
+            {
+              "ms": 2661,
+              "rssMB": 2189.671875
+            },
+            {
+              "ms": 2774,
+              "rssMB": 2611.890625
+            },
+            {
+              "ms": 2905,
+              "rssMB": 2828.921875
+            },
+            {
+              "ms": 3025,
+              "rssMB": 2761.23046875
+            },
+            {
+              "ms": 3141,
+              "rssMB": 2296.04296875
+            },
+            {
+              "ms": 3258,
+              "rssMB": 2335.15625
+            },
+            {
+              "ms": 3387,
+              "rssMB": 2380.53125
+            },
+            {
+              "ms": 3514,
+              "rssMB": 2409.91796875
+            },
+            {
+              "ms": 3624,
+              "rssMB": 2431.46875
+            },
+            {
+              "ms": 3739,
+              "rssMB": 2452.90625
+            },
+            {
+              "ms": 3848,
+              "rssMB": 2632.76171875
+            },
+            {
+              "ms": 3962,
+              "rssMB": 3053.0390625
+            },
+            {
+              "ms": 4093,
+              "rssMB": 3246.5390625
+            },
+            {
+              "ms": 4212,
+              "rssMB": 3704.44921875
+            },
+            {
+              "ms": 4342,
+              "rssMB": 4261.765625
+            },
+            {
+              "ms": 4460,
+              "rssMB": 4319.16796875
+            },
+            {
+              "ms": 4589,
+              "rssMB": 3276.1640625
+            },
+            {
+              "ms": 4703,
+              "rssMB": 3187.0546875
+            },
+            {
+              "ms": 4813,
+              "rssMB": 3296.59375
+            },
+            {
+              "ms": 4920,
+              "rssMB": 3287.453125
+            },
+            {
+              "ms": 5029,
+              "rssMB": 3026.89453125
+            },
+            {
+              "ms": 5139,
+              "rssMB": 3032.92578125
+            },
+            {
+              "ms": 5254,
+              "rssMB": 3042.13671875
+            },
+            {
+              "ms": 5372,
+              "rssMB": 3041.359375
+            },
+            {
+              "ms": 5489,
+              "rssMB": 3042.546875
+            }
+          ],
+          "jsHeapPeakMB": 53.92810821533203,
+          "samples": 48,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 2539,
+            "requests": 3721413,
+            "endpoints": 111212,
+            "workerWasmHeapMB": 1135.4375,
+            "stages": {
+              "kind": "parse",
+              "wasmCompileMs": 5.625,
+              "shardPoolInitMs": 15.244999997317791,
+              "readMs": 0,
+              "copyIngestMs": 53.84500000625849,
+              "feedMs": 466.6299999989569,
+              "endShardMs": 46.28500000014901,
+              "metaWireMs": 6.100000001490116,
+              "shardWallMaxMs": 551.5000000074506,
+              "mergeMetaMs": 0,
+              "shardCount": 4,
+              "workerWasmHeapMB": 1135.4375,
+              "paths": 574990,
+              "shardReaggMaxMs": 127.25499999895692,
+              "decodePartialsMs": 116.01999999955297,
+              "finishApiMs": 96.93000000342727,
+              "firstReaggMs": 340.785000000149,
+              "totalParseMs": 2204.660000000149
+            },
+            "reaggStages": []
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 507,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 2539ms"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-09-25T09:09:23.009Z",
+    "note": "browser-safe-final-after-revert",
+    "target": "browser",
+    "runs": 2,
+    "gitCommit": "3febea3",
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v26.5.0"
+    },
+    "inputs": [
+      {
+        "name": "monday-14-09.zip",
+        "bytes": 90757691
+      },
+      {
+        "name": "16-09-api.zip",
+        "bytes": 38724885
+      },
+      {
+        "name": "21-09-api.zip",
+        "bytes": 42413764
+      },
+      {
+        "name": "12-days-pm2logs-5-to-16-sep.zip",
+        "bytes": 35517
+      },
+      {
+        "name": "pm2.log.2.gz",
+        "bytes": 6041
+      },
+      {
+        "name": "api-error.log.2.gz",
+        "bytes": 51498
+      },
+      {
+        "name": "24-09-api.zip",
+        "bytes": 4079011
+      },
+      {
+        "name": "api-out.log.2.gz",
+        "bytes": 43697321
+      },
+      {
+        "name": "22-09-all-logs.zip",
+        "bytes": 39900982
+      }
+    ],
+    "inputBytes": 259666710,
+    "summary": {
+      "browser": {
+        "uploadToReadyMs": {
+          "avg": 5940.811549999999,
+          "min": 5894.207999999999,
+          "max": 5987.4151
+        },
+        "rssPeakMB": {
+          "avg": 4055.837890625,
+          "min": 4032.35546875,
+          "max": 4079.3203125
+        },
+        "jsHeapPeakMB": {
+          "avg": 66.16558456420898,
+          "min": 65.72850799560547,
+          "max": 66.6026611328125
+        },
+        "nativeMs": null
+      }
+    },
+    "iterations": {
+      "browser": [
+        {
+          "uploadToReadyMs": 5987.4151,
+          "rssBeforeMB": 275.61328125,
+          "rssPeakMB": 4032.35546875,
+          "rssAfterMB": 3156.9765625,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 275.61328125
+            },
+            {
+              "ms": 107,
+              "rssMB": 529.3984375
+            },
+            {
+              "ms": 217,
+              "rssMB": 734.66796875
+            },
+            {
+              "ms": 325,
+              "rssMB": 916.046875
+            },
+            {
+              "ms": 435,
+              "rssMB": 1113.7578125
+            },
+            {
+              "ms": 553,
+              "rssMB": 1903.73046875
+            },
+            {
+              "ms": 672,
+              "rssMB": 2397.8359375
+            },
+            {
+              "ms": 780,
+              "rssMB": 1585.9453125
+            },
+            {
+              "ms": 891,
+              "rssMB": 1905.7265625
+            },
+            {
+              "ms": 999,
+              "rssMB": 1563.921875
+            },
+            {
+              "ms": 1121,
+              "rssMB": 1651.921875
+            },
+            {
+              "ms": 1239,
+              "rssMB": 1743.6171875
+            },
+            {
+              "ms": 1363,
+              "rssMB": 1970.2890625
+            },
+            {
+              "ms": 1478,
+              "rssMB": 1999.65625
+            },
+            {
+              "ms": 1587,
+              "rssMB": 2089.57421875
+            },
+            {
+              "ms": 1698,
+              "rssMB": 2176.88671875
+            },
+            {
+              "ms": 1811,
+              "rssMB": 2356.51171875
+            },
+            {
+              "ms": 1927,
+              "rssMB": 2209.9453125
+            },
+            {
+              "ms": 2043,
+              "rssMB": 1893.3671875
+            },
+            {
+              "ms": 2160,
+              "rssMB": 1854.109375
+            },
+            {
+              "ms": 2282,
+              "rssMB": 1997.796875
+            },
+            {
+              "ms": 2393,
+              "rssMB": 2077.62109375
+            },
+            {
+              "ms": 2520,
+              "rssMB": 2179.7578125
+            },
+            {
+              "ms": 2634,
+              "rssMB": 2334.87109375
+            },
+            {
+              "ms": 2743,
+              "rssMB": 2826.3359375
+            },
+            {
+              "ms": 2858,
+              "rssMB": 2740.484375
+            },
+            {
+              "ms": 2967,
+              "rssMB": 2740.4921875
+            },
+            {
+              "ms": 3078,
+              "rssMB": 2740.4921875
+            },
+            {
+              "ms": 3198,
+              "rssMB": 2899.4375
+            },
+            {
+              "ms": 3312,
+              "rssMB": 3228.04296875
+            },
+            {
+              "ms": 3424,
+              "rssMB": 3496.41015625
+            },
+            {
+              "ms": 3549,
+              "rssMB": 3709.64453125
+            },
+            {
+              "ms": 3689,
+              "rssMB": 4032.35546875
+            },
+            {
+              "ms": 3820,
+              "rssMB": 3999.75390625
+            },
+            {
+              "ms": 3942,
+              "rssMB": 3745.46484375
+            },
+            {
+              "ms": 4061,
+              "rssMB": 3018.07421875
+            },
+            {
+              "ms": 4182,
+              "rssMB": 2531.76953125
+            },
+            {
+              "ms": 4295,
+              "rssMB": 2461.59375
+            },
+            {
+              "ms": 4415,
+              "rssMB": 2484.796875
+            },
+            {
+              "ms": 4525,
+              "rssMB": 2520.67578125
+            },
+            {
+              "ms": 4634,
+              "rssMB": 2544.45703125
+            },
+            {
+              "ms": 4755,
+              "rssMB": 2570.89453125
+            },
+            {
+              "ms": 4873,
+              "rssMB": 2591.26171875
+            },
+            {
+              "ms": 4987,
+              "rssMB": 2610.4609375
+            },
+            {
+              "ms": 5106,
+              "rssMB": 2637.4375
+            },
+            {
+              "ms": 5213,
+              "rssMB": 2640.29296875
+            },
+            {
+              "ms": 5325,
+              "rssMB": 2700.66796875
+            },
+            {
+              "ms": 5443,
+              "rssMB": 2861.9375
+            },
+            {
+              "ms": 5557,
+              "rssMB": 2922.734375
+            },
+            {
+              "ms": 5683,
+              "rssMB": 3029.34765625
+            },
+            {
+              "ms": 5801,
+              "rssMB": 3125.58203125
+            },
+            {
+              "ms": 5926,
+              "rssMB": 3139.52734375
+            },
+            {
+              "ms": 6041,
+              "rssMB": 3156.17578125
+            },
+            {
+              "ms": 6159,
+              "rssMB": 3156.9765625
+            }
+          ],
+          "jsHeapPeakMB": 65.72850799560547,
+          "samples": 54,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 2767,
+            "requests": 3721413,
+            "endpoints": 111212,
+            "workerWasmHeapMB": 1133.6875,
+            "stages": {
+              "kind": "parse",
+              "wasmCompileMs": 5.850000001490116,
+              "shardPoolInitMs": 34.814999997615814,
+              "readMs": 2556.1950000040233,
+              "copyIngestMs": 59.59000000730157,
+              "feedMs": 468.5000000037253,
+              "endShardMs": 58.00499999895692,
+              "metaWireMs": 6.464999999850988,
+              "shardWallMaxMs": 3099.7299999967217,
+              "mergeMetaMs": 0,
+              "shardCount": 4,
+              "workerWasmHeapMB": 1133.6875,
+              "paths": 576481,
+              "shardReaggMaxMs": 54.88499999791384,
+              "decodePartialsMs": 103.18999999761581,
+              "finishApiMs": 86.6900000013411,
+              "firstReaggMs": 245.62999999895692,
+              "totalParseMs": 2516.179999999702
+            },
+            "reaggStages": []
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 803,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 2767ms"
+        },
+        {
+          "uploadToReadyMs": 5894.207999999999,
+          "rssBeforeMB": 272.93359375,
+          "rssPeakMB": 4079.3203125,
+          "rssAfterMB": 3140.39453125,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 272.93359375
+            },
+            {
+              "ms": 113,
+              "rssMB": 547.32421875
+            },
+            {
+              "ms": 231,
+              "rssMB": 758.3359375
+            },
+            {
+              "ms": 343,
+              "rssMB": 936.796875
+            },
+            {
+              "ms": 456,
+              "rssMB": 1152.8125
+            },
+            {
+              "ms": 583,
+              "rssMB": 1825.65625
+            },
+            {
+              "ms": 713,
+              "rssMB": 1861.81640625
+            },
+            {
+              "ms": 839,
+              "rssMB": 1762.93359375
+            },
+            {
+              "ms": 947,
+              "rssMB": 1534.3203125
+            },
+            {
+              "ms": 1058,
+              "rssMB": 1624.20703125
+            },
+            {
+              "ms": 1178,
+              "rssMB": 1720.33203125
+            },
+            {
+              "ms": 1298,
+              "rssMB": 2198.01953125
+            },
+            {
+              "ms": 1406,
+              "rssMB": 2178.0390625
+            },
+            {
+              "ms": 1513,
+              "rssMB": 2062.05078125
+            },
+            {
+              "ms": 1624,
+              "rssMB": 2147.12109375
+            },
+            {
+              "ms": 1737,
+              "rssMB": 2240.55859375
+            },
+            {
+              "ms": 1856,
+              "rssMB": 2520.7890625
+            },
+            {
+              "ms": 1981,
+              "rssMB": 2039.95703125
+            },
+            {
+              "ms": 2101,
+              "rssMB": 1847.53515625
+            },
+            {
+              "ms": 2221,
+              "rssMB": 1984.0546875
+            },
+            {
+              "ms": 2331,
+              "rssMB": 2070.34765625
+            },
+            {
+              "ms": 2441,
+              "rssMB": 2163.53515625
+            },
+            {
+              "ms": 2570,
+              "rssMB": 2220.4375
+            },
+            {
+              "ms": 2686,
+              "rssMB": 2783.90625
+            },
+            {
+              "ms": 2792,
+              "rssMB": 2738.5859375
+            },
+            {
+              "ms": 2901,
+              "rssMB": 2738.625
+            },
+            {
+              "ms": 3014,
+              "rssMB": 2738.625
+            },
+            {
+              "ms": 3127,
+              "rssMB": 3096.30078125
+            },
+            {
+              "ms": 3237,
+              "rssMB": 3102.57421875
+            },
+            {
+              "ms": 3350,
+              "rssMB": 3312.73046875
+            },
+            {
+              "ms": 3470,
+              "rssMB": 3783.6953125
+            },
+            {
+              "ms": 3582,
+              "rssMB": 3944.13671875
+            },
+            {
+              "ms": 3711,
+              "rssMB": 3974.7421875
+            },
+            {
+              "ms": 3826,
+              "rssMB": 4079.3203125
+            },
+            {
+              "ms": 3954,
+              "rssMB": 3322.45703125
+            },
+            {
+              "ms": 4073,
+              "rssMB": 2570.12109375
+            },
+            {
+              "ms": 4200,
+              "rssMB": 2336.4765625
+            },
+            {
+              "ms": 4321,
+              "rssMB": 2326.625
+            },
+            {
+              "ms": 4434,
+              "rssMB": 2374.0703125
+            },
+            {
+              "ms": 4542,
+              "rssMB": 2402.9765625
+            },
+            {
+              "ms": 4654,
+              "rssMB": 2429.296875
+            },
+            {
+              "ms": 4766,
+              "rssMB": 2450.796875
+            },
+            {
+              "ms": 4875,
+              "rssMB": 2466.42578125
+            },
+            {
+              "ms": 4987,
+              "rssMB": 2515.921875
+            },
+            {
+              "ms": 5105,
+              "rssMB": 2566.81640625
+            },
+            {
+              "ms": 5222,
+              "rssMB": 2793.36328125
+            },
+            {
+              "ms": 5332,
+              "rssMB": 2848.61328125
+            },
+            {
+              "ms": 5450,
+              "rssMB": 2895.0078125
+            },
+            {
+              "ms": 5567,
+              "rssMB": 2976.33203125
+            },
+            {
+              "ms": 5695,
+              "rssMB": 3090.16796875
+            },
+            {
+              "ms": 5818,
+              "rssMB": 3120.83203125
+            },
+            {
+              "ms": 5935,
+              "rssMB": 3136.5078125
+            },
+            {
+              "ms": 6052,
+              "rssMB": 3140.39453125
+            }
+          ],
+          "jsHeapPeakMB": 66.6026611328125,
+          "samples": 53,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 2720,
+            "requests": 3721413,
+            "endpoints": 111212,
+            "workerWasmHeapMB": 1133.6875,
+            "stages": {
+              "kind": "parse",
+              "wasmCompileMs": 4.620000001043081,
+              "shardPoolInitMs": 34.55499999970198,
+              "readMs": 2506.239999998361,
+              "copyIngestMs": 63.724999990314245,
+              "feedMs": 455.4650000035763,
+              "endShardMs": 53.79000000283122,
+              "metaWireMs": 6,
+              "shardWallMaxMs": 3012.345000002533,
+              "mergeMetaMs": 0,
+              "shardCount": 4,
+              "workerWasmHeapMB": 1133.6875,
+              "paths": 576481,
+              "shardReaggMaxMs": 51.55000000074506,
+              "decodePartialsMs": 106.42999999970198,
+              "finishApiMs": 83.83999999985099,
+              "firstReaggMs": 242.1849999986589,
+              "totalParseMs": 2461.279999997467
+            },
+            "reaggStages": []
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 766,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 2720ms"
+        }
+      ]
+    }
+  }
+]

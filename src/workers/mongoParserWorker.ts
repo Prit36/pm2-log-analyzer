@@ -52,6 +52,7 @@ function poolSize(): number {
 
 function shardCountFor(fileSize: number): number {
   if (fileSize <= 8 * 1024 * 1024) return 1;
+  if (fileSize > 256 * 1024 * 1024) return Math.min(2, poolSize());
   return poolSize();
 }
 
