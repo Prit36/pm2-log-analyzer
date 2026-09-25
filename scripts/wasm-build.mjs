@@ -55,9 +55,12 @@ function buildCrate({ crateDir, wasmName, pkgDir, bytesTs, exportConst }) {
   run(`wasm-bindgen --target web --out-dir "${pkgDir}" --out-name ${wasmName} "${wasmOut}"`);
 
   const wasmBgPath = path.join(pkgDir, `${wasmName}_bg.wasm`);
+  const optimizedWasmPath = `${wasmBgPath}.optimized`;
   run(
-    `wasm-opt -O3 --enable-simd --enable-relaxed-simd --enable-tail-call --enable-extended-const --enable-bulk-memory --enable-mutable-globals --enable-sign-ext -o "${wasmBgPath}" "${wasmBgPath}"`,
+    `wasm-opt -O3 --enable-simd --enable-relaxed-simd --enable-tail-call --enable-extended-const --enable-bulk-memory --enable-mutable-globals --enable-sign-ext -o "${optimizedWasmPath}" "${wasmBgPath}"`,
   );
+  fs.copyFileSync(optimizedWasmPath, wasmBgPath);
+  fs.rmSync(optimizedWasmPath);
   const wasmBytes = fs.readFileSync(wasmBgPath);
   console.log(`wasm-opt -O3 → ${wasmBytes.length} bytes`);
 

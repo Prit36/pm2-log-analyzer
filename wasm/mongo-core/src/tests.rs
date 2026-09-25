@@ -17,6 +17,19 @@ use std::time::Instant;
     }
 
     #[test]
+    fn search_filter_preserves_unicode_case_insensitive_matching() {
+        let mut engine = MongoEngine::new();
+        let sample = r#"{"t":{"$date":"2026-09-01T00:00:00.000Z"},"s":"I","c":"COMMAND","id":51803,"ctx":"conn1","msg":"Slow query","attr":{"ns":"db.Äpfel","command":{"find":"Äpfel"},"planSummary":"COLLSCAN","docsExamined":1,"keysExamined":0,"nreturned":1,"durationMillis":25}}"#;
+
+        engine.write_ingest_for_test(sample.as_bytes());
+        engine.feed(sample.len() as u32, 0.0);
+        engine.end_shard();
+
+        let json = engine.reaggregate("all", 0, 0, "all", "äPFEL", false, "all");
+        assert!(json.contains(r#""slowQueryCount":1"#));
+    }
+
+    #[test]
     fn test_mongo_engine_multi_line_and_filter() {
         let mut engine = MongoEngine::new();
         let chunk = b"{\"t\":{\"$date\":\"2026-09-01T00:00:01.000Z\"},\"s\":\"I\",\"c\":\"NETWORK\",\"id\":22943,\"ctx\":\"listener\",\"msg\":\"Connection accepted\",\"attr\":{\"connectionId\":1,\"connectionCount\":42,\"remote\":\"10.0.0.1:1234\"}}\n\

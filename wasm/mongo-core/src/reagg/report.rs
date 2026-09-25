@@ -2,7 +2,7 @@
 
 use std::fmt::Write;
 
-use super::write::{calc_percentile, write_epoch_to_iso, write_escaped_json};
+use super::write::{calc_percentile, calc_percentiles4, write_epoch_to_iso, write_escaped_json};
 use super::{CollectionAcc, Matches, PatternAcc, TimeBucketAcc};
 use crate::fingerprint::MongoOp;
 use crate::store::Engine;
@@ -81,11 +81,7 @@ fn write_pattern(
     pattern: &mut PatternAcc,
     view: &PatternView,
 ) {
-    pattern.sample_durations.sort_unstable();
-    let p50 = calc_percentile(&pattern.sample_durations, 50.0);
-    let p90 = calc_percentile(&pattern.sample_durations, 90.0);
-    let p95 = calc_percentile(&pattern.sample_durations, 95.0);
-    let p99 = calc_percentile(&pattern.sample_durations, 99.0);
+    let [p50, p90, p95, p99] = calc_percentiles4(&mut pattern.sample_durations);
     let avg = (pattern.total_duration_ms as f64) / (pattern.count as f64);
     let ratio = (pattern.total_docs as f64) / ((pattern.total_returned as f64).max(1.0));
     let op = MongoOp::from_u8(pattern.op).as_str();
@@ -211,8 +207,7 @@ pub(super) fn write_collections(
 fn write_collection(out: &mut String, engine: &Engine, acc: &mut CollectionAcc) {
     let namespace = &engine.ns_strings[acc.ns_id as usize];
     let (db, collection) = split_namespace(namespace);
-    acc.sample_durations.sort_unstable();
-    let p95 = calc_percentile(&acc.sample_durations, 95.0);
+    let p95 = calc_percentile(&mut acc.sample_durations, 95.0);
     let avg = (acc.total_duration_ms as f64) / (acc.count as f64);
     let ratio = (acc.total_docs as f64) / ((acc.total_returned as f64).max(1.0));
 
@@ -249,8 +244,7 @@ pub(super) fn write_time_buckets(out: &mut String, time_buckets: [Option<TimeBuc
             out.push(',');
         }
         written += 1;
-        acc.sample_durations.sort_unstable();
-        let p95 = calc_percentile(&acc.sample_durations, 95.0);
+        let p95 = calc_percentile(&mut acc.sample_durations, 95.0);
         let avg = (acc.total_duration_ms as f64) / (acc.count as f64);
         let _ = write!(
             out,

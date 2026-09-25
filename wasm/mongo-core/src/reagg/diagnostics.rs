@@ -292,7 +292,6 @@ impl UserStats {
         let Some(acc) = acc else {
             return Self::default();
         };
-        acc.sample_durations.sort_unstable();
         let mut ops: Vec<(u8, u32)> = acc.ops.iter().map(|(&op, &count)| (op, count)).collect();
         ops.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
         let mut top_collections: Vec<(u16, u32, u64, u32)> = acc
@@ -307,7 +306,7 @@ impl UserStats {
             total_duration_ms: acc.total_duration_ms,
             min_duration_ms: acc.min_duration_ms,
             max_duration_ms: acc.max_duration_ms,
-            p95_duration_ms: calc_percentile(&acc.sample_durations, 95.0),
+            p95_duration_ms: calc_percentile(&mut acc.sample_durations, 95.0),
             avg_duration_ms: (acc.total_duration_ms as f64) / (acc.count as f64),
             total_docs: acc.total_docs,
             total_keys: acc.total_keys,

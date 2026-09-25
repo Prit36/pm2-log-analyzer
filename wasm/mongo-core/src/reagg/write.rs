@@ -2,14 +2,38 @@
 
 use std::fmt::Write;
 
-/// Nearest-rank percentile of an ascending array.
+/// Nearest-rank percentile without sorting the full duration array.
 #[inline(always)]
-pub(super) fn calc_percentile(sorted: &[u32], percentile: f64) -> u32 {
-    if sorted.is_empty() {
+pub(super) fn calc_percentile(values: &mut [u32], percentile: f64) -> u32 {
+    if values.is_empty() {
         return 0;
     }
-    let index = (((sorted.len() as f64) * (percentile / 100.0)).ceil() as usize).saturating_sub(1);
-    sorted[index.min(sorted.len() - 1)]
+    let index = percentile_index(values.len(), percentile);
+    *values.select_nth_unstable(index).1
+}
+
+/// The summary's four nearest-rank percentiles, found from high to low rank.
+pub(super) fn calc_percentiles4(values: &mut [u32]) -> [u32; 4] {
+    if values.is_empty() {
+        return [0; 4];
+    }
+    let ranks = [50.0, 90.0, 95.0, 99.0].map(|p| percentile_index(values.len(), p));
+    let mut result = [0; 4];
+    let mut end = values.len();
+    for index in (0..4).rev() {
+        if index < 3 && ranks[index] == ranks[index + 1] {
+            result[index] = result[index + 1];
+            continue;
+        }
+        result[index] = *values[..end].select_nth_unstable(ranks[index]).1;
+        end = ranks[index];
+    }
+    result
+}
+
+#[inline(always)]
+fn percentile_index(len: usize, percentile: f64) -> usize {
+    (((len as f64) * (percentile / 100.0)).ceil() as usize).saturating_sub(1)
 }
 
 /// Append `text` with JSON string escapes applied.
@@ -99,4 +123,37 @@ fn civil_from_days(mut days: i64) -> (i64, i64, i64) {
 
 fn leap_day(year: i64) -> i64 {
     i64::from(year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{calc_percentile, calc_percentiles4, percentile_index};
+
+    fn expected(values: &[u32], percentile: f64) -> u32 {
+        if values.is_empty() {
+            return 0;
+        }
+        let mut sorted = values.to_vec();
+        sorted.sort_unstable();
+        sorted[percentile_index(sorted.len(), percentile)]
+    }
+
+    #[test]
+    fn percentile_selection_matches_nearest_rank() {
+        for values in [
+            vec![],
+            vec![7],
+            vec![9, 1],
+            vec![8, 2, 5],
+            vec![11, 1, 9, 3, 7, 5],
+            vec![4, 4, 4, 1, 9, 9, 2, 7],
+        ] {
+            let expected = [50.0, 90.0, 95.0, 99.0].map(|p| expected(&values, p));
+            let mut selected = values.clone();
+            assert_eq!(calc_percentiles4(&mut selected), expected);
+        }
+
+        let mut values = [9, 1, 5, 3, 7];
+        assert_eq!(calc_percentile(&mut values, 95.0), 9);
+    }
 }

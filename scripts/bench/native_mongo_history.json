@@ -358,5 +358,185 @@
       "reaggAvgMs": 20,
       "peakRssMB": 783.36328125
     }
+  },
+  {
+    "id": "2026-09-25T06:04:37.090Z",
+    "method": "tauri-native",
+    "app": "mongodb",
+    "note": "baseline-before-optimization",
+    "git": {
+      "commit": "e2aa64f",
+      "branch": "main",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\mongodb_logs_sample\\methaq-mongod.log",
+    "fileMB": 335.9213228225708,
+    "runs": 3,
+    "result": {
+      "slowQueryCount": 56872,
+      "collscanCount": 9656,
+      "patternsCount": 397,
+      "collectionsCount": 51,
+      "p95DurationMs": 3242
+    },
+    "summary": {
+      "uiReadyMs": {
+        "avg": 96.33333333333333,
+        "stddev": 17.326921891156037,
+        "min": 79,
+        "max": 120
+      },
+      "nativeMs": {
+        "avg": 57.666666666666664,
+        "stddev": 5.436502143433364,
+        "min": 52,
+        "max": 65
+      },
+      "invokeMs": {
+        "avg": 60.333333333333336
+      },
+      "assembleMs": {
+        "avg": 10.666666666666666
+      },
+      "throughputMBps": 4252.168643323681,
+      "nativeThroughputMBps": 6460.025438895593,
+      "reaggAvgMs": 16,
+      "peakRssMB": 872.00390625
+    }
+  },
+  {
+    "id": "2026-09-25T06:16:53.868Z",
+    "method": "tauri-native",
+    "app": "mongodb",
+    "note": "after-batch-merge-and-selection",
+    "git": {
+      "commit": "e2aa64f",
+      "branch": "main",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\mongodb_logs_sample\\methaq-mongod.log",
+    "fileMB": 335.9213228225708,
+    "runs": 5,
+    "result": {
+      "slowQueryCount": 56872,
+      "collscanCount": 9656,
+      "patternsCount": 397,
+      "collectionsCount": 51,
+      "p95DurationMs": 3242
+    },
+    "summary": {
+      "uiReadyMs": {
+        "avg": 100,
+        "stddev": 13.6088206689632,
+        "min": 88,
+        "max": 126
+      },
+      "nativeMs": {
+        "avg": 64.8,
+        "stddev": 7.277362159464102,
+        "min": 53,
+        "max": 76
+      },
+      "invokeMs": {
+        "avg": 67.4
+      },
+      "assembleMs": {
+        "avg": 11.2
+      },
+      "throughputMBps": 3817.287759347396,
+      "nativeThroughputMBps": 6338.1381664636,
+      "reaggAvgMs": 14.666666666666668,
+      "peakRssMB": 886.14453125
+    }
+  },
+  {
+    "id": "2026-09-25T06:32:59.178Z",
+    "method": "tauri-native",
+    "app": "mongodb",
+    "note": "search cache",
+    "git": {
+      "commit": "e2aa64f",
+      "branch": "main",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\mongodb_logs_sample\\methaq-mongod.log",
+    "fileMB": 335.9213228225708,
+    "runs": 3,
+    "result": {
+      "slowQueryCount": 56872,
+      "collscanCount": 9656,
+      "patternsCount": 397,
+      "collectionsCount": 51,
+      "p95DurationMs": 3242
+    },
+    "summary": {
+      "uiReadyMs": {
+        "avg": 98,
+        "stddev": 22.861904265976328,
+        "min": 78,
+        "max": 130
+      },
+      "nativeMs": {
+        "avg": 60.333333333333336,
+        "stddev": 4.4969125210773475,
+        "min": 55,
+        "max": 66
+      },
+      "invokeMs": {
+        "avg": 63
+      },
+      "assembleMs": {
+        "avg": 7.333333333333333
+      },
+      "throughputMBps": 4306.683625930395,
+      "nativeThroughputMBps": 6107.6604149558325,
+      "reaggAvgMs": 10,
+      "peakRssMB": 846.4765625
+    }
+  },
+  {
+    "id": "2026-09-25T06:41:21.352Z",
+    "method": "tauri-native",
+    "app": "mongodb",
+    "note": "search cache final verification",
+    "git": {
+      "commit": "e2aa64f",
+      "branch": "main",
+      "dirty": true
+    },
+    "file": "C:\\Users\\My_Home\\Desktop\\projects\\pm2-logs\\pm2-log-analyzer\\mongodb_logs_sample\\methaq-mongod.log",
+    "fileMB": 335.9213228225708,
+    "runs": 1,
+    "result": {
+      "slowQueryCount": 56872,
+      "collscanCount": 9656,
+      "patternsCount": 397,
+      "collectionsCount": 51,
+      "p95DurationMs": 3242
+    },
+    "summary": {
+      "uiReadyMs": {
+        "avg": 147,
+        "stddev": 0,
+        "min": 147,
+        "max": 147
+      },
+      "nativeMs": {
+        "avg": 65,
+        "stddev": 0,
+        "min": 65,
+        "max": 65
+      },
+      "invokeMs": {
+        "avg": 68
+      },
+      "assembleMs": {
+        "avg": 34
+      },
+      "throughputMBps": 2285.1790668202098,
+      "nativeThroughputMBps": 5168.020351116474,
+      "reaggAvgMs": 17.333333333333332,
+      "peakRssMB": 815.3515625
+    }
   }
 ]

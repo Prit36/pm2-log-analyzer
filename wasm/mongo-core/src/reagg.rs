@@ -8,7 +8,7 @@ use hashbrown::HashMap;
 
 use crate::fingerprint::MongoOp;
 use crate::store::Engine;
-use write::calc_percentile;
+use write::calc_percentiles4;
 
 pub struct FilterParams<'a> {
     pub op: &'a str,
@@ -291,13 +291,7 @@ impl Matches {
     }
 
     fn finish(&mut self) {
-        self.all_durations.sort_unstable();
-        self.percentiles = [
-            calc_percentile(&self.all_durations, 50.0),
-            calc_percentile(&self.all_durations, 90.0),
-            calc_percentile(&self.all_durations, 95.0),
-            calc_percentile(&self.all_durations, 99.0),
-        ];
+        self.percentiles = calc_percentiles4(&mut self.all_durations);
     }
 
     /// Group by `(namespace, op, plan, fingerprint)`; the composite key keeps
@@ -347,6 +341,40 @@ impl Matches {
 }
 
 /// The per-query filter predicates, resolved once per aggregation.
+#[derive(Default)]
+struct SearchCache {
+    namespaces: Vec<Option<Box<str>>>,
+    fingerprints: Vec<Option<Box<str>>>,
+    plans: Vec<Option<Box<str>>>,
+    remotes: Vec<Option<Box<str>>>,
+    users: Vec<Option<Box<str>>>,
+}
+
+impl SearchCache {
+    fn new(engine: &Engine, enabled: bool) -> Self {
+        if !enabled {
+            return Self::default();
+        }
+        Self {
+            namespaces: vec![None; engine.ns_strings.len()],
+            fingerprints: vec![None; engine.fingerprint_strings.len()],
+            plans: vec![None; engine.plan_strings.len()],
+            remotes: vec![None; engine.remote_strings.len()],
+            users: vec![None; engine.user_strings.len()],
+        }
+    }
+}
+
+#[inline]
+fn search_contains(cache: &mut [Option<Box<str>>], id: u16, value: &str, query: &str) -> bool {
+    let Some(cached) = cache.get_mut(id as usize) else {
+        return value.to_lowercase().contains(query);
+    };
+    cached
+        .get_or_insert_with(|| value.to_lowercase().into_boxed_str())
+        .contains(query)
+}
+
 struct FilterSpec<'a> {
     min_duration_ms: u32,
     plan_filter: u8,
@@ -355,10 +383,12 @@ struct FilterSpec<'a> {
     target_user_id: Option<u16>,
     high_scan_ratio_only: bool,
     search_lower: String,
+    search_cache: SearchCache,
 }
 
 impl<'a> FilterSpec<'a> {
     fn new(engine: &Engine, filters: &'a FilterParams<'a>) -> Self {
+        let search_lower = filters.search_query.to_lowercase();
         Self {
             min_duration_ms: filters.min_duration_ms,
             plan_filter: filters.plan_filter,
@@ -370,12 +400,13 @@ impl<'a> FilterSpec<'a> {
                 None
             },
             high_scan_ratio_only: filters.high_scan_ratio_only,
-            search_lower: filters.search_query.to_lowercase(),
+            search_cache: SearchCache::new(engine, !search_lower.is_empty()),
+            search_lower,
         }
     }
 
     /// `Some(row)` when the entry at `index` passes every filter.
-    fn matching_row(&self, engine: &Engine, index: usize) -> Option<MatchedRow> {
+    fn matching_row(&mut self, engine: &Engine, index: usize) -> Option<MatchedRow> {
         let duration = engine.durations_ms[index];
         let is_collscan = engine.is_collscan[index];
         if duration < self.min_duration_ms || !self.plan_allows(is_collscan) {
@@ -425,23 +456,43 @@ impl<'a> FilterSpec<'a> {
     }
 
     /// The free-text search spans namespace, fingerprint, plan, remote, and user.
-    fn search_allows(&self, engine: &Engine, row: &MatchedRow, namespace: &str) -> bool {
+    fn search_allows(&mut self, engine: &Engine, row: &MatchedRow, namespace: &str) -> bool {
         if self.search_lower.is_empty() {
             return true;
         }
-        if namespace.to_lowercase().contains(&self.search_lower) {
+        if search_contains(
+            &mut self.search_cache.namespaces,
+            row.ns_id,
+            namespace,
+            &self.search_lower,
+        ) {
             return true;
         }
         let fingerprint = &engine.fingerprint_strings[row.fingerprint_id as usize];
-        if fingerprint.to_lowercase().contains(&self.search_lower) {
+        if search_contains(
+            &mut self.search_cache.fingerprints,
+            row.fingerprint_id,
+            fingerprint,
+            &self.search_lower,
+        ) {
             return true;
         }
         let plan = &engine.plan_strings[row.plan_id as usize];
-        if plan.to_lowercase().contains(&self.search_lower) {
+        if search_contains(
+            &mut self.search_cache.plans,
+            row.plan_id,
+            plan,
+            &self.search_lower,
+        ) {
             return true;
         }
         let remote = &engine.remote_strings[row.remote_id as usize];
-        if remote.to_lowercase().contains(&self.search_lower) {
+        if search_contains(
+            &mut self.search_cache.remotes,
+            row.remote_id,
+            remote,
+            &self.search_lower,
+        ) {
             return true;
         }
         let user = engine
@@ -449,7 +500,12 @@ impl<'a> FilterSpec<'a> {
             .get(row.user_id as usize)
             .map(String::as_str)
             .unwrap_or("");
-        user.to_lowercase().contains(&self.search_lower)
+        search_contains(
+            &mut self.search_cache.users,
+            row.user_id,
+            user,
+            &self.search_lower,
+        )
     }
 }
 
@@ -513,7 +569,7 @@ pub fn reaggregate(engine: &Engine, filters: FilterParams) -> String {
 
 /// The filtered scan that every report section is built from.
 fn collect_matches(engine: &Engine, filters: &FilterParams) -> Matches {
-    let spec = FilterSpec::new(engine, filters);
+    let mut spec = FilterSpec::new(engine, filters);
     let mut matches = Matches::new(engine.durations_ms.len());
     for index in 0..engine.durations_ms.len() {
         if let Some(row) = spec.matching_row(engine, index) {
