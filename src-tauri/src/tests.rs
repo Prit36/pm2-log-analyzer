@@ -1,10 +1,93 @@
 use crate::{
-    configure_rayon_pool, ingest_native_internal, parse_mongo_files_internal,
-    parse_pm2_files_internal, AppState, MongoFilterOptions, Pm2ParseOptions,
+    configure_rayon_pool, expand_archive_bytes, ingest_native_internal, parse_mongo_files_internal,
+    parse_pm2_files_internal, AppState, LogCategory, LogData, MongoFilterOptions, Pm2ParseOptions,
 };
+use std::borrow::Cow;
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::Instant;
+
+fn stored_zip(name: &str, data: &[u8]) -> Vec<u8> {
+    fn push_u16(bytes: &mut Vec<u8>, value: u16) {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    fn push_u32(bytes: &mut Vec<u8>, value: u32) {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+
+    let name_bytes = name.as_bytes();
+    let size = data.len() as u32;
+    let mut zip = Vec::new();
+    zip.extend_from_slice(b"PK\x03\x04");
+    push_u16(&mut zip, 20);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u32(&mut zip, 0);
+    push_u32(&mut zip, size);
+    push_u32(&mut zip, size);
+    push_u16(&mut zip, name_bytes.len() as u16);
+    push_u16(&mut zip, 0);
+    zip.extend_from_slice(name_bytes);
+    zip.extend_from_slice(data);
+
+    let central_offset = zip.len() as u32;
+    zip.extend_from_slice(b"PK\x01\x02");
+    push_u16(&mut zip, 20);
+    push_u16(&mut zip, 20);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u32(&mut zip, 0);
+    push_u32(&mut zip, size);
+    push_u32(&mut zip, size);
+    push_u16(&mut zip, name_bytes.len() as u16);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u32(&mut zip, 0);
+    push_u32(&mut zip, 0);
+    zip.extend_from_slice(name_bytes);
+
+    let central_size = zip.len() as u32 - central_offset;
+    zip.extend_from_slice(b"PK\x05\x06");
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 1);
+    push_u16(&mut zip, 1);
+    push_u32(&mut zip, central_size);
+    push_u32(&mut zip, central_offset);
+    push_u16(&mut zip, 0);
+    zip
+}
+
+#[test]
+fn test_nested_zip_and_gzip_logs_expand_recursively() {
+    let gzip = [
+        0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0xcb, 0x48, 0xcd, 0xc9,
+        0xc9, 0x57, 0x28, 0xcf, 0x2f, 0xca, 0x49, 0xe1, 0x02, 0x00, 0x2d, 0x3b, 0x08, 0xaf,
+        0x0c, 0x00, 0x00, 0x00,
+    ];
+    let inner = stored_zip("api-out.log.gz", &gzip);
+    let outer = stored_zip("nested.zip", &inner);
+    let items = expand_archive_bytes("outer.zip", "outer.zip", Cow::Borrowed(&outer), 0);
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].category, LogCategory::Pm2);
+    assert!(matches!(items[0].data, LogData::Buffer(_)));
+    assert_eq!(&items[0].data[..], b"hello world\n");
+}
+
+#[test]
+fn test_folder_filter_accepts_log_archives_and_skips_unrelated_files() {
+    assert!(crate::is_supported_folder_file(Path::new("api-out.log.1")));
+    assert!(crate::is_supported_folder_file(Path::new("nested.zip")));
+    assert!(crate::is_supported_folder_file(Path::new("mongod.log.gz")));
+    assert!(!crate::is_supported_folder_file(Path::new("notes.pdf")));
+}
 
 /// The JSON a result published to the loopback payload server.
 fn result_json(payload: &Option<crate::PayloadRef>) -> String {

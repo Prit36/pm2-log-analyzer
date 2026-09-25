@@ -7,6 +7,7 @@ mod payload;
 use classifier::LogCategory;
 use memmap2::MmapOptions;
 use rayon::prelude::*;
+use std::borrow::Cow;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -15,6 +16,7 @@ use std::time::Instant;
 use tauri::{Emitter, Manager, State};
 
 const LINE_EXTEND: usize = 256 * 1024;
+const MAX_ARCHIVE_DEPTH: usize = 8;
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct ProgressPayload {
@@ -195,8 +197,28 @@ fn collect_paths_recursive(path: &Path, out: &mut Vec<PathBuf>) {
         if file_name.starts_with('.') || file_name.starts_with("__macosx") {
             continue;
         }
-        collect_paths_recursive(&child, out);
+        if child.is_file() {
+            if is_supported_folder_file(&child) {
+                out.push(child);
+            }
+        } else {
+            collect_paths_recursive(&child, out);
+        }
     }
+}
+
+fn is_supported_folder_file(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    [".log", ".txt", ".json", ".out", ".err", ".zip", ".gz"]
+        .iter()
+        .any(|extension| name.ends_with(extension))
+        || name.rsplit_once('.').is_some_and(|(_, extension)| {
+            !extension.is_empty() && extension.bytes().all(|byte| byte.is_ascii_digit())
+        })
 }
 
 /// Emit a `native-progress` event, when a window is attached.
@@ -337,8 +359,12 @@ fn open_candidate(path: &Path) -> Option<CandidateFile> {
 /// Expand one candidate into the log items it carries.
 fn expand_candidate(candidate: CandidateFile) -> Vec<LogSourceItem> {
     match candidate.category {
-        LogCategory::Zip => expand_zip_candidate(&candidate),
-        LogCategory::Gzip => expand_gzip_candidate(&candidate).into_iter().collect(),
+        LogCategory::Zip | LogCategory::Gzip => expand_archive_bytes(
+            &candidate.name,
+            &candidate.path,
+            Cow::Borrowed(&candidate.mmap[..]),
+            0,
+        ),
         category => vec![LogSourceItem {
             name: candidate.name,
             path: candidate.path,
@@ -349,22 +375,71 @@ fn expand_candidate(candidate: CandidateFile) -> Vec<LogSourceItem> {
     }
 }
 
-/// Expand a ZIP archive into one item per usable entry.
-fn expand_zip_candidate(candidate: &CandidateFile) -> Vec<LogSourceItem> {
-    let entries = match archive::parse_zip_entries(&candidate.mmap) {
+/// Expand ZIP/GZIP content recursively while leaving ordinary logs in owned buffers.
+fn expand_archive_bytes(
+    name: &str,
+    path: &str,
+    data: Cow<'_, [u8]>,
+    depth: usize,
+) -> Vec<LogSourceItem> {
+    if data.starts_with(b"PK\x03\x04") {
+        if depth >= MAX_ARCHIVE_DEPTH {
+            log::warn!("Skipping archive nested deeper than {MAX_ARCHIVE_DEPTH}: '{path}'");
+            return Vec::new();
+        }
+        return expand_zip_bytes(data.as_ref(), path, depth);
+    }
+
+    if data.starts_with(b"\x1f\x8b") {
+        if depth >= MAX_ARCHIVE_DEPTH {
+            log::warn!("Skipping archive nested deeper than {MAX_ARCHIVE_DEPTH}: '{path}'");
+            return Vec::new();
+        }
+        let mut output = Vec::new();
+        if let Err(error) = archive::decompress_gzip(&data, &mut output) {
+            log::warn!("Failed to decompress GZIP '{path}': {error}");
+            return Vec::new();
+        }
+        let clean_name = name.strip_suffix(".gz").unwrap_or(name);
+        return expand_archive_bytes(clean_name, path, Cow::Owned(output), depth + 1);
+    }
+
+    let mut category = classifier::classify_name(name);
+    if category == LogCategory::Unknown {
+        category = classifier::classify_content(&data);
+    }
+    if matches!(
+        category,
+        LogCategory::Skip | LogCategory::Zip | LogCategory::Gzip
+    ) {
+        return Vec::new();
+    }
+
+    let size = data.len();
+    vec![LogSourceItem {
+        name: name.rsplit('/').next().unwrap_or(name).to_string(),
+        path: path.to_string(),
+        data: LogData::Buffer(data.into_owned()),
+        size,
+        category,
+    }]
+}
+
+/// Expand a ZIP archive into one item per usable entry, preferring large entries first.
+fn expand_zip_bytes(data: &[u8], archive_path: &str, depth: usize) -> Vec<LogSourceItem> {
+    let entries = match archive::parse_zip_entries(data) {
         Ok(entries) => entries,
         Err(error) => {
-            log::warn!("Failed to parse ZIP archive '{}': {}", candidate.path, error);
+            log::warn!("Failed to parse ZIP archive '{archive_path}': {error}");
             return Vec::new();
         }
     };
     let mut valid_entries: Vec<_> = entries.into_iter().filter(is_extractable_entry).collect();
-    // Longest Processing Time first: the biggest entries start earliest.
     valid_entries.sort_by_key(|entry| std::cmp::Reverse(entry.compressed_size));
 
     valid_entries
         .into_par_iter()
-        .filter_map(|entry| extract_zip_item(&candidate.mmap, &candidate.path, entry))
+        .flat_map_iter(|entry| extract_zip_item(data, archive_path, entry, depth + 1))
         .collect()
 }
 
@@ -378,60 +453,19 @@ fn is_extractable_entry(entry: &archive::ZipEntryMeta) -> bool {
         && entry.uncompressed_size > 0
 }
 
-/// Decompress one ZIP entry into a log item, classifying its bytes.
+/// Decompress one ZIP entry, recursively expanding nested archives.
 fn extract_zip_item(
-    mmap: &memmap2::Mmap,
+    data: &[u8],
     archive_path: &str,
     entry: archive::ZipEntryMeta,
-) -> Option<LogSourceItem> {
-    let clean_name = entry
-        .name
-        .rsplit('/')
-        .next()
-        .unwrap_or(&entry.name)
-        .to_string();
-    let cow = archive::extract_zip_entry(mmap, &entry).ok()?;
-    let mut category = classifier::classify_name(&entry.name);
-    if category == LogCategory::Unknown {
-        category = classifier::classify_content(&cow);
-    }
-    if category == LogCategory::Skip {
-        return None;
-    }
-    let size = cow.len();
-    Some(LogSourceItem {
-        name: clean_name,
-        path: format!("{}/{}", archive_path, entry.name),
-        data: LogData::Buffer(cow.into_owned()),
-        size,
-        category,
-    })
-}
-
-/// Decompress a gzip member into a log item, classifying its bytes.
-fn expand_gzip_candidate(candidate: &CandidateFile) -> Option<LogSourceItem> {
-    let mut out = Vec::new();
-    archive::decompress_gzip(&candidate.mmap, &mut out).ok()?;
-    let clean_name = candidate
-        .name
-        .strip_suffix(".gz")
-        .unwrap_or(&candidate.name)
-        .to_string();
-    let mut category = classifier::classify_name(&clean_name);
-    if category == LogCategory::Unknown {
-        category = classifier::classify_content(&out);
-    }
-    if category == LogCategory::Skip {
-        return None;
-    }
-    let size = out.len();
-    Some(LogSourceItem {
-        name: clean_name,
-        path: candidate.path.clone(),
-        data: LogData::Buffer(out),
-        size,
-        category,
-    })
+    depth: usize,
+) -> Vec<LogSourceItem> {
+    let name = entry.name.rsplit('/').next().unwrap_or(&entry.name);
+    let path = format!("{archive_path}/{}", entry.name);
+    let Ok(content) = archive::extract_zip_entry(data, &entry) else {
+        return Vec::new();
+    };
+    expand_archive_bytes(name, &path, content, depth)
 }
 
 /// One shard range inside an in-memory log buffer.

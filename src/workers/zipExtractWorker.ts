@@ -3,7 +3,7 @@ import init, { classify_log_name_or_content, FastDecompressor } from "../wasm/pk
 
 export type ExtractedFileItem = {
   name: string;
-  category: "pm2" | "mongo";
+  category: "pm2" | "mongo" | "archive";
   buffer: ArrayBuffer;
   size: number;
 };
@@ -20,7 +20,7 @@ export type EntryExtractJob = {
   id: number;
   name: string;
   cleanName: string;
-  category: "pm2" | "mongo" | "unknown";
+  category: "pm2" | "mongo" | "unknown" | "archive";
   entryBlob: Blob;
   compressedSize: number;
   uncompressedSize: number;
@@ -30,7 +30,7 @@ export type EntryExtractJob = {
 export type ExtractedEntryResponse = {
   id: number;
   name: string;
-  category: "pm2" | "mongo";
+  category: "pm2" | "mongo" | "archive";
   buffer: ArrayBuffer;
   size: number;
 };
@@ -113,25 +113,34 @@ async function handleExtractEntry(job: EntryExtractJob): Promise<void> {
     compBytes = new Uint8Array(sliceBuffer);
   }
 
-  const { view } = decompressToView(compBytes, job.uncompressedSize, job.isDeflated);
-  let category = job.category;
-
-  if (category === "unknown") {
-    const sample = view.subarray(0, Math.min(view.byteLength, 4096));
-    const sniffed = classify_log_name_or_content(job.name, sample);
-    if (sniffed === "pm2" || sniffed === "mongo") {
-      category = sniffed;
-    }
+  let { view } = decompressToView(compBytes, job.uncompressedSize, job.isDeflated);
+  if (view[0] === 0x1f && view[1] === 0x8b) {
+    const gzipBytes = view.slice();
+    const ptr = decompressor!.decompress_gzip(gzipBytes);
+    view = new Uint8Array(wasmMemory!.buffer, ptr, decompressor!.output_len());
   }
 
-  const finalCategory: "pm2" | "mongo" = category === "mongo" ? "mongo" : "pm2";
+  let category = job.category;
+  const isZip =
+    view.length >= 4 &&
+    view[0] === 0x50 &&
+    view[1] === 0x4b &&
+    view[2] === 0x03 &&
+    view[3] === 0x04;
 
-  // Zero-copy path for both Mongo and PM2: slice linear memory into a transferable ArrayBuffer
-  // SAFETY: view.byteOffset and view.byteLength point to the decompressed output in wasmMemory
-  const standaloneBuf = wasmMemory!.buffer.slice(
-    view.byteOffset,
-    view.byteOffset + view.byteLength,
-  );
+  if (isZip) {
+    category = "archive";
+  } else if (category === "unknown" || category === "archive") {
+    const sample = view.subarray(0, Math.min(view.byteLength, 4096));
+    const sniffed = classify_log_name_or_content(job.name, sample);
+    category = sniffed === "mongo" ? "mongo" : "pm2";
+  }
+
+  const finalCategory: "pm2" | "mongo" | "archive" =
+    category === "archive" ? "archive" : category === "mongo" ? "mongo" : "pm2";
+
+  // SAFETY: view points to the decompressed output in wasmMemory.
+  const standaloneBuf = view.slice().buffer;
   decompressor!.clear();
 
   const payload: ExtractedEntryResponse = {
@@ -149,18 +158,35 @@ async function handleDecompressGz(fileBuffer: ArrayBuffer, fileName: string): Pr
   await ensureWasm();
 
   const gzBytes = new Uint8Array(fileBuffer);
-  const ptr = decompressor!.decompress_gzip(gzBytes);
-  const len = decompressor!.output_len();
+  let ptr = decompressor!.decompress_gzip(gzBytes);
+  let len = decompressor!.output_len();
   // SAFETY: Single C++ native slice into transferable ArrayBuffer
-  const standaloneBuf = wasmMemory!.buffer.slice(ptr, ptr + len);
+  let standaloneBuf = wasmMemory!.buffer.slice(ptr, ptr + len);
   decompressor!.clear();
 
-  const cleanName = fileName.replace(/\.gz$/i, "");
-  const sample = new Uint8Array(standaloneBuf, 0, Math.min(standaloneBuf.byteLength, 4096));
-  const cat = classify_log_name_or_content(cleanName, sample);
+  let cleanName = fileName.replace(/\.gz$/i, "");
+  let view = new Uint8Array(standaloneBuf);
+  if (view[0] === 0x1f && view[1] === 0x8b) {
+    const nestedGzip = view.slice();
+    ptr = decompressor!.decompress_gzip(nestedGzip);
+    len = decompressor!.output_len();
+    standaloneBuf = wasmMemory!.buffer.slice(ptr, ptr + len);
+    decompressor!.clear();
+    view = new Uint8Array(standaloneBuf);
+    if (!cleanName.toLowerCase().endsWith(".gz")) cleanName += ".gz";
+  }
+  const isZip = view[0] === 0x50 && view[1] === 0x4b && view[2] === 0x03 && view[3] === 0x04;
+  const isNestedGzip = view[0] === 0x1f && view[1] === 0x8b;
+  if (isZip && !cleanName.toLowerCase().endsWith(".zip")) cleanName += ".zip";
+  if (isNestedGzip && !cleanName.toLowerCase().endsWith(".gz")) cleanName += ".gz";
+  const cat =
+    isZip || isNestedGzip
+      ? "archive"
+      : classify_log_name_or_content(cleanName, view.subarray(0, Math.min(view.byteLength, 4096)));
 
   const durationMs = Math.round(performance.now() - t0);
-  const finalCategory: "pm2" | "mongo" = cat === "mongo" ? "mongo" : "pm2";
+  const finalCategory: "pm2" | "mongo" | "archive" =
+    cat === "archive" ? "archive" : cat === "mongo" ? "mongo" : "pm2";
   const result: ExtractedArchiveResult = {
     fileName,
     files: [

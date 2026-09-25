@@ -130,12 +130,18 @@ export async function pickNativeFiles(): Promise<string[] | null> {
     filters: [
       {
         name: "Logs & Archives",
-        extensions: ["log", "txt", "json", "zip"],
+        extensions: ["log", "txt", "json", "zip", "gz"],
       },
     ],
   });
   if (!selected) return null;
   return Array.isArray(selected) ? selected : [selected];
+}
+
+export async function pickNativeDirectory(): Promise<string | null> {
+  if (!isTauri()) return null;
+  const selected = await open({ directory: true, multiple: false });
+  return Array.isArray(selected) ? (selected[0] ?? null) : selected;
 }
 
 export async function reaggregatePm2Native(): Promise<void> {

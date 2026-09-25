@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent } from "react";
-import { ClipboardPaste, FilePlus, Plus, RefreshCw, Upload, X } from "lucide-react";
+import { ClipboardPaste, FilePlus, FolderOpen, Plus, RefreshCw, Upload, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useAnalysisStore } from "../store/analysisStore";
 import { cancel, parseText } from "../hooks/useParserWorker";
@@ -8,7 +8,11 @@ import { cn } from "../utils/cn";
 
 import { handleLogFilesUpload, filterValidFiles } from "../utils/zipExtractor";
 import { isTauri } from "../utils/platform";
-import { handleNativePathsUpload, pickNativeFiles } from "../services/nativeBridge";
+import {
+  handleNativePathsUpload,
+  pickNativeDirectory,
+  pickNativeFiles,
+} from "../services/nativeBridge";
 
 export const PASTE_WARN_BYTES = 8 * 1024 * 1024;
 
@@ -54,6 +58,8 @@ function HasDataActions({
   pasteOpen,
   onAppend,
   onReplace,
+  onAppendFolder,
+  onReplaceFolder,
 }: {
   isParsing: boolean;
   busy: boolean;
@@ -61,6 +67,8 @@ function HasDataActions({
   pasteOpen: boolean;
   onAppend: () => void;
   onReplace: () => void;
+  onAppendFolder: () => void;
+  onReplaceFolder: () => void;
 }) {
   if (isParsing) {
     return (
@@ -106,6 +114,24 @@ function HasDataActions({
       <button
         type="button"
         disabled={busy}
+        onClick={onAppendFolder}
+        className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+      >
+        <FolderOpen className="size-3.5" aria-hidden />
+        Add Folder
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onReplaceFolder}
+        className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+      >
+        <FolderOpen className="size-3.5" aria-hidden />
+        Replace Folder
+      </button>
+      <button
+        type="button"
+        disabled={busy}
         onClick={() => setPasteOpen(!pasteOpen)}
         className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
       >
@@ -127,6 +153,8 @@ function HasDataPanel(props: {
   setDragOver: (v: boolean) => void;
   onAppend: () => void;
   onReplace: () => void;
+  onAppendFolder: () => void;
+  onReplaceFolder: () => void;
 }) {
   return (
     <div
@@ -146,7 +174,7 @@ function HasDataPanel(props: {
         <Upload className="size-4 shrink-0 text-slate-400 dark:text-slate-500" aria-hidden />
         <LoadedFilesDisplay files={props.loadedFiles} />
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex max-w-full flex-wrap justify-end gap-2">
         <HasDataActions
           isParsing={props.isParsing}
           busy={props.busy}
@@ -154,6 +182,8 @@ function HasDataPanel(props: {
           pasteOpen={props.pasteOpen}
           onAppend={props.onAppend}
           onReplace={props.onReplace}
+          onAppendFolder={props.onAppendFolder}
+          onReplaceFolder={props.onReplaceFolder}
         />
       </div>
       {props.isParsing && props.progress && (
@@ -177,6 +207,7 @@ function EmptyPanel(props: {
   onDrop: (e: DragEvent) => void;
   setDragOver: (v: boolean) => void;
   onReplace: () => void;
+  onReplaceFolder: () => void;
 }) {
   return (
     <div
@@ -237,6 +268,15 @@ function EmptyPanel(props: {
               className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
             >
               Browse files
+            </button>
+            <button
+              type="button"
+              disabled={props.busy}
+              onClick={props.onReplaceFolder}
+              className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              <FolderOpen className="size-3.5" aria-hidden />
+              Choose folder
             </button>
             <button
               type="button"
@@ -361,6 +401,7 @@ function PastePanel(props: {
 
 export function IngestPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploadMode, setUploadMode] = useState<"replace" | "append">("replace");
   const [pendingDrop, setPendingDrop] = useState<File[] | null>(null);
@@ -436,8 +477,21 @@ export function IngestPanel() {
     inputRef.current?.click();
   };
 
+  const handleFolderClick = (mode: "replace" | "append") => {
+    if (isTauri()) {
+      void (async () => {
+        const path = await pickNativeDirectory();
+        if (path) await handleNativePathsUpload([path], mode);
+      })();
+      return;
+    }
+    setUploadMode(mode);
+    folderInputRef.current?.setAttribute("webkitdirectory", "");
+    folderInputRef.current?.click();
+  };
+
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const validFiles = filterValidFiles(e.target.files);
+    const validFiles = filterValidFiles(e.target.files, !e.target.hasAttribute("webkitdirectory"));
     e.target.value = "";
     if (validFiles.length === 0) {
       showToast("Please upload log, text, or archive files (.log, .zip, .gz, .txt, etc.)");
@@ -464,6 +518,8 @@ export function IngestPanel() {
           setDragOver={setDragOver}
           onAppend={handleAppendClick}
           onReplace={handleReplaceClick}
+          onAppendFolder={() => handleFolderClick("append")}
+          onReplaceFolder={() => handleFolderClick("replace")}
         />
       ) : (
         <EmptyPanel
@@ -475,6 +531,7 @@ export function IngestPanel() {
           onDrop={onDrop}
           setDragOver={setDragOver}
           onReplace={handleReplaceClick}
+          onReplaceFolder={() => handleFolderClick("replace")}
         />
       )}
       {pendingDrop && (
@@ -493,6 +550,15 @@ export function IngestPanel() {
         accept=".log,.log1,.log2,.log3,.log4,.log5,.log6,.log7,.log8,.log9,.log10,.txt,.out,.err,.1,.2,.3,.4,.5,.6,.7,.8,.9,.zip,.gz,application/zip,application/x-zip-compressed,application/gzip,text/plain"
         className="hidden"
         data-testid="log-file-input"
+        onChange={onInputChange}
+      />
+      <input
+        ref={folderInputRef}
+        type="file"
+        multiple
+        accept=".log,.log1,.log2,.log3,.log4,.log5,.log6,.log7,.log8,.log9,.log10,.txt,.out,.err,.1,.2,.3,.4,.5,.6,.7,.8,.9,.zip,.gz,application/zip,application/x-zip-compressed,application/gzip,text/plain"
+        className="hidden"
+        data-testid="log-folder-input"
         onChange={onInputChange}
       />
       {pasteOpen && <PastePanel busy={busy} pasteText={pasteText} setPasteText={setPasteText} />}

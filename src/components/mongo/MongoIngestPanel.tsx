@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent } from "react";
-import { ClipboardPaste, Database, Plus, RefreshCw, Upload, X } from "lucide-react";
+import { ClipboardPaste, Database, FolderOpen, Plus, RefreshCw, Upload, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useMongoStore } from "../../store/mongoStore";
 import { cancelMongo, parseMongoText } from "../../hooks/useMongoParserWorker";
@@ -7,7 +7,11 @@ import { formatBytes } from "../../utils/format";
 import { cn } from "../../utils/cn";
 import { handleLogFilesUpload, filterValidFiles } from "../../utils/zipExtractor";
 import { isTauri } from "../../utils/platform";
-import { handleNativePathsUpload, pickNativeFiles } from "../../services/nativeBridge";
+import {
+  handleNativePathsUpload,
+  pickNativeDirectory,
+  pickNativeFiles,
+} from "../../services/nativeBridge";
 
 export const PASTE_WARN_BYTES = 8 * 1024 * 1024;
 
@@ -19,6 +23,7 @@ export function MongoIngestPanel() {
   const [uploadMode, setUploadMode] = useState<"replace" | "append">("replace");
   const [pendingDrop, setPendingDrop] = useState<File[] | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const { isParsing, progress, hasData, loadedFiles, pasteOpen } = useMongoStore(
     useShallow((s) => ({
@@ -90,6 +95,19 @@ export function MongoIngestPanel() {
     inputRef.current?.click();
   };
 
+  const handleFolderClick = (mode: "replace" | "append") => {
+    if (isTauri()) {
+      void (async () => {
+        const path = await pickNativeDirectory();
+        if (path) await handleNativePathsUpload([path], mode);
+      })();
+      return;
+    }
+    setUploadMode(mode);
+    folderInputRef.current?.setAttribute("webkitdirectory", "");
+    folderInputRef.current?.click();
+  };
+
   const onDragOver = (e: DragEvent) => {
     e.preventDefault();
     if (!busy) setDragOver(true);
@@ -98,7 +116,7 @@ export function MongoIngestPanel() {
   const onDragLeave = () => setDragOver(false);
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const validFiles = filterValidFiles(e.target.files);
+    const validFiles = filterValidFiles(e.target.files, !e.target.hasAttribute("webkitdirectory"));
     e.target.value = "";
     if (validFiles.length === 0) {
       showToast("Please upload log or archive files (.log, .zip, .gz, .txt, .json, etc.)");
@@ -143,6 +161,15 @@ export function MongoIngestPanel() {
           onChange={onFileChange}
           accept=".log*,.txt,.json,.1,.2,.3,.4,.5,.6,.7,.8,.9,.zip,.gz,application/zip,application/x-zip-compressed,application/gzip,text/plain"
         />
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          data-testid="mongo-log-folder-input"
+          className="hidden"
+          onChange={onFileChange}
+          accept=".log*,.txt,.json,.1,.2,.3,.4,.5,.6,.7,.8,.9,.zip,.gz,application/zip,application/x-zip-compressed,application/gzip,text/plain"
+        />
 
         {busy ? (
           <div className="flex w-full max-w-md flex-col items-center gap-3">
@@ -172,7 +199,7 @@ export function MongoIngestPanel() {
             <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
               Loaded {loadedFiles.length} file{loadedFiles.length !== 1 ? "s" : ""}
             </span>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-center gap-2">
               <button
                 type="button"
                 onClick={handleAppendClick}
@@ -188,6 +215,22 @@ export function MongoIngestPanel() {
               >
                 <Upload className="size-3.5 text-slate-500" />
                 Replace
+              </button>
+              <button
+                type="button"
+                onClick={() => handleFolderClick("append")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-xs hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              >
+                <FolderOpen className="size-3.5 text-emerald-600" />
+                Add Folder
+              </button>
+              <button
+                type="button"
+                onClick={() => handleFolderClick("replace")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-xs hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              >
+                <FolderOpen className="size-3.5 text-slate-500" />
+                Replace Folder
               </button>
             </div>
           </div>
@@ -211,6 +254,14 @@ export function MongoIngestPanel() {
               >
                 <Upload className="size-3.5" />
                 Browse Files
+              </button>
+              <button
+                type="button"
+                onClick={() => handleFolderClick("replace")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+              >
+                <FolderOpen className="size-3.5" />
+                Choose Folder
               </button>
               <button
                 type="button"

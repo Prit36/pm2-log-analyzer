@@ -65,6 +65,7 @@ const POOL_CAP = Math.min(
   4,
 );
 const workerPool: Worker[] = [];
+const MAX_ARCHIVE_DEPTH = 8;
 
 function getWorker(index: number): Worker {
   while (workerPool.length <= index) {
@@ -80,8 +81,7 @@ for (let i = 0; i < Math.min(POOL_CAP, 2); i++) {
 
 export function isArchiveFile(file: File): boolean {
   return (
-    file.name.endsWith(".zip") ||
-    file.name.endsWith(".gz") ||
+    /\.(?:zip|gz)$/i.test(file.name) ||
     file.type === "application/zip" ||
     file.type === "application/x-zip-compressed" ||
     file.type === "application/gzip" ||
@@ -99,23 +99,28 @@ interface ZipCentralEntry {
   uncompressedSize: number;
   isDeflated: boolean;
   isDir: boolean;
-  category: "pm2" | "mongo" | "unknown" | "skip";
+  category: "pm2" | "mongo" | "unknown" | "skip" | "archive";
+}
+
+function stripPath(name: string): string {
+  const norm = name.replace(/\\/g, "/");
+  return norm.split("/").pop() || norm;
 }
 
 function stripPathAndGz(name: string): string {
-  const norm = name.replace(/\\/g, "/");
-  const fileName = norm.split("/").pop() || norm;
-  return fileName.replace(/\.gz$/i, "");
+  return stripPath(name).replace(/\.gz$/i, "");
 }
 
-export function filterValidFiles(fileList: FileList | File[] | null | undefined): File[] {
+export function filterValidFiles(
+  fileList: FileList | File[] | null | undefined,
+  allowUnknownFiles = true,
+): File[] {
   if (!fileList || fileList.length === 0) return [];
   return Array.from(fileList).filter(
     (f) =>
       isArchiveFile(f) ||
       /\.(?:log(?:\.\d+)?|txt|json|out|err|\d+)$/i.test(f.name) ||
-      f.type === "text/plain" ||
-      f.type === "",
+      (allowUnknownFiles && (f.type === "text/plain" || f.type === "")),
   );
 }
 
@@ -209,7 +214,7 @@ async function parseZipCentralDirectoryFromFile(file: File): Promise<ZipCentralE
       uncompressedSize: uncompSize,
       isDeflated: method === 8,
       isDir,
-      category: classifyByName(name),
+      category: /\.zip$/i.test(name) ? "archive" : classifyByName(name),
     });
 
     offset += 46 + nameLen + extraLen + commentLen;
@@ -221,6 +226,7 @@ async function parseZipCentralDirectoryFromFile(file: File): Promise<ZipCentralE
 function extractSingleGz(
   file: File,
   onProgress?: (p: { stage: string; percent: number }) => void,
+  depth = 0,
 ): Promise<ExtractedLogSet> {
   const w = getWorker(0);
   return new Promise<ExtractedLogSet>((resolve, reject) => {
@@ -232,26 +238,40 @@ function extractSingleGz(
         cleanup();
         // SAFETY: res.type === "RESULT" discriminates ExtractedArchiveResult payload
         const payload = res.payload as ExtractedArchiveResult;
-        const pm2Files: File[] = [];
-        const mongoFiles: File[] = [];
+        const result: ExtractedLogSet = {
+          pm2Files: [],
+          mongoFiles: [],
+          skipped: payload.skipped,
+          totalBytes: payload.totalBytes,
+          durationMs: payload.durationMs,
+        };
+        const nestedArchives: File[] = [];
         for (const item of payload.files) {
           const extractedFile = new File([item.buffer], item.name, {
             type: "text/plain",
             lastModified: file.lastModified,
           });
-          if (item.category === "mongo") {
-            mongoFiles.push(extractedFile);
+          if (item.category === "archive") {
+            nestedArchives.push(extractedFile);
+          } else if (item.category === "mongo") {
+            result.mongoFiles.push(extractedFile);
           } else {
-            pm2Files.push(extractedFile);
+            result.pm2Files.push(extractedFile);
           }
         }
-        resolve({
-          pm2Files,
-          mongoFiles,
-          skipped: payload.skipped,
-          totalBytes: payload.totalBytes,
-          durationMs: payload.durationMs,
-        });
+        void (async () => {
+          for (const nested of nestedArchives) {
+            try {
+              mergeLogSets(
+                result,
+                await extractArchive(nested, onProgress ? { onProgress } : undefined, depth + 1),
+              );
+            } catch {
+              result.skipped.push(nested.name);
+            }
+          }
+          resolve(result);
+        })().catch(reject);
       } else if (res.type === "ERROR") {
         cleanup();
         reject(new Error(res.payload.message));
@@ -295,16 +315,33 @@ export type ExtractArchiveCallbacks = {
   onMongoReady?: (payload: MongoReadyPayload) => void;
 };
 
+function mergeLogSets(target: ExtractedLogSet, source: ExtractedLogSet): void {
+  target.pm2Files.push(...source.pm2Files);
+  target.mongoFiles.push(...source.mongoFiles);
+  target.skipped.push(...source.skipped);
+  target.totalBytes += source.totalBytes;
+}
+
 export async function extractArchive(
   file: File,
   callbacks?: ExtractArchiveCallbacks,
+  depth = 0,
 ): Promise<ExtractedLogSet> {
   const cbOptions = callbacks ?? {};
   const t0 = performance.now();
 
-  const isGz = file.name.endsWith(".gz");
-  if (isGz) {
-    return extractSingleGz(file, cbOptions.onProgress);
+  if (depth >= MAX_ARCHIVE_DEPTH) {
+    return {
+      pm2Files: [],
+      mongoFiles: [],
+      skipped: [file.name],
+      totalBytes: 0,
+      durationMs: 0,
+    };
+  }
+
+  if (/\.gz$/i.test(file.name)) {
+    return extractSingleGz(file, cbOptions.onProgress, depth);
   }
 
   const entries = await parseZipCentralDirectoryFromFile(file);
@@ -313,7 +350,8 @@ export async function extractArchive(
   }
 
   const skipped: string[] = [];
-  const validEntries: (ZipCentralEntry & { category: "pm2" | "mongo" | "unknown" })[] = [];
+  const validEntries: (ZipCentralEntry & { category: "pm2" | "mongo" | "unknown" | "archive" })[] =
+    [];
 
   for (const e of entries) {
     if (
@@ -326,7 +364,11 @@ export async function extractArchive(
       skipped.push(e.name);
     } else {
       // SAFETY: e.category is guaranteed not to be "skip" by the preceding branch
-      validEntries.push(e as ZipCentralEntry & { category: "pm2" | "mongo" | "unknown" });
+      validEntries.push(
+        e as ZipCentralEntry & {
+          category: "pm2" | "mongo" | "unknown" | "archive";
+        },
+      );
     }
   }
 
@@ -337,7 +379,7 @@ export async function extractArchive(
 
   const expectedPm2 = validEntries.filter((e) => e.category === "pm2").length;
   const expectedMongo = validEntries.filter((e) => e.category === "mongo").length;
-  const hasUnknown = validEntries.some((e) => e.category === "unknown");
+  const hasUnknown = validEntries.some((e) => e.category === "unknown" || e.category === "archive");
   let pm2Dispatched = false;
   let mongoDispatched = false;
 
@@ -357,6 +399,9 @@ export async function extractArchive(
   let completedCount = 0;
   const pm2Files: File[] = [];
   const mongoFiles: File[] = [];
+  const nestedArchives: File[] = [];
+  const canUsePm2DirectBuffer = Boolean(cbOptions.onPm2Ready) && !hasUnknown;
+  const canUseMongoDirectBuffer = Boolean(cbOptions.onMongoReady) && !hasUnknown;
   let totalBytes = 0;
 
   const queue = validEntries.map((entry, idx) => ({ entry, idx }));
@@ -382,30 +427,28 @@ export async function extractArchive(
           cleanup();
           const item = res.payload;
 
-          if (item.category === "mongo") {
-            const extractedFile =
-              expectedMongo === 1
-                ? new File([], item.name, { type: "text/plain" })
-                : new File([item.buffer], item.name, { type: "text/plain" });
-            if (expectedMongo === 1) {
+          if (item.category === "archive") {
+            nestedArchives.push(new File([item.buffer], item.name));
+          } else if (item.category === "mongo") {
+            const useDirectBuffer = expectedMongo === 1 && canUseMongoDirectBuffer;
+            const extractedFile = useDirectBuffer
+              ? new File([], item.name, { type: "text/plain" })
+              : new File([item.buffer], item.name, { type: "text/plain" });
+            if (useDirectBuffer) {
               Object.defineProperty(extractedFile, "size", { value: item.size });
-            }
-            mongoFiles.push(extractedFile);
-            if (item.buffer && expectedMongo === 1) {
               mongoDirectBuffer = { buffer: item.buffer, fileName: item.name, size: item.size };
             }
+            mongoFiles.push(extractedFile);
           } else {
-            const extractedFile =
-              expectedPm2 === 1
-                ? new File([], item.name, { type: "text/plain" })
-                : new File([item.buffer], item.name, { type: "text/plain" });
-            if (expectedPm2 === 1) {
+            const useDirectBuffer = expectedPm2 === 1 && canUsePm2DirectBuffer;
+            const extractedFile = useDirectBuffer
+              ? new File([], item.name, { type: "text/plain" })
+              : new File([item.buffer], item.name, { type: "text/plain" });
+            if (useDirectBuffer) {
               Object.defineProperty(extractedFile, "size", { value: item.size });
-            }
-            pm2Files.push(extractedFile);
-            if (item.buffer && expectedPm2 === 1) {
               pm2DirectBuffer = { buffer: item.buffer, fileName: item.name, size: item.size };
             }
+            pm2Files.push(extractedFile);
           }
           totalBytes += item.size;
 
@@ -483,14 +526,29 @@ export async function extractArchive(
   await Promise.all(workerTasks);
   workerPool.length = 0;
 
-  const durationMs = Math.round(performance.now() - t0);
-  return {
+  const result: ExtractedLogSet = {
     pm2Files,
     mongoFiles,
     skipped,
     totalBytes,
-    durationMs,
+    durationMs: 0,
   };
+  for (const nested of nestedArchives) {
+    try {
+      mergeLogSets(
+        result,
+        await extractArchive(
+          nested,
+          cbOptions.onProgress ? { onProgress: cbOptions.onProgress } : undefined,
+          depth + 1,
+        ),
+      );
+    } catch {
+      result.skipped.push(nested.name);
+    }
+  }
+  result.durationMs = Math.round(performance.now() - t0);
+  return result;
 }
 
 export async function handleArchiveUpload(
@@ -622,9 +680,9 @@ export async function handleLogFilesUpload(
   files: File[],
   uploadMode: "replace" | "append" = "replace",
 ): Promise<void> {
-  const archive = files.find(isArchiveFile);
-  if (archive) {
-    return handleArchiveUpload(archive, uploadMode);
+  const archives = files.filter(isArchiveFile);
+  if (archives.length === 1 && files.length === 1) {
+    return handleArchiveUpload(archives[0]!, uploadMode);
   }
 
   const pm2Files: File[] = [];
@@ -632,6 +690,7 @@ export async function handleLogFilesUpload(
   const activeMode = useAppModeStore.getState().mode;
 
   for (const file of files) {
+    if (isArchiveFile(file)) continue;
     const cat = classifyByName(file.name);
     if (cat === "mongo") {
       mongoFiles.push(file);
@@ -643,22 +702,67 @@ export async function handleLogFilesUpload(
     }
   }
 
-  if (pm2Files.length > 0) {
-    const res = uploadMode === "append" ? appendPm2Files(pm2Files) : setPm2Files(pm2Files);
-    if (res.length > 0) void parseFiles(res);
-  }
-  if (mongoFiles.length > 0) {
-    const res = uploadMode === "append" ? appendMongoFiles(mongoFiles) : setMongoFiles(mongoFiles);
-    if (res.length > 0) void parseMongoFiles(res);
+  const failedArchives: string[] = [];
+  if (archives.length > 0) {
+    setPm2Parsing(true);
+    setMongoParsing(true);
+    setPm2Progress({ stage: "reading", processed: 0, total: 100, percent: 0 });
+    setMongoProgress({ stage: "reading", processed: 0, total: 100, percent: 0 });
+
+    for (let index = 0; index < archives.length; index++) {
+      const archiveFile = archives[index]!;
+      try {
+        const result = await extractArchive(archiveFile, {
+          onProgress: (progress) => {
+            const percent = Math.round((index * 100 + progress.percent) / archives.length);
+            setPm2Progress({ stage: "reading", processed: percent, total: 100, percent });
+            setMongoProgress({ stage: "reading", processed: percent, total: 100, percent });
+          },
+        });
+        pm2Files.push(...result.pm2Files);
+        mongoFiles.push(...result.mongoFiles);
+      } catch {
+        failedArchives.push(archiveFile.name);
+      }
+    }
   }
 
-  if (pm2Files.length > 0 && mongoFiles.length > 0) {
+  if (pm2Files.length > 0) {
+    const result = uploadMode === "append" ? appendPm2Files(pm2Files) : setPm2Files(pm2Files);
+    if (result.length > 0) void parseFiles(result);
+  } else if (archives.length > 0) {
+    setPm2Parsing(false);
+  }
+
+  if (mongoFiles.length > 0) {
+    const result =
+      uploadMode === "append" ? appendMongoFiles(mongoFiles) : setMongoFiles(mongoFiles);
+    if (result.length > 0) void parseMongoFiles(result);
+  } else if (archives.length > 0) {
+    setMongoParsing(false);
+  }
+
+  if (archives.length > 0 && pm2Files.length === 0 && mongoFiles.length === 0) {
+    setPm2Parsing(false);
+    setMongoParsing(false);
+    const skippedMessage =
+      failedArchives.length > 0 ? ` (${failedArchives.length} unreadable archive(s) skipped)` : "";
+    notify(`No valid API or MongoDB logs found in the selected files${skippedMessage}`);
+  } else if (pm2Files.length > 0 && mongoFiles.length > 0) {
+    const skippedMessage =
+      failedArchives.length > 0 ? ` ${failedArchives.length} unreadable archive(s) skipped.` : "";
     notify(
-      `Classified ${pm2Files.length} API log(s) and ${mongoFiles.length} MongoDB log(s). Both tabs populated.`,
+      `Imported ${pm2Files.length} API log(s) and ${mongoFiles.length} MongoDB log(s). Both tabs populated.${skippedMessage}`,
     );
   } else if (mongoFiles.length > 0) {
     setMode("mongo");
+    if (failedArchives.length > 0) {
+      notify(`Imported MongoDB logs; ${failedArchives.length} unreadable archive(s) skipped.`);
+    }
   } else if (pm2Files.length > 0) {
     setMode("pm2");
+    if (failedArchives.length > 0) {
+      notify(`Imported API logs; ${failedArchives.length} unreadable archive(s) skipped.`);
+    }
   }
 }
