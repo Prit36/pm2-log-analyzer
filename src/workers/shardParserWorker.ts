@@ -306,7 +306,7 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
     if (msg.type === "PARSE_SHARD_BUFFER") {
       const { buf, start, end, totalSize, readStart, shardIndex, epoch, normalizeMode } = msg;
       engine.clear();
-      const bytes = new Uint8Array(buf);
+      let bytes: Uint8Array | null = new Uint8Array(buf);
       let copyIngestMs = 0;
       let feedMs = 0;
 
@@ -326,6 +326,7 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         bufOff += take;
         off += take;
       }
+      bytes = null;
 
       const tEnd = performance.now();
       engine.end_shard();

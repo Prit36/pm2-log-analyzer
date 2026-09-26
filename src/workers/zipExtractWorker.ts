@@ -9,6 +9,7 @@ export type ExtractedFileItem = {
 };
 
 export type ExtractedArchiveResult = {
+  id?: number | undefined;
   fileName: string;
   files: ExtractedFileItem[];
   skipped: string[];
@@ -37,13 +38,16 @@ export type ExtractedEntryResponse = {
 
 export type ZipWorkerMessage =
   | { type: "EXTRACT_ENTRY"; payload: EntryExtractJob }
-  | { type: "DECOMPRESS_GZ"; payload: { fileBuffer: ArrayBuffer; fileName: string } };
+  | {
+      type: "DECOMPRESS_GZ";
+      payload: { id?: number | undefined; fileBuffer: ArrayBuffer; fileName: string };
+    };
 
 export type ZipWorkerResponse =
   | { type: "PROGRESS"; payload: { stage: string; percent: number } }
   | { type: "ENTRY_RESULT"; payload: ExtractedEntryResponse }
   | { type: "RESULT"; payload: ExtractedArchiveResult }
-  | { type: "ERROR"; payload: { message: string; id?: number } };
+  | { type: "ERROR"; payload: { message: string; id?: number | undefined } };
 
 interface WorkerGlobal {
   postMessage: (message: ZipWorkerResponse, transfer?: Transferable[]) => void;
@@ -153,7 +157,11 @@ async function handleExtractEntry(job: EntryExtractJob): Promise<void> {
   self.postMessage({ type: "ENTRY_RESULT", payload }, [standaloneBuf]);
 }
 
-async function handleDecompressGz(fileBuffer: ArrayBuffer, fileName: string): Promise<void> {
+async function handleDecompressGz(
+  fileBuffer: ArrayBuffer,
+  fileName: string,
+  id?: number,
+): Promise<void> {
   const t0 = performance.now();
   await ensureWasm();
 
@@ -188,6 +196,7 @@ async function handleDecompressGz(fileBuffer: ArrayBuffer, fileName: string): Pr
   const finalCategory: "pm2" | "mongo" | "archive" =
     cat === "archive" ? "archive" : cat === "mongo" ? "mongo" : "pm2";
   const result: ExtractedArchiveResult = {
+    id,
     fileName,
     files: [
       {
@@ -213,20 +222,14 @@ self.onmessage = async (e: MessageEvent<ZipWorkerMessage>) => {
     if (msg.type === "EXTRACT_ENTRY") {
       await handleExtractEntry(msg.payload);
     } else if (msg.type === "DECOMPRESS_GZ") {
-      await handleDecompressGz(msg.payload.fileBuffer, msg.payload.fileName);
+      await handleDecompressGz(msg.payload.fileBuffer, msg.payload.fileName, msg.payload.id);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (msg.type === "EXTRACT_ENTRY") {
-      self.postMessage({
-        type: "ERROR",
-        payload: { message, id: msg.payload.id },
-      } satisfies ZipWorkerResponse);
-    } else {
-      self.postMessage({
-        type: "ERROR",
-        payload: { message },
-      } satisfies ZipWorkerResponse);
-    }
+    const id = "id" in msg.payload ? msg.payload.id : undefined;
+    self.postMessage({
+      type: "ERROR",
+      payload: { message, id },
+    } satisfies ZipWorkerResponse);
   }
 };
