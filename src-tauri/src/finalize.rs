@@ -100,18 +100,6 @@ struct MergedEndpoint {
 }
 
 impl MergedEndpoint {
-    /// Start an accumulator from an endpoint that is not in the map yet.
-    fn from_endpoint(endpoint: &pm2_core::DecodedEndpoint) -> Self {
-        Self {
-            count: endpoint.count,
-            sum: endpoint.sum,
-            min: endpoint.min,
-            max: endpoint.max,
-            error_count: endpoint.error_count,
-            sketch: endpoint.sketch.clone(),
-        }
-    }
-
     /// Fold one more endpoint in, preserving the smallest non-zero minimum.
     fn absorb(&mut self, endpoint: &pm2_core::DecodedEndpoint) {
         self.count += endpoint.count;
@@ -149,13 +137,19 @@ pub fn finalize_pm2_with_partials(
     options: &Pm2ParseOptions,
     partials: Vec<pm2_core::DecodedPartial>,
 ) -> Result<String, String> {
+    let t0 = std::time::Instant::now();
     let date_filter = options.date_filter.clone().unwrap_or_default();
     let MergedPartials { summary, partitioned } = merge_partials(partials);
+    let t_part = t0.elapsed().as_millis();
+
+    let t1 = std::time::Instant::now();
     let (api, diagnostics) = rayon::join(
         || merge_api_endpoints(partitioned),
         || collect_shard_diagnostics(shards, &date_filter, options),
     );
+    let t_join = t1.elapsed().as_millis();
 
+    let t2 = std::time::Instant::now();
     let result = AggregatedResult {
         api,
         cron: diagnostics.cron,
@@ -173,7 +167,10 @@ pub fn finalize_pm2_with_partials(
         daily_stats: diagnostics.daily,
     };
 
-    serde_json::to_string(&result).map_err(|error| format!("failed to serialize PM2 result: {error}"))
+    let json = serde_json::to_string(&result).map_err(|error| format!("failed to serialize PM2 result: {error}"));
+    let t_json = t2.elapsed().as_millis();
+    eprintln!("[finalize-pm2] partition: {t_part}ms, join: {t_join}ms, json: {t_json}ms");
+    json
 }
 
 /// The merged summary plus every endpoint, hash-partitioned for the parallel pass.
@@ -316,9 +313,26 @@ impl ApiMethodMaps {
         match map.get_mut(&endpoint.path) {
             Some(acc) => acc.absorb(&endpoint),
             None => {
+                let pm2_core::DecodedEndpoint {
+                    count,
+                    sum,
+                    min,
+                    max,
+                    error_count,
+                    sketch,
+                    path,
+                    ..
+                } = endpoint;
                 map.insert(
-                    endpoint.path.clone(),
-                    MergedEndpoint::from_endpoint(&endpoint),
+                    path,
+                    MergedEndpoint {
+                        count,
+                        sum,
+                        min,
+                        max,
+                        error_count,
+                        sketch,
+                    },
                 );
             }
         }
@@ -329,7 +343,7 @@ impl ApiMethodMaps {
         for (index, map) in self.maps.into_iter().enumerate() {
             let method = METHODS[index % METHODS.len()];
             for (path, merged) in map {
-                rows.push(api_row(method, &path, &merged));
+                rows.push(api_row(method, path, &merged));
             }
         }
         rows
@@ -337,16 +351,18 @@ impl ApiMethodMaps {
 }
 
 /// One API row from a merged endpoint.
-fn api_row(method: &'static str, path: &[u8], merged: &MergedEndpoint) -> ApiRow {
+fn api_row(method: &'static str, path: Vec<u8>, merged: &MergedEndpoint) -> ApiRow {
     let [p50_ms, p90_ms, p95_ms, p99_ms] = merged.sketch.quantiles4_ms();
     let avg = if merged.count > 0 {
         merged.sum / merged.count as f64
     } else {
         0.0
     };
+    let path_str = String::from_utf8(path)
+        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
     ApiRow {
         method,
-        path: String::from_utf8_lossy(path).into_owned(),
+        path: path_str,
         count: merged.count,
         avg_ms: round2(avg),
         p50_ms: round2(p50_ms as f64) as f32,

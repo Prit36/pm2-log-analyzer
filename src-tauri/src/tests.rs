@@ -466,3 +466,53 @@ fn result_json(payload: &Option<crate::PayloadRef>) -> String {
                 .unwrap_or(0),
         );
     }
+
+    #[test]
+    fn test_profile_batch_import() {
+        configure_rayon_pool();
+        let download_dir = "C:/Users/My_Home/Downloads";
+        let file_names = [
+            "monday-14-09.zip",
+            "16-09-api.zip",
+            "21-09-api.zip",
+            "12-days-pm2logs-5-to-16-sep.zip",
+            "pm2.log.2.gz",
+            "api-error.log.2.gz",
+            "24-09-api.zip",
+            "api-out.log.2.gz",
+            "22-09-all-logs.zip",
+        ];
+        let paths: Vec<String> = file_names
+            .iter()
+            .map(|name| format!("{download_dir}/{name}"))
+            .filter(|p| Path::new(p).exists())
+            .collect();
+        if paths.len() != file_names.len() {
+            println!("Some batch files missing, skipping test");
+            return;
+        }
+
+        let state = AppState {
+            pm2_shards: Mutex::new(Vec::new()),
+            mongo: Mutex::new(None),
+        };
+
+        let t0 = Instant::now();
+        let res = ingest_native_internal(
+            &paths,
+            &Pm2ParseOptions::default(),
+            &MongoFilterOptions::default(),
+            Some("replace"),
+            None,
+            &state,
+        )
+        .expect("batch ingest_native_internal");
+        let wall = t0.elapsed().as_millis();
+
+        println!(
+            "BATCH INGEST: wall {}ms, pm2 hits {}, mongo lines {}",
+            wall,
+            res.pm2.as_ref().map(|p| p.hit_count).unwrap_or(0),
+            res.mongo.as_ref().map(|m| m.total_lines).unwrap_or(0),
+        );
+    }

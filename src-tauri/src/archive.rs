@@ -124,29 +124,6 @@ fn little_endian_u32(bytes: &[u8], offset: usize) -> u32 {
     ])
 }
 
-const PREFETCH_WORKERS: usize = 8;
-
-/// Fault a freshly allocated decode buffer in from several threads. libdeflate
-/// fills it sequentially, so touching ahead of the decoder keeps its writes off
-/// the page-fault path; the inflating threads are the only ones busy otherwise.
-fn pre_fault(buf: &mut [u8], workers: usize) {
-    if buf.len() < 8 * 1024 * 1024 || workers < 2 {
-        return;
-    }
-    let per_worker = buf.len().div_ceil(workers);
-    let chunks: Vec<&[u8]> = buf.chunks(per_worker).collect();
-    std::thread::scope(|scope| {
-        for chunk in chunks {
-            scope.spawn(move || {
-                let mut index = 0;
-                while index < chunk.len() {
-                    std::hint::black_box(chunk[index]);
-                    index += 4096;
-                }
-            });
-        }
-    });
-}
 
 /// Decompress or slice a single ZIP entry.
 /// Handles Method 0 (Stored), Method 8 (Deflated), and nested GZIP.
@@ -171,11 +148,8 @@ pub fn extract_zip_entry<'a>(
         8 => {
             // Raw Deflate (RFC 1951). libdeflate is measurably faster than the
             // pure-Rust decoder on log data (~1.3x: 268MB pm2 237->172ms, 458MB
-            // mongo 265->203ms). The buffer is zeroed (Windows hands out
-            // lazily-zeroed pages the decoder faults in as it writes), so the
-            // pages are faulted ahead of the decoder from several threads.
+            // mongo 265->203ms).
             let mut out = vec![0u8; entry.uncompressed_size];
-            pre_fault(&mut out, PREFETCH_WORKERS);
             let mut decompressor = libdeflater::Decompressor::new();
             match decompressor.deflate_decompress(raw_slice, &mut out) {
                 Ok(len) if len == entry.uncompressed_size => {}

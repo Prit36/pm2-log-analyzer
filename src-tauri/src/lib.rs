@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use std::borrow::Cow;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 use tauri::{Emitter, Manager, State};
@@ -287,13 +287,19 @@ fn expand_log_sources(
         return Err("No valid log or archive files found".into());
     }
     let total_paths = file_paths.len();
-    let mut items = Vec::new();
-    for (index, path) in file_paths.iter().enumerate() {
-        report_read_progress(app_handle, index + 1, total_paths);
-        if let Some(candidate) = open_candidate(path) {
-            items.extend(expand_candidate(candidate));
-        }
-    }
+    let progress_count = AtomicUsize::new(0);
+
+    let candidate_items: Vec<Vec<LogSourceItem>> = file_paths
+        .into_par_iter()
+        .map(|path| {
+            let items = open_candidate(&path).map(expand_candidate).unwrap_or_default();
+            let done = progress_count.fetch_add(1, Ordering::Relaxed) + 1;
+            report_read_progress(app_handle, done, total_paths);
+            items
+        })
+        .collect();
+
+    let items: Vec<LogSourceItem> = candidate_items.into_iter().flatten().collect();
     Ok(items)
 }
 
@@ -489,7 +495,7 @@ pub fn parse_pm2_files_internal(
     if paths.len() == 1 {
         let path = &paths[0];
         let file_path = Path::new(path);
-        if file_path.is_file() && !file_path.ends_with(".zip") && !file_path.ends_with(".gz") {
+        if file_path.is_file() && !path.ends_with(".zip") && !path.ends_with(".gz") {
             let file = File::open(file_path).map_err(|e| format!("Failed to open '{path}': {e}"))?;
             let mmap = unsafe { MmapOptions::new().map(&file) }
                 .map_err(|e| format!("Failed to memory-map '{path}': {e}"))?;
@@ -820,7 +826,10 @@ fn parse_pm2_items(
     };
     let shard_options = Pm2ShardOptions::new(options);
 
+    let task_count = tasks.len();
+    let t_shards = Instant::now();
     let (mut shards, partials) = parse_pm2_item_shards(&tasks, &shard_options, progress);
+    let shards_ms = t_shards.elapsed().as_millis();
     drop_in_background(items);
     if shared_progress.is_none() {
         emit_progress(
@@ -832,7 +841,10 @@ fn parse_pm2_items(
         );
     }
 
+    let t_fin = Instant::now();
     let json = finalize::finalize_pm2_with_partials(&mut shards, options, partials)?;
+    let fin_ms = t_fin.elapsed().as_millis();
+    eprintln!("[pm2-timing] shards ({task_count} tasks): {shards_ms}ms, finalize: {fin_ms}ms");
     let result = pm2_result(&shards, json, started.elapsed().as_millis() as u64);
     Ok((shards, result))
 }
@@ -896,7 +908,7 @@ pub fn parse_mongo_files_internal(
     if paths.len() == 1 {
         let path = &paths[0];
         let file_path = Path::new(path);
-        if file_path.is_file() && !file_path.ends_with(".zip") && !file_path.ends_with(".gz") {
+        if file_path.is_file() && !path.ends_with(".zip") && !path.ends_with(".gz") {
             let file = File::open(file_path).map_err(|e| format!("Failed to open '{path}': {e}"))?;
             let mmap = unsafe { MmapOptions::new().map(&file) }
                 .map_err(|e| format!("Failed to memory-map '{path}': {e}"))?;
@@ -939,7 +951,10 @@ fn parse_mongo_items(
         }
     };
 
+    let task_count = tasks.len();
+    let t_mshards = Instant::now();
     let shards = parse_mongo_item_shards(&tasks, progress);
+    let mshards_ms = t_mshards.elapsed().as_millis();
     drop_in_background(items);
     if shared_progress.is_none() {
         emit_progress(
@@ -951,11 +966,14 @@ fn parse_mongo_items(
         );
     }
 
+    let t_mfin = Instant::now();
     let mut engine = existing_engine.unwrap_or_default();
     for shard in shards {
         engine.merge(shard);
     }
     let json = filtered_mongo_json(&engine, options);
+    let mfin_ms = t_mfin.elapsed().as_millis();
+    eprintln!("[mongo-timing] shards ({task_count} tasks): {mshards_ms}ms, merge+reagg: {mfin_ms}ms");
     let result = mongo_result(&engine, json, started.elapsed().as_millis() as u64);
     Ok((engine, result))
 }
@@ -1000,7 +1018,6 @@ fn parse_mongo_item_shards(
 
 #[expect(
     clippy::too_many_arguments,
-    clippy::type_complexity,
     reason = "the entry points thread the Tauri app handle and engine state straight through"
 )]
 fn ingest_single_zip(
@@ -1068,10 +1085,6 @@ fn ingest_single_zip(
 }
 
 /// Store both halves of a ZIP ingest and assemble the result.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the ZIP entry point threads the app handle and engine state through"
-)]
 fn finish_zip_ingest(
     state: &AppState,
     pm2_outcome: Option<ZipPm2Outcome>,
@@ -1242,10 +1255,6 @@ struct ZipMongoOutcome {
 }
 
 /// Inflate and parse the PM2 entries of a ZIP archive.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the ZIP branches thread the archive, its options, and the progress ticker"
-)]
 fn ingest_zip_pm2(
     mmap: &memmap2::Mmap,
     zip_path: &str,
@@ -1345,6 +1354,227 @@ fn sum_file_sizes(files: &[NativeFileInfo]) -> u64 {
     files.iter().map(|file| file.size).sum()
 }
 
+#[derive(Default)]
+struct IngestPipelineOutcome {
+    pm2_shards: Vec<pm2_core::Pm2Engine>,
+    pm2_partials: Vec<pm2_core::DecodedPartial>,
+    mongo_shards: Vec<mongo_core::MongoEngine>,
+    files: Vec<NativeFileInfo>,
+}
+
+impl IngestPipelineOutcome {
+    fn merge(&mut self, mut other: IngestPipelineOutcome) {
+        self.pm2_shards.append(&mut other.pm2_shards);
+        self.pm2_partials.append(&mut other.pm2_partials);
+        self.mongo_shards.append(&mut other.mongo_shards);
+        self.files.append(&mut other.files);
+    }
+}
+
+fn parse_pm2_slice(
+    data: &[u8],
+    options: &Pm2ShardOptions,
+    progress: &SharedProgress<'_>,
+    cpus: usize,
+) -> (Vec<pm2_core::Pm2Engine>, Vec<pm2_core::DecodedPartial>) {
+    let plan = pm2_shard_plan(data.len(), cpus);
+    plan.par_iter()
+        .map(|&(start, end)| {
+            let mut engine = pm2_core::Pm2Engine::new();
+            let read_end = (end + LINE_EXTEND).min(data.len());
+            engine.parse_shard(
+                &data[start..read_end],
+                start as f64,
+                end as f64,
+                data.len() as f64,
+            );
+            progress.add((end - start) as u64);
+            let partial = engine.reaggregate_decoded(
+                options.mode,
+                options.status,
+                options.min_ms,
+                options.date_filter.as_bytes(),
+                true,
+            );
+            (engine, partial)
+        })
+        .unzip()
+}
+
+fn parse_mongo_slice(
+    data: &[u8],
+    progress: &SharedProgress<'_>,
+    cpus: usize,
+) -> Vec<mongo_core::MongoEngine> {
+    let plan = mongo_shard_plan(data.len(), cpus);
+    plan.par_iter()
+        .map(|&(start, end)| {
+            let mut engine = mongo_core::MongoEngine::new();
+            let read_end = (end + mongo_core::MONGO_LINE_EXTEND).min(data.len());
+            engine.parse_shard(
+                &data[start..read_end],
+                start as f64,
+                end as f64,
+                data.len() as f64,
+            );
+            progress.add((end - start) as u64);
+            engine
+        })
+        .collect()
+}
+
+fn pipeline_log_slice(
+    name: &str,
+    path: &str,
+    data: &[u8],
+    category: LogCategory,
+    shard_options: &Pm2ShardOptions,
+    progress: &SharedProgress<'_>,
+    cpus: usize,
+) -> IngestPipelineOutcome {
+    let mut outcome = IngestPipelineOutcome::default();
+    let size = data.len();
+    if size == 0 {
+        return outcome;
+    }
+    match category {
+        LogCategory::Pm2 => {
+            outcome.files.push(NativeFileInfo {
+                name: name.to_string(),
+                path: path.to_string(),
+                size: size as u64,
+                category: "pm2".to_string(),
+            });
+            let (shards, partials) = parse_pm2_slice(data, shard_options, progress, cpus);
+            outcome.pm2_shards = shards;
+            outcome.pm2_partials = partials;
+        }
+        LogCategory::Mongo => {
+            outcome.files.push(NativeFileInfo {
+                name: name.to_string(),
+                path: path.to_string(),
+                size: size as u64,
+                category: "mongo".to_string(),
+            });
+            outcome.mongo_shards = parse_mongo_slice(data, progress, cpus);
+        }
+        _ => {}
+    }
+    outcome
+}
+
+fn pipeline_archive_bytes(
+    name: &str,
+    path: &str,
+    data: Cow<'_, [u8]>,
+    depth: usize,
+    shard_options: &Pm2ShardOptions,
+    progress: &SharedProgress<'_>,
+    cpus: usize,
+) -> IngestPipelineOutcome {
+    if data.starts_with(b"PK\x03\x04") {
+        if depth >= MAX_ARCHIVE_DEPTH {
+            log::warn!("Skipping archive nested deeper than {MAX_ARCHIVE_DEPTH}: '{path}'");
+            return IngestPipelineOutcome::default();
+        }
+        return pipeline_zip_bytes(&data, path, depth, shard_options, progress, cpus);
+    }
+
+    if data.starts_with(b"\x1f\x8b") {
+        if depth >= MAX_ARCHIVE_DEPTH {
+            log::warn!("Skipping archive nested deeper than {MAX_ARCHIVE_DEPTH}: '{path}'");
+            return IngestPipelineOutcome::default();
+        }
+        let mut output = Vec::new();
+        if let Err(error) = archive::decompress_gzip(&data, &mut output) {
+            log::warn!("Failed to decompress GZIP '{path}': {error}");
+            return IngestPipelineOutcome::default();
+        }
+        let clean_name = name.strip_suffix(".gz").unwrap_or(name);
+        return pipeline_archive_bytes(clean_name, path, Cow::Owned(output), depth + 1, shard_options, progress, cpus);
+    }
+
+    let mut category = classifier::classify_name(name);
+    if category == LogCategory::Unknown {
+        category = classifier::classify_content(&data);
+    }
+    if matches!(category, LogCategory::Skip | LogCategory::Zip | LogCategory::Gzip) {
+        return IngestPipelineOutcome::default();
+    }
+
+    let clean = name.rsplit('/').next().unwrap_or(name);
+    pipeline_log_slice(clean, path, &data, category, shard_options, progress, cpus)
+}
+
+fn pipeline_zip_bytes(
+    zip_bytes: &[u8],
+    archive_path: &str,
+    depth: usize,
+    shard_options: &Pm2ShardOptions,
+    progress: &SharedProgress<'_>,
+    cpus: usize,
+) -> IngestPipelineOutcome {
+    let entries = match archive::parse_zip_entries(zip_bytes) {
+        Ok(entries) => entries,
+        Err(error) => {
+            log::warn!("Failed to parse ZIP archive '{archive_path}': {error}");
+            return IngestPipelineOutcome::default();
+        }
+    };
+    let mut valid_entries: Vec<_> = entries.into_iter().filter(is_extractable_entry).collect();
+    valid_entries.sort_by_key(|entry| std::cmp::Reverse(entry.compressed_size));
+
+    let outcomes: Vec<IngestPipelineOutcome> = valid_entries
+        .into_par_iter()
+        .map(|entry| {
+            let name = entry.name.rsplit('/').next().unwrap_or(&entry.name);
+            let path = format!("{archive_path}/{}", entry.name);
+            let Ok(content) = archive::extract_zip_entry(zip_bytes, &entry) else {
+                return IngestPipelineOutcome::default();
+            };
+            pipeline_archive_bytes(name, &path, content, depth + 1, shard_options, progress, cpus)
+        })
+        .collect();
+
+    let mut merged = IngestPipelineOutcome::default();
+    for outcome in outcomes {
+        merged.merge(outcome);
+    }
+    merged
+}
+
+fn pipeline_candidate(
+    candidate: CandidateFile,
+    shard_options: &Pm2ShardOptions,
+    progress: &SharedProgress<'_>,
+    cpus: usize,
+) -> IngestPipelineOutcome {
+    match candidate.category {
+        LogCategory::Zip | LogCategory::Gzip => {
+            pipeline_archive_bytes(
+                &candidate.name,
+                &candidate.path,
+                Cow::Borrowed(&candidate.mmap[..]),
+                0,
+                shard_options,
+                progress,
+                cpus,
+            )
+        }
+        category => {
+            pipeline_log_slice(
+                &candidate.name,
+                &candidate.path,
+                &candidate.mmap,
+                category,
+                shard_options,
+                progress,
+                cpus,
+            )
+        }
+    }
+}
+
 pub fn ingest_native_internal(
     paths: &[String],
     pm2_options: &Pm2ParseOptions,
@@ -1366,63 +1596,111 @@ pub fn ingest_native_internal(
         return Ok(result);
     }
 
-    let IngestSources {
-        pm2,
-        mongo,
-        files,
-        total_bytes,
-    } = expand_ingest_sources(paths, app_handle)?;
+    let file_paths = collect_candidate_paths(paths);
+    if file_paths.is_empty() {
+        return Err("No valid log or archive files found".into());
+    }
+
+    let candidates: Vec<CandidateFile> = file_paths
+        .into_par_iter()
+        .filter_map(|path| open_candidate(&path))
+        .collect();
+
+    if candidates.is_empty() {
+        return Err("No valid log files found in provided sources".into());
+    }
+
+    let total_bytes: u64 = candidates
+        .iter()
+        .map(|c| {
+            if c.mmap.len() >= 4 && &c.mmap[..4] == b"PK\x03\x04" {
+                archive::parse_zip_entries(&c.mmap)
+                    .map(|entries| {
+                        entries
+                            .iter()
+                            .filter(|e| is_extractable_entry(e))
+                            .map(|e| e.uncompressed_size as u64)
+                            .sum()
+                    })
+                    .unwrap_or(c.size)
+            } else {
+                c.size
+            }
+        })
+        .sum();
+
+    let cpus = available_parallelism();
+    let shard_options = Pm2ShardOptions::new(pm2_options);
     let progress = SharedProgress::new(app_handle, total_bytes);
 
-    let (pm2_outcome, mongo_outcome) = rayon::join(
-        || parse_pm2_sources(pm2, pm2_options, app_handle, &progress),
-        || parse_mongo_sources(mongo, mongo_options, upload_mode, app_handle, &progress, state),
-    );
+    let t_pipeline = Instant::now();
+    let candidate_outcomes: Vec<IngestPipelineOutcome> = candidates
+        .into_par_iter()
+        .map(|c| pipeline_candidate(c, &shard_options, &progress, cpus))
+        .collect();
+    let pipeline_ms = t_pipeline.elapsed().as_millis();
 
-    finish_native_ingest(
-        state,
-        pm2_outcome?,
-        mongo_outcome?,
-        files,
-        total_bytes,
-        pm2_options,
-        upload_mode,
-        t0,
-    )
-}
-
-/// Parse the PM2 half of a multi-source ingest.
-fn parse_pm2_sources(
-    pm2: Vec<LogSourceItem>,
-    options: &Pm2ParseOptions,
-    app_handle: Option<&tauri::AppHandle>,
-    progress: &SharedProgress<'_>,
-) -> Result<Option<(Vec<pm2_core::Pm2Engine>, Pm2ParseResult)>, String> {
-    if pm2.is_empty() {
-        return Ok(None);
+    let mut total_outcome = IngestPipelineOutcome::default();
+    for outcome in candidate_outcomes {
+        total_outcome.merge(outcome);
     }
-    parse_pm2_items(pm2, options, app_handle, Some(progress)).map(Some)
-}
 
-/// Parse the Mongo half of a multi-source ingest.
-fn parse_mongo_sources(
-    mongo: Vec<LogSourceItem>,
-    options: &MongoFilterOptions,
-    upload_mode: Option<&str>,
-    app_handle: Option<&tauri::AppHandle>,
-    progress: &SharedProgress<'_>,
-    state: &AppState,
-) -> Result<Option<(mongo_core::MongoEngine, MongoParseResult)>, String> {
-    if mongo.is_empty() {
-        return Ok(None);
+    if total_outcome.pm2_shards.is_empty() && total_outcome.mongo_shards.is_empty() {
+        return Err("No valid log files found in provided sources".into());
     }
-    let existing = if upload_mode == Some("append") {
+
+    let existing_mongo = if upload_mode == Some("append") {
         state.mongo.lock().unwrap().take()
     } else {
         None
     };
-    parse_mongo_items(mongo, options, app_handle, existing, Some(progress)).map(Some)
+
+    let mut pm2_shards = total_outcome.pm2_shards;
+    let pm2_partials = total_outcome.pm2_partials;
+    let mongo_shards = total_outcome.mongo_shards;
+
+    let t_final = Instant::now();
+    let (pm2_outcome, mongo_outcome) = rayon::join(
+        || -> Result<Option<(Vec<pm2_core::Pm2Engine>, Pm2ParseResult)>, String> {
+            if pm2_shards.is_empty() {
+                return Ok(None);
+            }
+            let json = finalize::finalize_pm2_with_partials(&mut pm2_shards, pm2_options, pm2_partials)?;
+            let result = pm2_result(&pm2_shards, json, t0.elapsed().as_millis() as u64);
+            Ok(Some((pm2_shards, result)))
+        },
+        || -> Result<Option<(mongo_core::MongoEngine, MongoParseResult)>, String> {
+            if mongo_shards.is_empty() {
+                return Ok(None);
+            }
+            let mut engine = existing_mongo.unwrap_or_default();
+            for shard in mongo_shards {
+                engine.merge(shard);
+            }
+            let json = filtered_mongo_json(&engine, mongo_options);
+            let result = mongo_result(&engine, json, t0.elapsed().as_millis() as u64);
+            Ok(Some((engine, result)))
+        },
+    );
+    let final_ms = t_final.elapsed().as_millis();
+
+    let files = total_outcome.files;
+    let files_total_bytes: u64 = files.iter().map(|f| f.size).sum();
+
+    let res = finish_native_ingest(
+        state,
+        pm2_outcome?,
+        mongo_outcome?,
+        files,
+        files_total_bytes,
+        pm2_options,
+        upload_mode,
+        t0,
+    );
+    eprintln!("[timing] pipeline: {pipeline_ms}ms, finalize: {final_ms}ms, total: {}ms", t0.elapsed().as_millis());
+    res
 }
+
 
 /// Store both halves of a multi-source ingest and assemble the result.
 #[expect(
@@ -1498,7 +1776,7 @@ fn ingest_single_file(
         )
         .map(Some);
     }
-    if is_compressed_or_archive(file_path, &mmap) {
+    if is_compressed_or_archive(path, &mmap) {
         return Ok(None);
     }
     ingest_raw_file(
@@ -1515,9 +1793,9 @@ fn ingest_single_file(
 }
 
 /// Whether the general expansion, rather than the raw-file fast path, owns this file.
-fn is_compressed_or_archive(file_path: &Path, mmap: &memmap2::Mmap) -> bool {
-    file_path.ends_with(".zip")
-        || file_path.ends_with(".gz")
+fn is_compressed_or_archive(path: &str, mmap: &memmap2::Mmap) -> bool {
+    path.ends_with(".zip")
+        || path.ends_with(".gz")
         || (mmap.len() >= 2 && &mmap[..2] == b"\x1f\x8b")
 }
 
@@ -1642,10 +1920,6 @@ fn ingest_single_pm2_file(
 }
 
 /// The result of a single-file ingest.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "a flat record of the one file and the two optional parse results"
-)]
 fn single_file_result(
     category: String,
     file_name: String,
@@ -1669,54 +1943,6 @@ fn single_file_result(
     }
 }
 
-/// The expanded sources split by the pipeline that consumes them.
-struct IngestSources {
-    pm2: Vec<LogSourceItem>,
-    mongo: Vec<LogSourceItem>,
-    files: Vec<NativeFileInfo>,
-    total_bytes: u64,
-}
-
-/// Expand and classify every path into its PM2 half, Mongo half, and file list.
-fn expand_ingest_sources(
-    paths: &[String],
-    app_handle: Option<&tauri::AppHandle>,
-) -> Result<IngestSources, String> {
-    let items = expand_log_sources(paths, app_handle)?;
-    if items.is_empty() {
-        return Err("No valid log files found in provided sources".into());
-    }
-    let mut sources = IngestSources {
-        pm2: Vec::new(),
-        mongo: Vec::new(),
-        files: Vec::new(),
-        total_bytes: 0,
-    };
-    for item in items {
-        sources.total_bytes += item.size as u64;
-        sources.files.push(NativeFileInfo {
-            name: item.name.clone(),
-            path: item.path.clone(),
-            size: item.size as u64,
-            category: source_category(item.category).to_string(),
-        });
-        if item.category == LogCategory::Mongo {
-            sources.mongo.push(item);
-        } else {
-            sources.pm2.push(item);
-        }
-    }
-    Ok(sources)
-}
-
-/// The UI's category label for a classified source.
-fn source_category(category: LogCategory) -> &'static str {
-    match category {
-        LogCategory::Mongo => "mongo",
-        LogCategory::Pm2 => "pm2",
-        _ => "unknown",
-    }
-}
 
 /// Store parsed PM2 shards, merging into the existing set when appending.
 fn store_pm2_shards(
