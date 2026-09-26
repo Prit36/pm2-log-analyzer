@@ -1244,8 +1244,7 @@ export async function handleLogFilesUpload(
         buf: r.buf,
       }));
 
-      const displayName =
-        uniquePm2.length === 1 ? uniquePm2[0]!.name : `${uniquePm2.length} files`;
+      const displayName = uniquePm2.length === 1 ? uniquePm2[0]!.name : `${uniquePm2.length} files`;
       pm2Results.length = 0;
       mongoResults.length = 0;
       initialTasks.length = 0;
