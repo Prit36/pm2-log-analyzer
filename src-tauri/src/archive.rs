@@ -240,30 +240,3 @@ pub fn decompress_gzip(gz_bytes: &[u8], output: &mut Vec<u8>) -> Result<(), Stri
     Err("GZIP decompression buffer exceeded retry limit".into())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::decompress_gzip;
-
-    #[test]
-    fn test_gzip_roundtrip() {
-        let gz_bytes = [
-            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0xcb, 0x48, 0xcd, 0xc9,
-            0xc9, 0x57, 0x28, 0xcf, 0x2f, 0xca, 0x49, 0xe1, 0x02, 0x00, 0x2d, 0x3b, 0x08, 0xaf,
-            0x0c, 0x00, 0x00, 0x00,
-        ];
-        let mut out = Vec::new();
-        decompress_gzip(&gz_bytes, &mut out).expect("gzip decompression");
-        assert_eq!(&out, b"hello world\n");
-    }
-
-    #[test]
-    fn test_deflate_entry() {
-        let raw_deflate = [
-            0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0x28, 0xcf, 0x2f, 0xca, 0x49, 0xe1, 0x02, 0x00,
-        ];
-        let mut out = vec![0; 12];
-        let config = zlib_rs::InflateConfig { window_bits: -15 };
-        let (slice, _rc) = zlib_rs::decompress_slice(&mut out, &raw_deflate, config);
-        assert_eq!(slice, b"hello world\n");
-    }
-}

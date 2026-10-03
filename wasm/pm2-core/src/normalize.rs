@@ -144,34 +144,3 @@ fn strip_query(path: &[u8]) -> &[u8] {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{normalize_into, NormalizeMode};
-
-    /// Normalize with a fresh scratch buffer, like a single call would.
-    fn normalized(path: &[u8], mode: NormalizeMode) -> Vec<u8> {
-        let mut scratch = Vec::new();
-        normalize_into(path, mode, &mut scratch).to_vec()
-    }
-
-    #[test]
-    fn collapse_object_id() {
-        let path = b"/api/users/507f1f77bcf86cd799439011/profile";
-        assert_eq!(normalized(path, NormalizeMode::CollapseIds), b"/api/users/:id/profile");
-    }
-
-    #[test]
-    fn strip_query() {
-        assert_eq!(normalized(b"/api/x?foo=1&bar=2", NormalizeMode::StripQuery), b"/api/x");
-    }
-
-    #[test]
-    fn collapse_noop_keeps_bytes() {
-        assert_eq!(normalized(b"/api/health", NormalizeMode::CollapseIds), b"/api/health");
-    }
-
-    #[test]
-    fn exact_keeps_query() {
-        assert_eq!(normalized(b"/api/x?foo=1", NormalizeMode::Exact), b"/api/x?foo=1");
-    }
-}

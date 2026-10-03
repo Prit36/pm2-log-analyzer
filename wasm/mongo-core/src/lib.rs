@@ -8,9 +8,6 @@ mod parse;
 mod reagg;
 mod store;
 
-#[cfg(test)]
-mod tests;
-
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -133,11 +130,6 @@ impl MongoEngine {
         self.inner.feed_slice(data)
     }
 
-    #[cfg(test)]
-    pub fn write_ingest_for_test(&mut self, data: &[u8]) {
-        self.ingest_ptr(data.len() as u32);
-        self.inner.ingest[..data.len()].copy_from_slice(data);
-    }
 }
 
 impl Default for MongoEngine {

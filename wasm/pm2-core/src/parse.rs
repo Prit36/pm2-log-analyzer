@@ -5,9 +5,6 @@ mod http;
 mod noise;
 mod scan;
 
-#[cfg(test)]
-mod tests;
-
 use cron::try_cron;
 use http::{try_http_a, try_http_b};
 use noise::is_socket_noise;

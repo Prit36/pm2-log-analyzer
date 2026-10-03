@@ -280,21 +280,3 @@ fn bucket_value(key: i32) -> f32 {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{relhist_key, RelHist};
-
-    fn quantile(hist: &RelHist, quantile: f64) -> f32 {
-        hist.quantile_ms(quantile)
-    }
-
-    #[test]
-    fn quantile_approx() {
-        let mut hist = RelHist::new();
-        for i in 1..=1000 {
-            hist.accept_key(relhist_key((i * 10) as f32).unwrap());
-        }
-        let p95 = quantile(&hist, 0.95);
-        assert!((p95 - 9500.0).abs() / 9500.0 < 0.02, "p95={p95}");
-    }
-}

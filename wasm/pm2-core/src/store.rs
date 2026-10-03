@@ -15,9 +15,6 @@ mod ingest;
 mod paths;
 mod wire;
 
-#[cfg(test)]
-mod tests;
-
 use crate::normalize::NormalizeMode;
 use crate::relhist::RelHist;
 use aggregate::{

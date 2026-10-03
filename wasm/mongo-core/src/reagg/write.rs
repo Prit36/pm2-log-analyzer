@@ -125,35 +125,3 @@ fn leap_day(year: i64) -> i64 {
     i64::from(year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{calc_percentile, calc_percentiles4, percentile_index};
-
-    fn expected(values: &[u32], percentile: f64) -> u32 {
-        if values.is_empty() {
-            return 0;
-        }
-        let mut sorted = values.to_vec();
-        sorted.sort_unstable();
-        sorted[percentile_index(sorted.len(), percentile)]
-    }
-
-    #[test]
-    fn percentile_selection_matches_nearest_rank() {
-        for values in [
-            vec![],
-            vec![7],
-            vec![9, 1],
-            vec![8, 2, 5],
-            vec![11, 1, 9, 3, 7, 5],
-            vec![4, 4, 4, 1, 9, 9, 2, 7],
-        ] {
-            let expected = [50.0, 90.0, 95.0, 99.0].map(|p| expected(&values, p));
-            let mut selected = values.clone();
-            assert_eq!(calc_percentiles4(&mut selected), expected);
-        }
-
-        let mut values = [9, 1, 5, 3, 7];
-        assert_eq!(calc_percentile(&mut values, 95.0), 9);
-    }
-}

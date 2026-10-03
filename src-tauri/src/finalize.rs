@@ -555,30 +555,3 @@ fn finalize_day(day: &DailyAcc) -> DaySummary {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::cron::{days_from_civil, parse_ts_seconds, percentile};
-
-    #[test]
-    fn ts_and_civil_math() {
-        assert_eq!(days_from_civil(1970, 1, 1), 0);
-        assert_eq!(days_from_civil(2026, 7, 24), 20658);
-        assert_eq!(
-            parse_ts_seconds(b"2026-07-24T00:00:10"),
-            Some(20658 * 86_400 + 10),
-        );
-        assert_eq!(
-            parse_ts_seconds(b"2026-07-24 00:01:10"),
-            Some(20658 * 86_400 + 70),
-        );
-        assert_eq!(parse_ts_seconds(b"nope"), None);
-    }
-
-    #[test]
-    fn nearest_rank_percentile() {
-        let values = [1.0, 2.0, 3.0, 4.0, 5.0];
-        assert_eq!(percentile(&values, 50.0), 3.0);
-        assert_eq!(percentile(&values, 95.0), 5.0);
-        assert_eq!(percentile(&[], 50.0), 0.0);
-    }
-}

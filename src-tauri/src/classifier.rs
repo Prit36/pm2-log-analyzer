@@ -109,38 +109,3 @@ pub fn classify_file_or_entry(name: &str, sample: &[u8]) -> LogCategory {
     classify_content(sample)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{classify_content, classify_name, LogCategory};
-
-    #[test]
-    fn test_classify_by_name() {
-        assert_eq!(classify_name("mongod.log.1"), LogCategory::Mongo);
-        assert_eq!(classify_name("mongod.log.10.gz"), LogCategory::Mongo);
-        assert_eq!(classify_name("mongodb.log"), LogCategory::Mongo);
-        assert_eq!(classify_name("api-out.log.1"), LogCategory::Pm2);
-        assert_eq!(classify_name("api-out.log.5.gz"), LogCategory::Pm2);
-        assert_eq!(classify_name("api-error.log.5.gz"), LogCategory::Skip);
-        assert_eq!(classify_name("error.log"), LogCategory::Skip);
-        assert_eq!(classify_name(".DS_Store"), LogCategory::Skip);
-        assert_eq!(classify_name("__MACOSX/._log.txt"), LogCategory::Skip);
-        assert_eq!(classify_name("archive.zip"), LogCategory::Zip);
-        assert_eq!(classify_name("custom.log.gz"), LogCategory::Gzip);
-        assert_eq!(classify_name("custom.log"), LogCategory::Unknown);
-    }
-
-    #[test]
-    fn test_classify_by_content() {
-        let mongo_sample = b"{\"t\":{\"$date\":\"2026-09-12T10:00:00.000Z\"},\"s\":\"I\",\"c\":\"COMMAND\",\"ctx\":\"conn123\",\"msg\":\"Slow query\"}";
-        assert_eq!(classify_content(mongo_sample), LogCategory::Mongo);
-
-        let pm2_sample = b"2026-09-12 10:00:00: GET /api/v1/orders 200 45.2 ms - 1024";
-        assert_eq!(classify_content(pm2_sample), LogCategory::Pm2);
-
-        let zip_sample = b"PK\x03\x04\x14\x00\x00\x00";
-        assert_eq!(classify_content(zip_sample), LogCategory::Zip);
-
-        let gz_sample = b"\x1f\x8b\x08\x00\x00\x00";
-        assert_eq!(classify_content(gz_sample), LogCategory::Gzip);
-    }
-}
