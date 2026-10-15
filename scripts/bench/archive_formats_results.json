@@ -1,0 +1,506 @@
+{
+  "date": "2026-10-15",
+  "machine": "Windows x64, Intel Core i5-12400F, 6 cores / 12 threads",
+  "metric": "Upload to UI ready, mean milliseconds; mean sampled peak process-tree working set in MiB",
+  "expandedBytes": 727458188,
+  "expected": {
+    "pm2Requests": 907336,
+    "mongoSlowQueries": 82191,
+    "mongoPatterns": 573
+  },
+  "formats": [
+    {
+      "format": "7z",
+      "archiveBytes": 50281071,
+      "baselineRuns": 3,
+      "browser": {
+        "before": {
+          "uploadToReadyMs": {
+            "avg": 3267.834666666667,
+            "min": 3202.7089000000005,
+            "max": 3373.0184
+          },
+          "rssPeakMB": {
+            "avg": 2034.4427083333333,
+            "min": 1962.6953125,
+            "max": 2072.5078125
+          },
+          "jsHeapPeakMB": {
+            "avg": 18.554860432942707,
+            "min": 17.874038696289062,
+            "max": 19.64663314819336
+          },
+          "nativeMs": null
+        },
+        "after": {
+          "uploadToReadyMs": {
+            "avg": 1869.5784333333331,
+            "min": 1833.3305,
+            "max": 1922.7581
+          },
+          "rssPeakMB": {
+            "avg": 2054.578125,
+            "min": 1935.359375,
+            "max": 2178.76171875
+          },
+          "jsHeapPeakMB": {
+            "avg": 21.289998372395832,
+            "min": 18.161521911621094,
+            "max": 26.337276458740234
+          },
+          "nativeMs": null
+        },
+        "runs": 3
+      },
+      "native": {
+        "before": {
+          "uploadToReadyMs": {
+            "avg": 842.3333333333334,
+            "min": 833,
+            "max": 856
+          },
+          "rssPeakMB": {
+            "avg": 1004.62890625,
+            "min": 978.02734375,
+            "max": 1020.98828125
+          },
+          "jsHeapPeakMB": null,
+          "nativeMs": {
+            "avg": 690.6666666666666,
+            "min": 684,
+            "max": 700
+          }
+        },
+        "after": {
+          "uploadToReadyMs": {
+            "avg": 732,
+            "min": 712,
+            "max": 764
+          },
+          "rssPeakMB": {
+            "avg": 670.34375,
+            "min": 658.23828125,
+            "max": 683.375
+          },
+          "jsHeapPeakMB": null,
+          "nativeMs": {
+            "avg": 578.3333333333334,
+            "min": 563,
+            "max": 600
+          }
+        },
+        "runs": 3
+      }
+    },
+    {
+      "format": "tar.gz",
+      "archiveBytes": 83564807,
+      "baselineRuns": 3,
+      "browser": {
+        "before": {
+          "uploadToReadyMs": {
+            "avg": 1767.2884333333338,
+            "min": 1642.2754000000004,
+            "max": 1879.2993000000006
+          },
+          "rssPeakMB": {
+            "avg": 2063.3098958333335,
+            "min": 1949.6328125,
+            "max": 2129.88671875
+          },
+          "jsHeapPeakMB": {
+            "avg": 18.580726623535156,
+            "min": 17.876110076904297,
+            "max": 19.89795684814453
+          },
+          "nativeMs": null
+        },
+        "after": {
+          "uploadToReadyMs": {
+            "avg": 1810.9078666666667,
+            "min": 1694.6236,
+            "max": 1929.3790999999999
+          },
+          "rssPeakMB": {
+            "avg": 2082.6940104166665,
+            "min": 1955.07421875,
+            "max": 2159.17578125
+          },
+          "jsHeapPeakMB": {
+            "avg": 22.256741841634113,
+            "min": 20.701698303222656,
+            "max": 23.734649658203125
+          },
+          "nativeMs": null
+        },
+        "runs": 3
+      },
+      "native": {
+        "before": {
+          "uploadToReadyMs": {
+            "avg": 897.3333333333334,
+            "min": 896,
+            "max": 899
+          },
+          "rssPeakMB": {
+            "avg": 998.09765625,
+            "min": 903.12109375,
+            "max": 1051.703125
+          },
+          "jsHeapPeakMB": null,
+          "nativeMs": {
+            "avg": 750,
+            "min": 749,
+            "max": 751
+          }
+        },
+        "after": {
+          "uploadToReadyMs": {
+            "avg": 758.6666666666666,
+            "min": 746,
+            "max": 774
+          },
+          "rssPeakMB": {
+            "avg": 649.9557291666666,
+            "min": 648.7265625,
+            "max": 651.28125
+          },
+          "jsHeapPeakMB": null,
+          "nativeMs": {
+            "avg": 609.6666666666666,
+            "min": 604,
+            "max": 619
+          }
+        },
+        "runs": 3
+      }
+    },
+    {
+      "format": "tar.bz2",
+      "archiveBytes": 45597438,
+      "baselineRuns": 1,
+      "browser": {
+        "before": {
+          "uploadToReadyMs": {
+            "avg": 11341.369999999999,
+            "min": 11341.369999999999,
+            "max": 11341.369999999999
+          },
+          "rssPeakMB": {
+            "avg": 1901.90234375,
+            "min": 1901.90234375,
+            "max": 1901.90234375
+          },
+          "jsHeapPeakMB": {
+            "avg": 20.183368682861328,
+            "min": 20.183368682861328,
+            "max": 20.183368682861328
+          },
+          "nativeMs": null
+        },
+        "after": {
+          "uploadToReadyMs": {
+            "avg": 11934.0773,
+            "min": 11934.0773,
+            "max": 11934.0773
+          },
+          "rssPeakMB": {
+            "avg": 1975.00390625,
+            "min": 1975.00390625,
+            "max": 1975.00390625
+          },
+          "jsHeapPeakMB": {
+            "avg": 19.287113189697266,
+            "min": 19.287113189697266,
+            "max": 19.287113189697266
+          },
+          "nativeMs": null
+        },
+        "runs": 1
+      },
+      "native": {
+        "before": {
+          "uploadToReadyMs": {
+            "avg": 10508,
+            "min": 10508,
+            "max": 10508
+          },
+          "rssPeakMB": {
+            "avg": 994.4765625,
+            "min": 994.4765625,
+            "max": 994.4765625
+          },
+          "jsHeapPeakMB": null,
+          "nativeMs": {
+            "avg": 10353,
+            "min": 10353,
+            "max": 10353
+          }
+        },
+        "after": {
+          "uploadToReadyMs": {
+            "avg": 2233.3333333333335,
+            "min": 2179,
+            "max": 2278
+          },
+          "rssPeakMB": {
+            "avg": 687.97265625,
+            "min": 685.82421875,
+            "max": 690.5859375
+          },
+          "jsHeapPeakMB": null,
+          "nativeMs": {
+            "avg": 2082,
+            "min": 2023,
+            "max": 2134
+          }
+        },
+        "runs": 3
+      }
+    },
+    {
+      "format": "tar.xz",
+      "archiveBytes": 50284276,
+      "baselineRuns": 1,
+      "browser": {
+        "before": {
+          "uploadToReadyMs": {
+            "avg": 3767.0689999999995,
+            "min": 3767.0689999999995,
+            "max": 3767.0689999999995
+          },
+          "rssPeakMB": {
+            "avg": 1923.8671875,
+            "min": 1923.8671875,
+            "max": 1923.8671875
+          },
+          "jsHeapPeakMB": {
+            "avg": 18.765689849853516,
+            "min": 18.765689849853516,
+            "max": 18.765689849853516
+          },
+          "nativeMs": null
+        },
+        "after": {
+          "uploadToReadyMs": {
+            "avg": 3651.8437000000004,
+            "min": 3651.8437000000004,
+            "max": 3651.8437000000004
+          },
+          "rssPeakMB": {
+            "avg": 1958.21484375,
+            "min": 1958.21484375,
+            "max": 1958.21484375
+          },
+          "jsHeapPeakMB": {
+            "avg": 20.174610137939453,
+            "min": 20.174610137939453,
+            "max": 20.174610137939453
+          },
+          "nativeMs": null
+        },
+        "runs": 1
+      },
+      "native": {
+        "before": {
+          "uploadToReadyMs": {
+            "avg": 3937,
+            "min": 3937,
+            "max": 3937
+          },
+          "rssPeakMB": {
+            "avg": 994.51171875,
+            "min": 994.51171875,
+            "max": 994.51171875
+          },
+          "jsHeapPeakMB": null,
+          "nativeMs": {
+            "avg": 3786,
+            "min": 3786,
+            "max": 3786
+          }
+        },
+        "after": {
+          "uploadToReadyMs": {
+            "avg": 675.6666666666666,
+            "min": 658,
+            "max": 711
+          },
+          "rssPeakMB": {
+            "avg": 641.07421875,
+            "min": 636.4375,
+            "max": 647.40625
+          },
+          "jsHeapPeakMB": null,
+          "nativeMs": {
+            "avg": 524.6666666666666,
+            "min": 509,
+            "max": 550
+          }
+        },
+        "runs": 3
+      }
+    },
+    {
+      "format": "rar (stored)",
+      "archiveBytes": 727458304,
+      "baselineRuns": 1,
+      "browser": {
+        "before": {
+          "uploadToReadyMs": {
+            "avg": 2144.978,
+            "min": 2144.978,
+            "max": 2144.978
+          },
+          "rssPeakMB": {
+            "avg": 2313.2578125,
+            "min": 2313.2578125,
+            "max": 2313.2578125
+          },
+          "jsHeapPeakMB": {
+            "avg": 25.156387329101562,
+            "min": 25.156387329101562,
+            "max": 25.156387329101562
+          },
+          "nativeMs": null
+        },
+        "after": {
+          "uploadToReadyMs": {
+            "avg": 1604.4087666666667,
+            "min": 1597.5203999999994,
+            "max": 1613.520300000001
+          },
+          "rssPeakMB": {
+            "avg": 2263.5143229166665,
+            "min": 2182.00390625,
+            "max": 2312.296875
+          },
+          "jsHeapPeakMB": {
+            "avg": 23.766178131103516,
+            "min": 22.754772186279297,
+            "max": 25.78860092163086
+          },
+          "nativeMs": null
+        },
+        "runs": 3
+      },
+      "native": {
+        "before": {
+          "uploadToReadyMs": {
+            "avg": 786,
+            "min": 786,
+            "max": 786
+          },
+          "rssPeakMB": {
+            "avg": 1591.46875,
+            "min": 1591.46875,
+            "max": 1591.46875
+          },
+          "jsHeapPeakMB": null,
+          "nativeMs": {
+            "avg": 633,
+            "min": 633,
+            "max": 633
+          }
+        },
+        "after": {
+          "uploadToReadyMs": {
+            "avg": 737,
+            "min": 706,
+            "max": 753
+          },
+          "rssPeakMB": {
+            "avg": 1172.4166666666667,
+            "min": 1123.1015625,
+            "max": 1202.875
+          },
+          "jsHeapPeakMB": null,
+          "nativeMs": {
+            "avg": 582.6666666666666,
+            "min": 559,
+            "max": 598
+          }
+        },
+        "runs": 3
+      }
+    }
+  ],
+  "zipRegression": {
+    "browser": {
+      "uploadToReadyMs": {
+        "avg": 1181.6116666666667,
+        "min": 1098.3891000000003,
+        "max": 1317.9294000000002
+      },
+      "rssPeakMB": {
+        "avg": 2107.9947916666665,
+        "min": 2014.984375,
+        "max": 2170.5234375
+      },
+      "jsHeapPeakMB": {
+        "avg": 22.05938720703125,
+        "min": 18.869915008544922,
+        "max": 25.46847152709961
+      },
+      "nativeMs": null
+    },
+    "native": {
+      "uploadToReadyMs": {
+        "avg": 531.3333333333334,
+        "min": 515,
+        "max": 558
+      },
+      "rssPeakMB": {
+        "avg": 1151.9427083333333,
+        "min": 1112.55078125,
+        "max": 1179.40234375
+      },
+      "jsHeapPeakMB": null,
+      "nativeMs": {
+        "avg": 360.3333333333333,
+        "min": 347,
+        "max": 381
+      }
+    }
+  },
+  "batch": {
+    "inputs": ["logs.7z", "logs.tar.xz"],
+    "browser": {
+      "uploadToReadyMs": {
+        "avg": 3826.00755,
+        "min": 3744.0661,
+        "max": 3907.9489999999996
+      },
+      "rssPeakMB": {
+        "avg": 2389.421875,
+        "min": 2113.81640625,
+        "max": 2665.02734375
+      },
+      "jsHeapPeakMB": {
+        "avg": 27.106849670410156,
+        "min": 25.83307647705078,
+        "max": 28.38062286376953
+      },
+      "nativeMs": null
+    },
+    "native": {
+      "uploadToReadyMs": {
+        "avg": 1178.5,
+        "min": 1158,
+        "max": 1199
+      },
+      "rssPeakMB": {
+        "avg": 921.44921875,
+        "min": 910.2734375,
+        "max": 932.625
+      },
+      "jsHeapPeakMB": null,
+      "nativeMs": {
+        "avg": 1030.5,
+        "min": 1013,
+        "max": 1048
+      }
+    },
+    "runs": 2
+  }
+}

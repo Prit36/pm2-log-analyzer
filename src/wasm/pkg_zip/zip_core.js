@@ -50,11 +50,39 @@ export class FastDecompressor {
         }
         return ret[0] >>> 0;
     }
+    /**
+     * Decode a dictionary-reset LZMA2 range into a reusable worker output window.
+     * @param {Uint8Array} compressed
+     * @param {number} dict_size
+     * @param {number} output_size
+     * @returns {number}
+     */
+    decompress_lzma2(compressed, dict_size, output_size) {
+        const ptr0 = passArray8ToWasm0(compressed, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.fastdecompressor_decompress_lzma2(this.__wbg_ptr, ptr0, len0, dict_size, output_size);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
     constructor() {
         const ret = wasm.fastdecompressor_new();
         this.__wbg_ptr = ret;
         FastDecompressorFinalization.register(this, this.__wbg_ptr, this);
         return this;
+    }
+    /**
+     * @param {number} offset
+     * @param {number} length
+     * @returns {number}
+     */
+    output_crc(offset, length) {
+        const ret = wasm.fastdecompressor_output_crc(this.__wbg_ptr, offset, length);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
     }
     /**
      * @returns {number}
@@ -94,6 +122,39 @@ export function classify_log_name_or_content(name, sample) {
     } finally {
         wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
     }
+}
+
+/**
+ * Returns a metadata-only LZMA2 plan, or undefined when the general decoder is required.
+ * @param {Uint8Array} signature
+ * @param {Uint8Array} tail
+ * @param {number} tail_offset
+ * @param {number} length
+ * @returns {string | undefined}
+ */
+export function inspect_sevenz(signature, tail, tail_offset, length) {
+    const ptr0 = passArray8ToWasm0(signature, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(tail, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.inspect_sevenz(ptr0, len0, ptr1, len1, tail_offset, length);
+    let v3;
+    if (ret[0] !== 0) {
+        v3 = getStringFromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    }
+    return v3;
+}
+
+/**
+ * @param {number} left
+ * @param {number} right
+ * @param {number} right_length
+ * @returns {number}
+ */
+export function sevenz_crc_combine(left, right, right_length) {
+    const ret = wasm.sevenz_crc_combine(left, right, right_length);
+    return ret >>> 0;
 }
 function __wbg_get_imports() {
     const import0 = {

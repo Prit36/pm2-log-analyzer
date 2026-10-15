@@ -1,3 +1,4 @@
+import { ARCHIVE_ACCEPT } from "../utils/archiveFormats";
 import { useRef, useState, type DragEvent } from "react";
 import { ClipboardPaste, FilePlus, FolderOpen, Plus, RefreshCw, Upload, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
@@ -226,10 +227,10 @@ function EmptyPanel(props: {
       <Upload className="size-8 text-slate-400 dark:text-slate-500" aria-hidden />
       <div>
         <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
-          {props.isParsing ? "Parsing PM2 log file(s)…" : "Drop PM2 / API logs or .zip archive"}
+          {props.isParsing ? "Parsing PM2 log file(s)…" : "Drop PM2 / API logs or archives"}
         </p>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          .log / .log.1 / .gz / .zip (auto-classifies API &amp; MongoDB logs)
+          .log / .gz / ZIP / RAR / 7z / TAR (auto-classifies API &amp; MongoDB logs)
         </p>
       </div>
       {props.isParsing ? (
@@ -439,7 +440,9 @@ export function IngestPanel() {
     }
     const validFiles = filterValidFiles(e.dataTransfer.files);
     if (validFiles.length === 0) {
-      showToast("Please upload log, text, or archive files (.log, .zip, .gz, .txt, etc.)");
+      showToast(
+        "Please upload log, text, or archive files (.log, .zip, .rar, .7z, .tar, .gz, .txt, etc.)",
+      );
       return;
     }
     if (hasData && loadedFiles.length > 0) {
@@ -494,7 +497,9 @@ export function IngestPanel() {
     const validFiles = filterValidFiles(e.target.files, !e.target.hasAttribute("webkitdirectory"));
     e.target.value = "";
     if (validFiles.length === 0) {
-      showToast("Please upload log, text, or archive files (.log, .zip, .gz, .txt, etc.)");
+      showToast(
+        "Please upload log, text, or archive files (.log, .zip, .rar, .7z, .tar, .gz, .txt, etc.)",
+      );
       return;
     }
     if (uploadMode === "append" && hasData && loadedFiles.length > 0) {
@@ -547,7 +552,10 @@ export function IngestPanel() {
         ref={inputRef}
         type="file"
         multiple
-        accept=".log,.log1,.log2,.log3,.log4,.log5,.log6,.log7,.log8,.log9,.log10,.txt,.out,.err,.1,.2,.3,.4,.5,.6,.7,.8,.9,.zip,.gz,application/zip,application/x-zip-compressed,application/gzip,text/plain"
+        accept={
+          ".log,.log1,.log2,.log3,.log4,.log5,.log6,.log7,.log8,.log9,.log10,.txt,.out,.err,.1,.2,.3,.4,.5,.6,.7,.8,.9,text/plain," +
+          ARCHIVE_ACCEPT
+        }
         className="hidden"
         data-testid="log-file-input"
         onChange={onInputChange}
@@ -556,7 +564,10 @@ export function IngestPanel() {
         ref={folderInputRef}
         type="file"
         multiple
-        accept=".log,.log1,.log2,.log3,.log4,.log5,.log6,.log7,.log8,.log9,.log10,.txt,.out,.err,.1,.2,.3,.4,.5,.6,.7,.8,.9,.zip,.gz,application/zip,application/x-zip-compressed,application/gzip,text/plain"
+        accept={
+          ".log,.log1,.log2,.log3,.log4,.log5,.log6,.log7,.log8,.log9,.log10,.txt,.out,.err,.1,.2,.3,.4,.5,.6,.7,.8,.9,text/plain," +
+          ARCHIVE_ACCEPT
+        }
         className="hidden"
         data-testid="log-folder-input"
         onChange={onInputChange}

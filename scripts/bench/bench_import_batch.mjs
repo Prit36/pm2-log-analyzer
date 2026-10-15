@@ -71,6 +71,9 @@ function startRssSampler(kind, rootPid) {
 $ErrorActionPreference = 'SilentlyContinue'
 $root = [uint32]${rootPid}
 $procs = @(Get-CimInstance Win32_Process)
+# An orphan can retain a recycled parent PID; exclude processes older than this run.
+$rootCreated = ($procs | Where-Object { $_.ProcessId -eq $root }).CreationDate
+$procs = @($procs | Where-Object { $_.CreationDate -ge $rootCreated })
 $ids = [System.Collections.Generic.HashSet[uint32]]::new()
 [void]$ids.Add($root)
 $changed = $true
@@ -363,6 +366,7 @@ async function runBrowser() {
     const parserStats = await page.evaluate(() => ({
       pm2: window.__PM2_BENCH__ ?? null,
       mongo: window.__MONGO_BENCH__ ?? null,
+      archive: window.__ZIP_BENCH__ ?? null,
     }));
     const activeText = await page.locator("body").innerText();
     if (errors.length > 0) throw new Error(`Browser page errors: ${errors.join(" | ")}`);
@@ -373,6 +377,7 @@ async function runBrowser() {
     const rssSamples = rssSampler.samples;
     return {
       uploadToReadyMs,
+      archive: parserStats.archive,
       rssBeforeMB: rssSamples[0]?.rssMB ?? null,
       rssPeakMB: maxFinite(rssSamples.map((sample) => sample.rssMB)),
       rssAfterMB: rssSamples.at(-1)?.rssMB ?? null,

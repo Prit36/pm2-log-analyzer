@@ -6,9 +6,13 @@ export const classify_log_name_or_content: (a: number, b: number, c: number, d: 
 export const fastdecompressor_clear: (a: number) => void;
 export const fastdecompressor_decompress_deflate: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const fastdecompressor_decompress_gzip: (a: number, b: number, c: number) => [number, number, number];
+export const fastdecompressor_decompress_lzma2: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
 export const fastdecompressor_new: () => number;
+export const fastdecompressor_output_crc: (a: number, b: number, c: number) => [number, number, number];
 export const fastdecompressor_output_len: (a: number) => number;
 export const fastdecompressor_output_ptr: (a: number) => number;
+export const inspect_sevenz: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+export const sevenz_crc_combine: (a: number, b: number, c: number) => number;
 export const __wbindgen_externrefs: WebAssembly.Table;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

@@ -1,3 +1,4 @@
+import { ARCHIVE_ACCEPT } from "../../utils/archiveFormats";
 import { useRef, useState, type DragEvent } from "react";
 import { ClipboardPaste, Database, FolderOpen, Plus, RefreshCw, Upload, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
@@ -57,7 +58,9 @@ export function MongoIngestPanel() {
     }
     const validFiles = filterValidFiles(e.dataTransfer.files);
     if (validFiles.length === 0) {
-      showToast("Please upload log or archive files (.log, .zip, .gz, .txt, .json, etc.)");
+      showToast(
+        "Please upload log or archive files (.log, .zip, .rar, .7z, .tar, .gz, .txt, .json, etc.)",
+      );
       return;
     }
     if (hasData && loadedFiles.length > 0) {
@@ -119,7 +122,9 @@ export function MongoIngestPanel() {
     const validFiles = filterValidFiles(e.target.files, !e.target.hasAttribute("webkitdirectory"));
     e.target.value = "";
     if (validFiles.length === 0) {
-      showToast("Please upload log or archive files (.log, .zip, .gz, .txt, .json, etc.)");
+      showToast(
+        "Please upload log or archive files (.log, .zip, .rar, .7z, .tar, .gz, .txt, .json, etc.)",
+      );
       return;
     }
     if (uploadMode === "append" && hasData && loadedFiles.length > 0) {
@@ -159,7 +164,7 @@ export function MongoIngestPanel() {
           data-testid="mongo-log-file-input"
           className="hidden"
           onChange={onFileChange}
-          accept=".log*,.txt,.json,.1,.2,.3,.4,.5,.6,.7,.8,.9,.zip,.gz,application/zip,application/x-zip-compressed,application/gzip,text/plain"
+          accept={".log*,.txt,.json,.1,.2,.3,.4,.5,.6,.7,.8,.9,text/plain," + ARCHIVE_ACCEPT}
         />
         <input
           ref={folderInputRef}
@@ -168,7 +173,7 @@ export function MongoIngestPanel() {
           data-testid="mongo-log-folder-input"
           className="hidden"
           onChange={onFileChange}
-          accept=".log*,.txt,.json,.1,.2,.3,.4,.5,.6,.7,.8,.9,.zip,.gz,application/zip,application/x-zip-compressed,application/gzip,text/plain"
+          accept={".log*,.txt,.json,.1,.2,.3,.4,.5,.6,.7,.8,.9,text/plain," + ARCHIVE_ACCEPT}
         />
 
         {busy ? (
@@ -240,10 +245,10 @@ export function MongoIngestPanel() {
               <Database className="size-6 text-emerald-600 dark:text-emerald-400" />
             </div>
             <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Drop MongoDB logs or .zip archive here
+              Drop MongoDB logs or archives here
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm">
-              Supports mongod log files (.log, .log.1, .gz, .zip) · Auto-classifies API &amp;
+              Supports logs, ZIP, RAR, 7z, TAR, and compressed TAR · Auto-classifies API &amp;
               MongoDB logs
             </p>
             <div className="mt-2 flex items-center gap-2">

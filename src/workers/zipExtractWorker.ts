@@ -1,3 +1,4 @@
+import { archiveSuffix, isArchiveName } from "../utils/archiveFormats";
 import { compileZipCoreModule } from "../wasm/loadZipCore";
 import init, { classify_log_name_or_content, FastDecompressor } from "../wasm/pkg_zip/zip_core.js";
 
@@ -125,14 +126,8 @@ async function handleExtractEntry(job: EntryExtractJob): Promise<void> {
   }
 
   let category = job.category;
-  const isZip =
-    view.length >= 4 &&
-    view[0] === 0x50 &&
-    view[1] === 0x4b &&
-    view[2] === 0x03 &&
-    view[3] === 0x04;
-
-  if (isZip) {
+  const suffix = archiveSuffix(view);
+  if (suffix || isArchiveName(job.cleanName)) {
     category = "archive";
   } else if (category === "unknown" || category === "archive") {
     const sample = view.subarray(0, Math.min(view.byteLength, 4096));
@@ -149,7 +144,7 @@ async function handleExtractEntry(job: EntryExtractJob): Promise<void> {
 
   const payload: ExtractedEntryResponse = {
     id: job.id,
-    name: job.cleanName,
+    name: suffix && !isArchiveName(job.cleanName) ? job.cleanName + suffix : job.cleanName,
     category: finalCategory,
     buffer: standaloneBuf,
     size: standaloneBuf.byteLength,
@@ -183,12 +178,10 @@ async function handleDecompressGz(
     view = new Uint8Array(standaloneBuf);
     if (!cleanName.toLowerCase().endsWith(".gz")) cleanName += ".gz";
   }
-  const isZip = view[0] === 0x50 && view[1] === 0x4b && view[2] === 0x03 && view[3] === 0x04;
-  const isNestedGzip = view[0] === 0x1f && view[1] === 0x8b;
-  if (isZip && !cleanName.toLowerCase().endsWith(".zip")) cleanName += ".zip";
-  if (isNestedGzip && !cleanName.toLowerCase().endsWith(".gz")) cleanName += ".gz";
+  const suffix = archiveSuffix(view);
+  if (suffix && !isArchiveName(cleanName)) cleanName += suffix;
   const cat =
-    isZip || isNestedGzip
+    suffix || isArchiveName(cleanName)
       ? "archive"
       : classify_log_name_or_content(cleanName, view.subarray(0, Math.min(view.byteLength, 4096)));
 

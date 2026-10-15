@@ -1,6 +1,6 @@
 # PM2 & MongoDB Log Analyzer
 
-High-performance, client-side ops console and native desktop application for massive PM2 HTTP access logs, cron jobs, and MongoDB query logs. Ingest raw log files, gzip archives, zip archives, or entire directories—get real-time KPI metrics, filterable API and query tables, percentile charts, execution diagnostics, and formatted Excel workbooks.
+High-performance, client-side ops console and native desktop application for massive PM2 HTTP access logs, cron jobs, and MongoDB query logs. Ingest raw log files, gzip logs, ZIP, RAR, 7z, TAR, and compressed TAR archives, or entire directories—get real-time KPI metrics, filterable API and query tables, percentile charts, execution diagnostics, and formatted Excel workbooks.
 
 Runs 100% locally with zero backend dependencies. Logs never leave your machine.
 
@@ -27,9 +27,12 @@ The analyzer supports two first-class runtime targets sharing a unified React 19
 ## Features
 
 ### Ingestion & Archive Pipeline
-- **Flexible Sources**: Single log files (`.log`, `.txt`), compressed logs (`.gz`, `.gzip`), ZIP archives (`.zip`), nested folders/directories, and pasted text.
+- **Flexible Sources**: Single log files (`.log`, `.txt`), compressed logs (`.gz`), ZIP, RAR4/RAR5, 7z, TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ/TBZ2, TAR.XZ/TXZ archives, nested folders/directories, and pasted text.
 - **Smart Auto-Classification**: Automatically detects and categorizes PM2 vs. MongoDB entries, skips irrelevant assets/system files, and dispatches them to their respective engines.
 - **Batch Multi-Archive Import**: Parallel decompression and direct shard partitioning for multi-archive or multi-file drops.
+- **Archive Decoders**: Browser decoders load on demand in disposable Web Workers. Independent 7z LZMA2 reset ranges decode across a bounded pool; other layouts use the compatibility decoder. RAR reads from a bounded file cache, and TAR/GZIP copies directly into final entry buffers. Native imports stream logs through three recycled 16 MiB buffers while parsing concurrently; Bzip2, XZ, and supported 7z layouts use bounded decoder parallelism. Nested archives are materialized for recursive extraction. Encrypted and split-volume archives are unsupported. Decoder license notices ship in `public/archive-licenses.txt`, `src-tauri/UNRAR-LICENSE.txt`, and `src-tauri/NATIVE-DECODER-LICENSES.txt`.
+- **Archive Verification**: Run `node scripts/test_archives.mjs` for browser extraction parity, aliases, nesting, RAR4/RAR5, malformed input, and mixed uploads; run `cargo test --manifest-path src-tauri/Cargo.toml --lib` for native coverage. Native builds require Rust 1.93 or newer.
+- **Archive Performance**: [Measured format comparisons and memory bounds](docs/archive-performance.md) cover the browser and desktop implementations.
 - **Session Control**: Append additional logs to an active session or replace existing analysis.
 - **Privacy First**: All parsing and aggregation executes locally. No log data or telemetry is ever transmitted over the network.
 - **Excel Export**: Generate formatted multi-sheet Excel workbooks (`.xlsx`) for PM2 endpoints, cron jobs, MongoDB slow queries, and query patterns.

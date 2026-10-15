@@ -1,4 +1,6 @@
 use wasm_bindgen::prelude::*;
+mod sevenzip;
+pub use sevenzip::{inspect_sevenz, sevenz_crc_combine};
 
 fn classify_by_name(name: &str) -> Option<&'static str> {
     let lower = name.to_ascii_lowercase().replace('\\', "/");
@@ -48,15 +50,21 @@ fn classify_by_content(data: &[u8]) -> &'static str {
     if sample.windows(8).any(|window| window == b"\"$date\"")
         || sample.windows(5).any(|window| window == b"\"msg\"")
         || sample.windows(5).any(|window| window == b"\"ctx\"")
-        || sample.windows(15).any(|window| window == b"[initandlisten]")
+        || sample
+            .windows(15)
+            .any(|window| window == b"[initandlisten]")
         || sample.windows(6).any(|window| window == b"[conn")
     {
         return "mongo";
     }
 
     // Check for HTTP / PM2 log lines
-    if sample.windows(4).any(|window| window == b"GET " || window == b"POST")
-        || sample.windows(4).any(|window| window == b"PUT " || window == b"HEAD")
+    if sample
+        .windows(4)
+        .any(|window| window == b"GET " || window == b"POST")
+        || sample
+            .windows(4)
+            .any(|window| window == b"PUT " || window == b"HEAD")
         || sample
             .windows(7)
             .any(|window| window == b"DELETE " || window == b"OPTIONS")
@@ -184,8 +192,7 @@ impl FastDecompressor {
 
     /// Decompress Gzip bytes directly into linear memory.
     pub fn decompress_gzip(&mut self, gz_bytes: &[u8]) -> Result<usize, JsValue> {
-        decompress_gzip_internal(gz_bytes, &mut self.output)
-            .map_err(JsValue::from_str)?;
+        decompress_gzip_internal(gz_bytes, &mut self.output).map_err(JsValue::from_str)?;
         Ok(self.output.as_ptr() as usize)
     }
 
@@ -195,6 +202,26 @@ impl FastDecompressor {
 
     pub fn output_len(&self) -> usize {
         self.output.len()
+    }
+
+    /// Decode a dictionary-reset LZMA2 range into a reusable worker output window.
+    pub fn decompress_lzma2(
+        &mut self,
+        compressed: &[u8],
+        dict_size: u32,
+        output_size: usize,
+    ) -> Result<usize, JsValue> {
+        sevenzip::decode_segment(compressed, dict_size, output_size, &mut self.output)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        Ok(self.output.as_ptr() as usize)
+    }
+
+    pub fn output_crc(&self, offset: usize, length: usize) -> Result<u32, JsValue> {
+        let bytes = offset
+            .checked_add(length)
+            .and_then(|end| self.output.get(offset..end))
+            .ok_or_else(|| JsValue::from_str("Invalid checksum range"))?;
+        Ok(crc32fast::hash(bytes))
     }
 
     /// Release linear memory allocated for output buffer immediately.
@@ -214,4 +241,3 @@ pub fn classify_log_name_or_content(name: &str, sample: &[u8]) -> String {
     }
     classify_by_content(sample).to_string()
 }
-

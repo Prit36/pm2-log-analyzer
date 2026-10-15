@@ -1,3 +1,4 @@
+import { ARCHIVE_EXTENSIONS } from "../utils/archiveFormats";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -130,7 +131,7 @@ export async function pickNativeFiles(): Promise<string[] | null> {
     filters: [
       {
         name: "Logs & Archives",
-        extensions: ["log", "txt", "json", "zip", "gz"],
+        extensions: ["log", "txt", "json", ...ARCHIVE_EXTENSIONS, "bz2", "xz"],
       },
     ],
   });

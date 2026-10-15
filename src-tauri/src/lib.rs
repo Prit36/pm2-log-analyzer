@@ -1,8 +1,12 @@
 mod archive;
 mod cron;
 mod classifier;
+mod extended_archive;
+mod archive_stream;
 mod finalize;
 mod payload;
+#[cfg(test)]
+mod archive_tests;
 
 use classifier::LogCategory;
 use memmap2::MmapOptions;
@@ -216,6 +220,7 @@ fn is_supported_folder_file(path: &Path) -> bool {
     [".log", ".txt", ".json", ".out", ".err", ".zip", ".gz"]
         .iter()
         .any(|extension| name.ends_with(extension))
+        || extended_archive::is_archive_name(&name)
         || name.rsplit_once('.').is_some_and(|(_, extension)| {
             !extension.is_empty() && extension.bytes().all(|byte| byte.is_ascii_digit())
         })
@@ -246,6 +251,7 @@ fn emit_progress(
 /// PM2 parse + Mongo parse), so the UI bar reflects all of them instead of
 /// restarting on each stage.
 struct SharedProgress<'a> {
+    archive_count: usize,
     app: Option<&'a tauri::AppHandle>,
     done: AtomicU64,
     total: u64,
@@ -256,6 +262,7 @@ impl<'a> SharedProgress<'a> {
         Self {
             app,
             done: AtomicU64::new(0),
+            archive_count: 1,
             total,
         }
     }
@@ -365,6 +372,12 @@ fn open_candidate(path: &Path) -> Option<CandidateFile> {
 /// Expand one candidate into the log items it carries.
 fn expand_candidate(candidate: CandidateFile) -> Vec<LogSourceItem> {
     match candidate.category {
+        LogCategory::Archive => expand_extended_archive(
+            &candidate.name,
+            &candidate.path,
+            extended_archive::ArchiveSource::Mmap(candidate.mmap),
+            0,
+        ),
         LogCategory::Zip | LogCategory::Gzip => expand_archive_bytes(
             &candidate.name,
             &candidate.path,
@@ -388,6 +401,14 @@ fn expand_archive_bytes(
     data: Cow<'_, [u8]>,
     depth: usize,
 ) -> Vec<LogSourceItem> {
+    if extended_archive::is_archive_name(name) || extended_archive::is_archive_content(&data) {
+        return expand_extended_archive(
+            name,
+            path,
+            extended_archive::ArchiveSource::Buffer(data.into_owned()),
+            depth,
+        );
+    }
     if data.starts_with(b"PK\x03\x04") {
         if depth >= MAX_ARCHIVE_DEPTH {
             log::warn!("Skipping archive nested deeper than {MAX_ARCHIVE_DEPTH}: '{path}'");
@@ -416,7 +437,7 @@ fn expand_archive_bytes(
     }
     if matches!(
         category,
-        LogCategory::Skip | LogCategory::Zip | LogCategory::Gzip
+        LogCategory::Skip | LogCategory::Zip | LogCategory::Gzip | LogCategory::Archive
     ) {
         return Vec::new();
     }
@@ -429,6 +450,27 @@ fn expand_archive_bytes(
         size,
         category,
     }]
+}
+
+fn expand_extended_archive(
+    name: &str,
+    path: &str,
+    source: extended_archive::ArchiveSource,
+    depth: usize,
+) -> Vec<LogSourceItem> {
+    if depth >= MAX_ARCHIVE_DEPTH {
+        log::warn!("Skipping archive nested deeper than {MAX_ARCHIVE_DEPTH}: '{path}'");
+        return Vec::new();
+    }
+    let mut items = Vec::new();
+    if let Err(error) = extended_archive::for_each_entry(name, source, |entry_name, content| {
+        let entry_path = format!("{path}/{entry_name}");
+        items.extend(expand_archive_bytes(entry_name, &entry_path, content, depth + 1));
+    }) {
+        log::warn!("Failed to read archive '{path}': {error}");
+        return Vec::new();
+    }
+    items
 }
 
 /// Expand a ZIP archive into one item per usable entry, preferring large entries first.
@@ -495,11 +537,11 @@ pub fn parse_pm2_files_internal(
     if paths.len() == 1 {
         let path = &paths[0];
         let file_path = Path::new(path);
-        if file_path.is_file() && !path.ends_with(".zip") && !path.ends_with(".gz") {
+        if file_path.is_file() {
             let file = File::open(file_path).map_err(|e| format!("Failed to open '{path}': {e}"))?;
             let mmap = unsafe { MmapOptions::new().map(&file) }
                 .map_err(|e| format!("Failed to memory-map '{path}': {e}"))?;
-            if mmap.len() >= 4 && &mmap[..4] != b"PK\x03\x04" && &mmap[..2] != b"\x1f\x8b" {
+            if !is_compressed_or_archive(path, &mmap) {
                 return parse_pm2_raw_mmaps(vec![(path.clone(), mmap)], options, app_handle);
             }
         }
@@ -908,11 +950,11 @@ pub fn parse_mongo_files_internal(
     if paths.len() == 1 {
         let path = &paths[0];
         let file_path = Path::new(path);
-        if file_path.is_file() && !path.ends_with(".zip") && !path.ends_with(".gz") {
+        if file_path.is_file() {
             let file = File::open(file_path).map_err(|e| format!("Failed to open '{path}': {e}"))?;
             let mmap = unsafe { MmapOptions::new().map(&file) }
                 .map_err(|e| format!("Failed to memory-map '{path}': {e}"))?;
-            if mmap.len() >= 4 && &mmap[..4] != b"PK\x03\x04" && &mmap[..2] != b"\x1f\x8b" {
+            if !is_compressed_or_archive(path, &mmap) {
                 return parse_mongo_raw_mmaps(vec![(path.clone(), mmap)], options, app_handle, None);
             }
         }
@@ -1170,12 +1212,13 @@ fn classify_unknown_zip_entries(
         let Ok(cow) = archive::extract_zip_entry(mmap, &entry) else {
             continue;
         };
-        let category = classifier::classify_content(&cow);
-        let item = zip_entry_item(cow, &entry.name, zip_path, category);
-        match category {
-            LogCategory::Pm2 => pm2.push(item),
-            LogCategory::Mongo => mongo.push(item),
-            _ => {}
+        let path = format!("{zip_path}/{}", entry.name);
+        for item in expand_archive_bytes(&entry.name, &path, cow, 1) {
+            match item.category {
+                LogCategory::Pm2 => pm2.push(item),
+                LogCategory::Mongo => mongo.push(item),
+                _ => {}
+            }
         }
     }
     (pm2, mongo)
@@ -1360,6 +1403,7 @@ struct IngestPipelineOutcome {
     pm2_partials: Vec<pm2_core::DecodedPartial>,
     mongo_shards: Vec<mongo_core::MongoEngine>,
     files: Vec<NativeFileInfo>,
+    archive_errors: Vec<String>,
 }
 
 impl IngestPipelineOutcome {
@@ -1368,6 +1412,7 @@ impl IngestPipelineOutcome {
         self.pm2_partials.append(&mut other.pm2_partials);
         self.mongo_shards.append(&mut other.mongo_shards);
         self.files.append(&mut other.files);
+        self.archive_errors.append(&mut other.archive_errors);
     }
 }
 
@@ -1472,6 +1517,17 @@ fn pipeline_archive_bytes(
     progress: &SharedProgress<'_>,
     cpus: usize,
 ) -> IngestPipelineOutcome {
+    if extended_archive::is_archive_name(name) || extended_archive::is_archive_content(&data) {
+        return pipeline_extended_archive(
+            name,
+            path,
+            extended_archive::ArchiveSource::Buffer(data.into_owned()),
+            depth,
+            shard_options,
+            progress,
+            cpus,
+        );
+    }
     if data.starts_with(b"PK\x03\x04") {
         if depth >= MAX_ARCHIVE_DEPTH {
             log::warn!("Skipping archive nested deeper than {MAX_ARCHIVE_DEPTH}: '{path}'");
@@ -1498,12 +1554,52 @@ fn pipeline_archive_bytes(
     if category == LogCategory::Unknown {
         category = classifier::classify_content(&data);
     }
-    if matches!(category, LogCategory::Skip | LogCategory::Zip | LogCategory::Gzip) {
+    if matches!(category, LogCategory::Skip | LogCategory::Zip | LogCategory::Gzip | LogCategory::Archive) {
         return IngestPipelineOutcome::default();
     }
 
     let clean = name.rsplit('/').next().unwrap_or(name);
     pipeline_log_slice(clean, path, &data, category, shard_options, progress, cpus)
+}
+
+fn pipeline_extended_archive(
+    name: &str,
+    path: &str,
+    source: extended_archive::ArchiveSource,
+    depth: usize,
+    shard_options: &Pm2ShardOptions,
+    progress: &SharedProgress<'_>,
+    cpus: usize,
+) -> IngestPipelineOutcome {
+    if depth >= MAX_ARCHIVE_DEPTH {
+        log::warn!("Skipping archive nested deeper than {MAX_ARCHIVE_DEPTH}: '{path}'");
+        return IngestPipelineOutcome::default();
+    }
+    // Plain TAR entries are already borrowed directly from the mmap. Compressed
+    // and solid formats instead overlap their decoder with bounded chunk parsing.
+    let data = source.as_ref();
+    if data.starts_with(b"Rar!\x1a\x07")
+        || data.starts_with(b"7z\xbc\xaf\x27\x1c")
+        || data.starts_with(b"\x1f\x8b")
+        || data.starts_with(b"BZh")
+        || data.starts_with(b"\xfd7zXZ\0")
+    {
+        return archive_stream::pipeline(name, path, source, depth, shard_options, progress, cpus);
+    }
+    let mut outcome = IngestPipelineOutcome::default();
+    if let Err(error) = extended_archive::for_each_entry(name, source, |entry_name, content| {
+        let entry_path = format!("{path}/{entry_name}");
+        outcome.merge(pipeline_archive_bytes(
+            entry_name, &entry_path, content, depth + 1, shard_options, progress, cpus,
+        ));
+    }) {
+        log::warn!("Failed to read archive '{path}': {error}");
+        return IngestPipelineOutcome {
+            archive_errors: vec![format!("Failed to read archive '{path}': {error}")],
+            ..IngestPipelineOutcome::default()
+        };
+    }
+    outcome
 }
 
 fn pipeline_zip_bytes(
@@ -1550,6 +1646,15 @@ fn pipeline_candidate(
     cpus: usize,
 ) -> IngestPipelineOutcome {
     match candidate.category {
+        LogCategory::Archive => pipeline_extended_archive(
+            &candidate.name,
+            &candidate.path,
+            extended_archive::ArchiveSource::Mmap(candidate.mmap),
+            0,
+            shard_options,
+            progress,
+            cpus,
+        ),
         LogCategory::Zip | LogCategory::Gzip => {
             pipeline_archive_bytes(
                 &candidate.name,
@@ -1631,7 +1736,8 @@ pub fn ingest_native_internal(
 
     let cpus = available_parallelism();
     let shard_options = Pm2ShardOptions::new(pm2_options);
-    let progress = SharedProgress::new(app_handle, total_bytes);
+    let mut progress = SharedProgress::new(app_handle, total_bytes);
+    progress.archive_count = candidates.iter().filter(|candidate| candidate.category == LogCategory::Archive).count().max(1);
 
     let t_pipeline = Instant::now();
     let candidate_outcomes: Vec<IngestPipelineOutcome> = candidates
@@ -1646,6 +1752,9 @@ pub fn ingest_native_internal(
     }
 
     if total_outcome.pm2_shards.is_empty() && total_outcome.mongo_shards.is_empty() {
+        if !total_outcome.archive_errors.is_empty() {
+            return Err(total_outcome.archive_errors.join("\n"));
+        }
         return Err("No valid log files found in provided sources".into());
     }
 
@@ -1794,9 +1903,13 @@ fn ingest_single_file(
 
 /// Whether the general expansion, rather than the raw-file fast path, owns this file.
 fn is_compressed_or_archive(path: &str, mmap: &memmap2::Mmap) -> bool {
-    path.ends_with(".zip")
-        || path.ends_with(".gz")
-        || (mmap.len() >= 2 && &mmap[..2] == b"\x1f\x8b")
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".zip")
+        || lower.ends_with(".gz")
+        || extended_archive::is_archive_name(&lower)
+        || mmap.starts_with(b"PK\x03\x04")
+        || mmap.starts_with(b"\x1f\x8b")
+        || extended_archive::is_archive_content(mmap)
 }
 
 /// Classify one raw file and hand it to its pipeline.

@@ -5,6 +5,7 @@ pub enum LogCategory {
     Mongo,
     Zip,
     Gzip,
+    Archive,
     Skip,
     Unknown,
 }
@@ -30,6 +31,9 @@ pub fn classify_name(name: &str) -> LogCategory {
     // Archive extensions
     if file_name.ends_with(".zip") {
         return LogCategory::Zip;
+    }
+    if crate::extended_archive::is_archive_name(file_name) {
+        return LogCategory::Archive;
     }
 
     // Gzip extension check: if name before .gz classifies, note it
@@ -72,6 +76,9 @@ pub fn classify_content(data: &[u8]) -> LogCategory {
     if data.len() >= 2 && &data[..2] == b"\x1f\x8b" {
         return LogCategory::Gzip;
     }
+    if crate::extended_archive::is_archive_content(data) {
+        return LogCategory::Archive;
+    }
 
     let sample_len = data.len().min(4096);
     let sample = &data[..sample_len];
@@ -103,9 +110,16 @@ pub fn classify_content(data: &[u8]) -> LogCategory {
 
 pub fn classify_file_or_entry(name: &str, sample: &[u8]) -> LogCategory {
     let name_cat = classify_name(name);
+    if name_cat == LogCategory::Skip || name_cat == LogCategory::Archive {
+        return name_cat;
+    }
+    let content_cat = classify_content(sample);
+    if matches!(content_cat, LogCategory::Zip | LogCategory::Gzip | LogCategory::Archive) {
+        return content_cat;
+    }
     if name_cat != LogCategory::Unknown {
         return name_cat;
     }
-    classify_content(sample)
+    content_cat
 }
 

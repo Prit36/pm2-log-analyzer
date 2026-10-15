@@ -20,7 +20,12 @@ export class FastDecompressor {
      * Decompress Gzip bytes directly into linear memory.
      */
     decompress_gzip(gz_bytes: Uint8Array): number;
+    /**
+     * Decode a dictionary-reset LZMA2 range into a reusable worker output window.
+     */
+    decompress_lzma2(compressed: Uint8Array, dict_size: number, output_size: number): number;
     constructor();
+    output_crc(offset: number, length: number): number;
     output_len(): number;
     output_ptr(): number;
 }
@@ -29,6 +34,13 @@ export class FastDecompressor {
  * Fast classifier for standalone files or buffers
  */
 export function classify_log_name_or_content(name: string, sample: Uint8Array): string;
+
+/**
+ * Returns a metadata-only LZMA2 plan, or undefined when the general decoder is required.
+ */
+export function inspect_sevenz(signature: Uint8Array, tail: Uint8Array, tail_offset: number, length: number): string | undefined;
+
+export function sevenz_crc_combine(left: number, right: number, right_length: number): number;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -39,9 +51,13 @@ export interface InitOutput {
     readonly fastdecompressor_clear: (a: number) => void;
     readonly fastdecompressor_decompress_deflate: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly fastdecompressor_decompress_gzip: (a: number, b: number, c: number) => [number, number, number];
+    readonly fastdecompressor_decompress_lzma2: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly fastdecompressor_new: () => number;
+    readonly fastdecompressor_output_crc: (a: number, b: number, c: number) => [number, number, number];
     readonly fastdecompressor_output_len: (a: number) => number;
     readonly fastdecompressor_output_ptr: (a: number) => number;
+    readonly inspect_sevenz: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly sevenz_crc_combine: (a: number, b: number, c: number) => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

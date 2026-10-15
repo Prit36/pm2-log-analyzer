@@ -20,9 +20,15 @@ importers:
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0
+      libarchive-wasm:
+        specifier: 1.2.0
+        version: 1.2.0
       lucide-react:
         specifier: ^1.48.0
         version: 1.48.0(react@19.3.0)
+      node-unrar-js:
+        specifier: ^2.0.2
+        version: 2.0.2
       react:
         specifier: 19.3.0
         version: 19.3.0
@@ -1217,6 +1223,9 @@ packages:
     resolution: {integrity: sha512-b94GiNHQNy6JNTrt5w6zNyffMrNkXZb3KTkCZJb2V1xaEGCk093vkZ2jk3tpaeP33/OiXC+WvK9AxUebnf5nbw==}
     engines: {node: '>= 0.6.3'}
 
+  libarchive-wasm@1.2.0:
+    resolution: {integrity: sha512-aunFn8oL9VwGRj+brRvdOv8BRUD4Ea1WxJW45IdiuXE2Vp/m/X+M1UxSU+yPzXfc1mPPC8AARaflg/CtF11u8g==}
+
   lie@3.3.0:
     resolution: {integrity: sha512-UaiMJzeWRlEujzAuw5LokY1L5ecNQYZKfmyZ9L7wDHb/p5etKaxXhohBcrw0EYby+G/NA52vRSN4N39dxHAIwQ==}
 
@@ -1437,6 +1446,10 @@ packages:
     resolution: {integrity: sha512-Y2tUNy4ouw6tq5oDSKeQYGOyhkUBhNOcGV/02KC+6kd9eDGqdZd++mjMiIDilrBYvjEnCYvVtsuHCuP+okSfug==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
+
+  node-unrar-js@2.0.2:
+    resolution: {integrity: sha512-hLNmoJzqaKJnod8yiTVGe9hnlNRHotUi0CreSv/8HtfRi/3JnRC8DvsmKfeGGguRjTEulhZK6zXX5PXoVuDZ2w==}
+    engines: {node: '>=10.0.0'}
 
   normalize-path@3.0.0:
     resolution: {integrity: sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA==}
@@ -2527,6 +2540,8 @@ snapshots:
     dependencies:
       readable-stream: 2.3.8
 
+  libarchive-wasm@1.2.0: {}
+
   lie@3.3.0:
     dependencies:
       immediate: 3.0.6
@@ -2680,6 +2695,8 @@ snapshots:
       minimist: 1.2.8
 
   nanoid@3.3.19: {}
+
+  node-unrar-js@2.0.2: {}
 
   normalize-path@3.0.0: {}
 
