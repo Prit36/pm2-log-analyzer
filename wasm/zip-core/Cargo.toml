@@ -12,7 +12,14 @@ crate-type = ["cdylib", "rlib"]
 wasm-bindgen = "=0.2.126"
 js-sys = "0.3.103"
 sevenz-rust2 = { version = "0.24.0", default-features = false }
-lzma-rust2 = { version = "0.22.0", default-features = false, features = ["std", "optimization"] }
+lzma-rust2 = { version = "0.22.0", default-features = false, features = [
+  "std",
+  "optimization",
+  "xz",
+] }
+bzip2 = "0.6"
+tar = { version = "0.4.46", default-features = false }
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
 crc32fast = "1.5.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

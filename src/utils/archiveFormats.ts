@@ -25,6 +25,16 @@ export function archiveSuffix(bytes: Uint8Array): string | null {
     bytes[5] === 0x1c
   )
     return ".7z";
+  if (bytes[0] === 0x42 && bytes[1] === 0x5a && bytes[2] === 0x68) return ".bz2";
+  if (
+    bytes[0] === 0xfd &&
+    bytes[1] === 0x37 &&
+    bytes[2] === 0x7a &&
+    bytes[3] === 0x58 &&
+    bytes[4] === 0x5a &&
+    bytes[5] === 0x00
+  )
+    return ".xz";
   if (
     bytes[257] === 0x75 &&
     bytes[258] === 0x73 &&

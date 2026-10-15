@@ -1,6 +1,8 @@
 use wasm_bindgen::prelude::*;
 mod sevenzip;
+mod tar_archive;
 pub use sevenzip::{inspect_sevenz, sevenz_crc_combine};
+pub use tar_archive::extract_tar_wasm;
 
 fn classify_by_name(name: &str) -> Option<&'static str> {
     let lower = name.to_ascii_lowercase().replace('\\', "/");

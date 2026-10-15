@@ -163,7 +163,9 @@ pub(crate) fn decode_segment(
     }
     let input = Cursor::new(input).chain(Cursor::new([0]));
     let mut decoder = lzma_rust2::Lzma2Reader::new(input, dictionary, None);
-    output.resize(length, 0);
+    output.clear();
+    output.reserve_exact(length);
+    unsafe { output.set_len(length) };
     decoder.read_exact(output)?;
     if decoder.read(&mut [0])? != 0 {
         return Err(io::ErrorKind::InvalidData.into());

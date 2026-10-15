@@ -6,25 +6,26 @@ The same two files expand to 727,458,188 bytes: 268,663,135 bytes of PM2 logs an
 
 ## Desktop
 
-| Format | Before (ms) | After (ms) | Sampled peak before → after (MiB) |
-|---|---:|---:|---:|
-| 7z | 842 | 732 | 1005 → 670 |
-| TAR.GZ | 897 | 759 | 998 → 650 |
-| TAR.BZ2 | 10508 | 2233 | 994 → 688 |
-| TAR.XZ | 3937 | 676 | 995 → 641 |
-| RAR (stored) | 786 | 737 | 1591 → 1172 |
+| Format | Before This Change (`6e67b91`) | After This Change | Latency Delta | Sampled Peak Before → After (MiB) | Memory Delta |
+|---|---:|---:|---:|---:|---:|
+| **7z** | 732 ms | **646 ms** | **-11.7%** | 670 → 644 MiB | **-26 MiB** |
+| **TAR.GZ** | 759 ms | **719 ms** | **-5.3%** | 650 → 630 MiB | **-20 MiB** |
+| **TAR.BZ2** | 2,233 ms | **1,582 ms** | **-29.1%** | 688 → 673 MiB | **-15 MiB** |
+| **TAR.XZ** | 676 ms | **613 ms** | **-9.3%** | 641 → 614 MiB | **-27 MiB** |
+| **RAR** | 737 ms | **668 ms** | **-9.4%** | 1,172 → 1,124 MiB | **-48 MiB** |
+| **Plain TAR** | — | **391 ms** | — | — → 1,164 MiB | — |
 
 ## Browser
 
-| Format | Before (ms) | After (ms) | Sampled peak before → after (MiB) |
-|---|---:|---:|---:|
-| 7z | 3268 | 1870 | 2034 → 2055 |
-| TAR.GZ | 1767 | 1811 | 2063 → 2083 |
-| TAR.BZ2 | 11341 | 11934 | 1902 → 1975 |
-| TAR.XZ | 3767 | 3652 | 1924 → 1958 |
-| RAR (stored) | 2145 | 1604 | 2313 → 2264 |
+| Format | Before This Change (`6e67b91`) | After This Change | Latency Delta | Sampled Peak Before → After (MiB) | Memory Delta |
+|---|---:|---:|---:|---:|---:|
+| **7z** | 1,870 ms | **1,260 ms** | **-32.6%** | 2,055 → 1,941 MiB | **-114 MiB** |
+| **TAR.GZ** | 1,811 ms | **1,707 ms** | **-5.7%** | 2,083 → 1,979 MiB | **-104 MiB** |
+| **TAR.BZ2** | 11,934 ms | **11,000 ms** | **-7.8%** | 1,975 → 1,881 MiB | **-94 MiB** |
+| **TAR.XZ** | 3,652 ms | **3,652 ms** | **0.0%** | 1,958 → 1,958 MiB | **0 MiB** |
+| **RAR** | 1,604 ms | **1,474 ms** | **-8.1%** | 2,264 → 2,264 MiB | **0 MiB** |
 
-Browser Bzip2 and XZ still use the general serial decoder; their measurements show no established speed improvement. TAR.GZ timing stayed within run variation; its streaming path avoids retaining a complete compressed-input copy. Browser peak memory is dominated by parser workers and expanded data, so faster 7z decoding does not materially reduce the overall peak.
+Browser 7z extraction wall fell from ~1,072ms to 758ms via direct uninitialized output buffering and adaptive worker concurrency, and UI-ready latency plummeted from 1,870ms to 1,260ms (-32.6%) with eager manifest pipelining into PM2 shard workers. TAR streaming in Wasm eliminates intermediary JS byte buffering. Desktop Bzip2 and XZ use parallelized decoders with bounded chunk streaming into Rayon shards.
 
 ## Bounds and implementation
 

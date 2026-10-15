@@ -103,7 +103,8 @@ export async function extractSevenZip(
   onEntry: (path: string, bytes: Uint8Array) => void,
   onSkipped: (path: string) => void,
   shouldSkip: (path: string) => boolean,
-  workerCap = 4,
+  workerCap = Math.max(4, Math.min(navigator.hardwareConcurrency || 4, 8)),
+  onManifest?: (files: SevenFile[]) => void,
 ): Promise<number | undefined> {
   const tailStart = Math.max(0, file.size - 256 * 1024);
   const [signature, tail] = await Promise.all([
@@ -119,6 +120,7 @@ export async function extractSevenZip(
   if (!json) return;
   // SAFETY: Rust serializes this exact metadata structure after validating the 7z header.
   const index = JSON.parse(json) as SevenIndex;
+  onManifest?.(index.files);
   const plans: { files: PlannedFile[]; segments: Segment[] }[] = [];
   for (const [blockIndex, block] of index.blocks.entries()) {
     let offset = 0;
@@ -159,7 +161,7 @@ export async function extractSevenZip(
     workerCap,
     Math.max(1, jobs),
     navigator.hardwareConcurrency || 4,
-    Math.max(1, Math.floor((workerCap * 32 * 1024 * 1024) / workerBytes)),
+    Math.max(1, Math.floor((workerCap * 64 * 1024 * 1024) / workerBytes)),
   );
   const workers: Worker[] = [];
   let totalBytes = 0;

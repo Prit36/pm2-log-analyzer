@@ -126,6 +126,12 @@ self.onmessage = async ({ data: { file, decoderWorkers } }) => {
           (path) => skipped.push(path),
           (path) => entryInfo(path, 1).category === "skip",
           decoderWorkers,
+          (entries) => {
+            self.postMessage({
+              type: "MANIFEST",
+              payload: entries.map((entry) => entryInfo(entry.name, entry.size, !entry.directory)),
+            });
+          },
         );
         if (extractedBytes !== undefined) {
           self.postMessage({
@@ -141,14 +147,19 @@ self.onmessage = async ({ data: { file, decoderWorkers } }) => {
           return;
         }
       }
-      if (/\.(?:tar|tar\.gz|tgz)$/i.test(file.name) || suffix === ".tar") {
+      const isTar =
+        /\.(?:tar|tar\.(?:gz|bz2|xz)|tgz|tbz2?|txz)$/i.test(file.name) ||
+        suffix === ".tar" ||
+        suffix === ".bz2" ||
+        suffix === ".xz";
+      if (isTar) {
         try {
-          const { extractTar } = await import("./tarExtractor");
-          totalBytes = await extractTar(
-            file,
-            sendEntry,
-            (path) => skipped.push(path),
-            (path) => entryInfo(path, 1).category === "skip",
+          const { extract_tar_wasm } = await import("../wasm/pkg_zip/zip_core.js");
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          totalBytes = extract_tar_wasm(
+            bytes,
+            (path: string, data: Uint8Array) => sendEntry(path, data),
+            (path: string) => skipped.push(path),
           );
           self.postMessage({
             type: "RESULT",
@@ -161,8 +172,16 @@ self.onmessage = async ({ data: { file, decoderWorkers } }) => {
             },
           });
           return;
-        } catch {
-          // Keep libarchive compatibility for sparse/PAX variants and concatenated gzip.
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          if (
+            /corrupt|truncated|incomplete|invalid|mismatch|overflow|checksum|trailer|unexpectedeof/i.test(
+              msg,
+            )
+          ) {
+            throw error;
+          }
+          // Keep libarchive compatibility for sparse/PAX edge cases
           self.postMessage({ type: "RESET" });
           skipped.length = 0;
           totalBytes = 0;

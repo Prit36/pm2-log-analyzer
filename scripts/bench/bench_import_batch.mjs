@@ -1,7 +1,7 @@
 import { spawn, execFileSync, execSync } from "node:child_process";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { performance } from "node:perf_hooks";
 import { chromium } from "playwright";
@@ -422,12 +422,15 @@ async function runNative(portStart) {
   const exePath = resolve("src-tauri/target/release/app.exe");
   if (!existsSync(exePath)) throw new Error(`Native app not found: ${exePath}`);
   const port = await freePort(portStart);
+  const env = {
+    ...process.env,
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
+    WEBVIEW2_USER_DATA_FOLDER:
+      process.env.WEBVIEW2_USER_DATA_FOLDER || resolve(tmpdir(), `bench_wv2_${port}`),
+  };
   const child = spawn(exePath, [], {
     cwd: resolve("src-tauri"),
-    env: {
-      ...process.env,
-      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
-    },
+    env,
     stdio: "ignore",
   });
   const appPid = child.pid;
@@ -438,9 +441,17 @@ async function runNative(portStart) {
   try {
     const base = await waitForCdp(port);
     cdp = await Cdp.connect(base);
-    await cdp.evaluate(
-      'localStorage.setItem("pm2-native-bench","1"); localStorage.removeItem("app-analyzer-mode"); location.reload()',
-    );
+    for (let i = 0; i < 30; i++) {
+      try {
+        await cdp.evaluate(
+          'localStorage.setItem("pm2-native-bench","1"); localStorage.removeItem("app-analyzer-mode"); location.reload()',
+        );
+        break;
+      } catch (err) {
+        if (i === 29) throw err;
+        await sleep(250);
+      }
+    }
     for (let i = 0; i < 120; i++) {
       await sleep(250);
       if (await cdp.evaluate('typeof window.__nativeUpload === "function"')) break;

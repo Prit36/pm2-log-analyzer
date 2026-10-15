@@ -33,7 +33,11 @@ zlib-rs = { version = "0.6", default-features = false, features = [
   "__internal-api",
 ] }
 libdeflater = "1.26.1"
-sevenz-rust2 = { version = "0.24.0", default-features = false, features = ["bzip2", "ppmd", "deflate"] }
+sevenz-rust2 = { version = "0.24.0", default-features = false, features = [
+  "bzip2",
+  "ppmd",
+  "deflate",
+] }
 unrar-rs = { version = "0.11.0", default-features = false, features = ["crypto-rust"] }
 tar = { version = "0.4.46", default-features = false }
 pbz2 = { version = "0.2.0", default-features = false, features = ["simd"] }

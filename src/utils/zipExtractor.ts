@@ -336,7 +336,7 @@ async function extractMultiFormat(
   onProgress?: (p: { stage: string; percent: number }) => void,
   onManifest?: (entries: ArchiveEntryInfo[]) => void,
   onEntry?: (files: ExtractedFileItem[]) => void,
-  decoderWorkers = POOL_CAP,
+  decoderWorkers = Math.max(POOL_CAP, Math.min(navigator.hardwareConcurrency || 4, 8)),
 ): Promise<ExtractedArchiveResult> {
   const { default: ArchiveWorker } = await import("../workers/archiveExtractWorker.ts?worker");
   const worker = new ArchiveWorker();
