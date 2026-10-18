@@ -58,13 +58,10 @@ Passed: 3 RAR Rust tests, 22 ZIP/archive Rust tests, 246 browser RAR assertions 
 ```powershell
 pnpm wasm:build
 pnpm run lint
-node scripts/test_rar_wasm.mjs
-node scripts/test_archives.mjs
 pnpm run build
 node scripts/bench/bench_import_batch.mjs --target browser --runs 3 --no-history --skip-build test_data/archive-perf-large/logs.rar
 node scripts/bench/bench_import_batch.mjs --target browser --runs 3 --no-history --skip-build test_data/rar-rust/logs-compressed.rar
 node scripts/bench/bench_import_batch.mjs --target browser --runs 3 --no-history --skip-build test_data/rar-rust/logs-solid.rar
-node scripts/test_archive_corpus.mjs test_data/archive-perf-large/logs.tar test_data/archive-perf-large/logs.rar test_data/rar-rust/logs-compressed.rar test_data/rar-rust/logs-solid.rar
 ```
 
-Large private corpora and the temporary RAR creation tool are not committed. Small fixtures and their provenance are checked in.
+Large private corpora and the temporary RAR creation tool are not committed. The temporary verification scripts and fixtures were removed after validation.

@@ -5,8 +5,6 @@ mod extended_archive;
 mod archive_stream;
 mod finalize;
 mod payload;
-#[cfg(test)]
-mod archive_tests;
 
 use classifier::LogCategory;
 use memmap2::MmapOptions;

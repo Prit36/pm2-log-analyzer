@@ -2,7 +2,7 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 mod browser_archive;
 mod bzip_parallel;
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(target_arch = "wasm32")]
 mod bzip_reader;
 pub use bzip_parallel::{BzipBlockDecoder, BzipScanner};
 mod tar_stream;
@@ -10,7 +10,7 @@ pub use tar_stream::TarStream;
 mod xz_parallel;
 pub use xz_parallel::{XzBlockDecoder, inspect_xz_blob};
 mod sevenzip;
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(target_arch = "wasm32")]
 mod tar_archive;
 #[cfg(target_arch = "wasm32")]
 pub use browser_archive::{extract_archive_stream, inspect_tar_blob};

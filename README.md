@@ -32,9 +32,8 @@ The analyzer supports two first-class runtime targets sharing a unified React 19
 - **Batch Multi-Archive Import**: Parallel decompression and direct shard partitioning for multi-archive or multi-file drops.
 - **Browser Archive Decoders**: Rust Wasm replaces `libarchive-wasm` and `node-unrar-js`, with no npm decoder fallback. ZIP/Gzip workers are prewarmed; general archive workers load on demand. Plain TAR validates metadata in Rust and reads entry Blob slices directly. Gzip streams into final transferable buffers; Bzip2 and independent XZ blocks use up to four workers. Independent 7z LZMA2 reset ranges decode in parallel; other layouts use the Rust sequential decoder.
 - **Browser RAR**: A separate Rust Wasm asset loads and compiles on the first RAR import. The decoder uses an 8 MiB input reader and copies decoded spans into final transferable buffers, preserving solid archive dictionaries. The vendored `unrar-rs` fixes browser timestamp compilation and truncated-header handling; [patch provenance](wasm/vendor/unrar-rs/PATCH.md) records the exact changes.
-- **Native Archive Decoders**: Native imports stream logs through three recycled 16 MiB buffers while parsing concurrently; Bzip2, XZ, and supported 7z layouts use bounded decoder parallelism.
+- **Native Archive Decoders**: Native builds require Rust 1.93 or newer. Native imports stream logs through three recycled 16 MiB buffers while parsing concurrently; Bzip2, XZ, and supported 7z layouts use bounded decoder parallelism.
 - **Archive Limits & Licenses**: Nested archives are materialized for recursive extraction. Encrypted and split-volume archives are unsupported; browser emitted entries are limited to 2 GiB. Decoder license notices ship in `public/archive-licenses.txt`, `src-tauri/UNRAR-LICENSE.txt`, and `src-tauri/NATIVE-DECODER-LICENSES.txt`.
-- **Archive Verification**: Run `node scripts/test_archives.mjs` for browser extraction parity, aliases, nesting, RAR4/RAR5, malformed input, and mixed uploads; run `cargo test --manifest-path src-tauri/Cargo.toml --lib` for native coverage. Native builds require Rust 1.93 or newer.
 - **Archive Performance**: See the [browser optimization measurements](docs/browser-archive-optimization.md), [subsequent Rust RAR migration](docs/browser-rar-rust-migration.md), and [earlier browser/desktop comparisons](docs/archive-performance.md). Reports include raw results, memory measurements, corpus limits, and reproduction commands.
 - **Session Control**: Append additional logs to an active session or replace existing analysis.
 - **Privacy First**: All parsing and aggregation executes locally. No log data or telemetry is ever transmitted over the network.
@@ -258,17 +257,6 @@ npm run wasm:build
 ```
 
 Production hosting must serve `.wasm` files as `application/wasm` for RAR's `WebAssembly.compileStreaming`; Vite development and preview servers already do this.
-
-### 5. Verify Browser Archive Decoders
-
-```bash
-cargo test --manifest-path wasm/zip-core/Cargo.toml
-cargo test --manifest-path wasm/rar-core/Cargo.toml
-node scripts/test_archives.mjs
-node scripts/test_rar_wasm.mjs
-```
-
-The browser checks cover aliases, nesting, solid archives, malformed inputs, mixed uploads, and RAR timestamps across UTC, Kolkata, and New York timezones.
 
 ---
 

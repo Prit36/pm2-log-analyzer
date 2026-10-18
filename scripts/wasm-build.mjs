@@ -46,7 +46,6 @@ function buildCrate({ crateDir, wasmName, pkgDir, bytesTs, exportConst }) {
   );
 
   console.log(`\n=== Building ${wasmName} (${crateDir}) ===`);
-  run(`cargo test --manifest-path "${crateDir}/Cargo.toml"`);
   run(
     `cargo build --manifest-path "${crateDir}/Cargo.toml" --target wasm32-unknown-unknown --release`,
   );

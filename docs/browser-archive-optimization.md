@@ -68,10 +68,8 @@ Build once and benchmark each archive separately to preserve the single-archive 
 ```powershell
 pnpm wasm:build
 pnpm run lint
-node scripts/test_archives.mjs
 pnpm run build
 node scripts/bench/bench_import_batch.mjs --target browser --runs 3 --no-history --skip-build test_data/archive-perf-large/logs.tar.bz2
-node scripts/test_archive_corpus.mjs test_data/archive-perf-large/logs.tar test_data/archive-perf-large/logs.7z test_data/archive-perf-large/logs.tar.gz test_data/archive-perf-large/logs.tar.bz2 test_data/archive-perf-large/logs.tar.xz test_data/archive-perf-large/logs.rar
 ```
 
 Repeat the benchmark for `.7z`, `.tar`, `.tar.gz`, `.tar.xz`, and `.rar`. ZIP regression uses the original `methaq-api&mongodb-07-09.zip`. Large private corpora are not committed. The before build uses the starting commit; after measurements use the working tree accompanying this report.

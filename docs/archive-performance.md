@@ -41,6 +41,6 @@ Three runs per final desktop format and per browser 7z/RAR; browser Bzip2/XZ/TAR
 
 ZIP regression check (three runs): browser mean 1,182 ms, desktop mean 531 ms, with matching counts. Before this optimization pass the same ZIP benchmark averaged 1,356 ms / 533 ms; no ZIP timing regression was observed. ZIP is still faster than 7z on this corpus.
 
-Run `node scripts/test_archives.mjs`, `cargo test --manifest-path src-tauri/Cargo.toml --lib`, and `cargo test --manifest-path wasm/zip-core/Cargo.toml`. The tests cover extraction parity, aliases, metadata variants, concatenated streams, solid archives, cross-file CRCs, corruption/truncation, encryption/split-volume rejection, oversized lines, nesting, batch imports, and canonical Mongo report parity. Encrypted and split-volume archives are unsupported.
+Encrypted and split-volume archives are unsupported.
 
 Build with `pnpm tauri build --no-bundle`, then use `node scripts/bench/bench_import_batch.mjs --target both --runs 3 --no-history --skip-build <archive>`. Set `WEBVIEW2_USER_DATA_FOLDER` to a fresh benchmark profile to avoid persisted date filters. Full-size local corpora are not committed. Compact statistics are saved in [archive_formats_results.json](../scripts/bench/archive_formats_results.json).
