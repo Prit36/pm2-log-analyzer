@@ -248,6 +248,7 @@ When the user corrects your approach, append a one-line rule here before ending 
 - Browser archive bounds (2026-10-17): prefer detected magic over filename extensions, skip sparse TAR using physical sizes and extension headers, and cap Bzip2 candidate Blob reads at 2,400,016 bytes before allocating input.
 - Browser RAR (2026-10-17): use the locally patched Rust decoder in `wasm/rar-core`; verify browser compilation, local-time/DST timestamps, and solid dictionary continuity when skipping entries. Do not retain an npm decoder fallback.
 - Decoder comparisons (2026-10-18): compare matched Rust/Wasm speed flags and decode-only/streaming APIs before recommending against a library based on its prebuilt npm wrapper; report unsupported filtered streams explicitly.
+- Archive documentation (2026-10-18): update README decoder architecture, benchmark links, Wasm rebuild instructions, and crate layout in the same change as browser archive pipeline changes.
 
 
 ---
