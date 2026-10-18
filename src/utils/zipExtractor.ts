@@ -347,10 +347,7 @@ async function extractMultiFormat(
         files.push(data.payload);
         onEntry?.(files);
       } else if (data.type === "MANIFEST") onManifest?.(data.payload);
-      else if (data.type === "RESET") {
-        files.length = 0;
-        onManifest?.([]);
-      } else if (data.type === "PROGRESS") onProgress?.(data.payload);
+      else if (data.type === "PROGRESS") onProgress?.(data.payload);
       else if (data.type === "RESULT") {
         worker.terminate();
         resolve({ ...data.payload, files });

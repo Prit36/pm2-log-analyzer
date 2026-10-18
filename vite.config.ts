@@ -34,7 +34,6 @@ export default defineConfig({
   },
   optimizeDeps: {
     entries: ["index.html"],
-    include: ["libarchive-wasm", "node-unrar-js"],
   },
   preview: { headers: coiHeaders },
   worker: {

@@ -65,7 +65,7 @@ try {
     );
   const reference = await extract("logs.zip");
   assert.ok(
-    !requests.some((url) => /archiveExtractWorker|unrar.*wasm|libarchive.*wasm/.test(url)),
+    !requests.some((url) => /archiveExtractWorker|loadRarCore|pkg_rar|rar_core.*wasm/.test(url)),
     "ZIP must not load the new decoders",
   );
   await page.screenshot({ path: resolve("test_data/archive-picker.png"), fullPage: true });
@@ -74,12 +74,16 @@ try {
   for (const name of [
     "logs.7z",
     "logs-deflate.7z",
+    "logs-solid.rar",
     "logs.tar",
     "logs.tar.gz",
     "logs.tar.bz2",
     "logs.tar.xz",
+    "logs-multiblock.tar.xz",
     "metadata.tar",
     "logs-concat.tar.gz",
+    "logs-concat.tar.bz2",
+    "metadata.tar.bz2",
     "nested.zip",
     "nested.7z",
   ]) {
@@ -88,6 +92,52 @@ try {
     assert.deepEqual(result.mongo, reference.mongo, name);
     console.log(`${name}: parity OK (${result.ms}ms)`);
   }
+  const parallelBzip = (name, corrupt = 0, truncate = 0) =>
+    page.evaluate(
+      async ({ encoded, corrupt }) => {
+        const { compileZipCoreModule } = await import("/src/wasm/loadZipCore.ts");
+        const { default: init } = await import("/src/wasm/pkg_zip/zip_core.js");
+        const { extractBzipTar } = await import("/src/workers/bzipExtractor.ts");
+        const { memory } = await init({ module_or_path: await compileZipCoreModule() });
+        const bytes = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
+        if (corrupt) bytes[corrupt > 0 ? corrupt : bytes.length + corrupt] ^= 1;
+        const entries = [];
+        const skipped = [];
+        const total = await extractBzipTar(
+          new File([bytes], "logs.tar.bz2"),
+          memory,
+          (name, bytes) =>
+            entries.push([
+              name.replace(/\\/g, "/").split("/").pop(),
+              new TextDecoder().decode(bytes),
+            ]),
+          (name) => skipped.push(name),
+          4,
+        );
+        return { entries, total, skipped };
+      },
+      {
+        encoded: readFileSync(resolve(fixtures, name))
+          .subarray(0, truncate || undefined)
+          .toString("base64"),
+        corrupt,
+      },
+    );
+  for (const name of ["logs.tar.bz2", "logs-concat.tar.bz2", "metadata.tar.bz2"]) {
+    const result = await parallelBzip(name);
+    assert.deepEqual(
+      result.entries,
+      [...reference.pm2, ...reference.mongo],
+      name + " parallel Bzip2",
+    );
+  }
+  await assert.rejects(parallelBzip("logs.tar.bz2", 10), /crc|checksum|corrupt|bzip/i);
+  await assert.rejects(parallelBzip("logs.tar.bz2", -2), /crc|checksum|corrupt|bzip/i);
+  await assert.rejects(
+    parallelBzip("logs.tar.bz2", 0, readFileSync(resolve(fixtures, "logs.tar.bz2")).length - 8),
+    /truncated|bzip/i,
+  );
+  console.log("Parallel Bzip2: metadata, concatenation, block/stream CRC and truncation OK");
   const solidBytes = readFileSync(resolve(fixtures, "solid-reset.7z"));
   const testSolid = (corrupt = false) =>
     page.evaluate(
@@ -150,6 +200,9 @@ try {
     ["logs.tar.bz2", "logs.tbz"],
     ["logs.tar.bz2", "logs.tbz2"],
     ["logs.tar.xz", "logs.txz"],
+    ["logs.tar.gz", "logs.tar"],
+    ["logs.tar.bz2", "logs.tar"],
+    ["logs.tar.xz", "logs.tar"],
   ]) {
     const result = await extract(name, alias);
     assert.deepEqual(result.pm2, reference.pm2, alias);
@@ -176,7 +229,13 @@ try {
     );
     console.log(`${name}: rejected OK`);
   }
-  for (const name of ["logs.tar", "logs.tar.gz", "logs.tar.bz2", "logs.tar.xz"]) {
+  for (const name of [
+    "logs.tar",
+    "logs.tar.gz",
+    "logs.tar.bz2",
+    "logs.tar.xz",
+    "logs-multiblock.tar.xz",
+  ]) {
     const truncate = name === "logs.tar" ? 512 : readFileSync(resolve(fixtures, name)).length - 8;
     await assert.rejects(extract(name, name, truncate), undefined, name + " truncated");
     console.log(name + ": truncation rejected OK");

@@ -1,8 +1,20 @@
 use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
+mod browser_archive;
+mod bzip_parallel;
+#[cfg(any(target_arch = "wasm32", test))]
+mod bzip_reader;
+pub use bzip_parallel::{BzipBlockDecoder, BzipScanner};
+mod tar_stream;
+pub use tar_stream::TarStream;
+mod xz_parallel;
+pub use xz_parallel::{XzBlockDecoder, inspect_xz_blob};
 mod sevenzip;
+#[cfg(any(target_arch = "wasm32", test))]
 mod tar_archive;
+#[cfg(target_arch = "wasm32")]
+pub use browser_archive::{extract_archive_stream, inspect_tar_blob};
 pub use sevenzip::{inspect_sevenz, sevenz_crc_combine};
-pub use tar_archive::extract_tar_wasm;
 
 fn classify_by_name(name: &str) -> Option<&'static str> {
     let lower = name.to_ascii_lowercase().replace('\\', "/");

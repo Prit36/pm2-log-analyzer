@@ -1,0 +1,1938 @@
+//! Bit-level reader over a byte slice using a 64-bit accumulator.
+//!
+//! Reads individual bits and multi-bit values from a compressed data stream.
+//! Uses a 64-bit register that is bulk-refilled from the source, eliminating
+//! per-bit bounds checks in the hot path. This matches the approach used by
+//! production decompressors (zlib, zstd, brotli).
+//!
+//! Bits are read MSB-first within each byte, matching RAR's bitstream convention.
+
+use std::io::Read;
+
+use crate::error::{RarError, RarResult};
+
+// Keep the streaming reader buffer modest. Large RAR5 members already need the
+// dictionary window; additional multi-megabyte input staging is pure overhead.
+const STREAMING_INPUT_BUFFER_SIZE: usize = 0x80000;
+
+/// Buffer bytes past the largest fill, which `fill_buffer` never reads into.
+///
+/// A refill that crosses a fill border leaves bytes of the old fill in the
+/// accumulator ahead of a new fill, and the new fill is a whole one when the
+/// source hands over as much as it is asked for. A byte span lent from there
+/// ([`StreamingBitReader::gather_byte_span`]) lays the old bytes out in front
+/// of the fill, which moves the fill up by as many bytes. The accumulator
+/// asks for more with at most seven bytes in it, so its width covers them.
+/// The top-up that follows may read into these bytes: by then the
+/// accumulator is empty.
+const STREAMING_STRADDLE_HEADROOM: usize = std::mem::size_of::<u64>();
+
+/// Readable bytes a leased span keeps in reserve past its border.
+///
+/// UnRAR keeps its whole input in one buffer and refills it from the outer
+/// unpack loop, once per symbol, against `ReadBorder = ReadTop - 30`
+/// (unpack30.cpp:517). The 30 bytes of slack are what let `getbits()` be a
+/// plain unaligned load with no bounds test of its own.
+///
+/// The same idea, sized for this crate's cursor: a RAR4 symbol consumes at
+/// most 64 bits (15 length code + 5 length extra + 15 distance code + 14
+/// distance extra + 15 low-distance code), so a symbol started at the border
+/// ends at most 8 bytes past it, and the widest load any cursor operation
+/// makes from there is 8 more (`cursor_refill`). 32 covers both with margin,
+/// which is why no operation inside a leased span needs a length check.
+pub const LZ_SPAN_SLACK_BYTES: usize = 32;
+
+/// A contiguous run of input lent to a register-resident decode loop.
+///
+/// This is the rarpar shape of UnRAR's `InBuf`/`InAddr`/`ReadBorder` trio: a
+/// plain byte buffer, a bit offset to resume at, and a border the loop must
+/// stop at so every read inside it is unconditionally in bounds. The loop owns
+/// a [`BitCursor`](super::block_reader::BitCursor) over `data` for the duration
+/// and hands back the bit offset it stopped at; the reader is not touched in
+/// between, so none of its fields have to be re-loaded per symbol.
+#[doc(hidden)]
+pub struct LzSpan<'a> {
+    /// Input bytes. Bit `n` is bit `n % 8` (MSB-first) of `data[n / 8]`.
+    pub data: &'a [u8],
+    /// Bit offset in `data` where decoding resumes.
+    pub start_bit: usize,
+    /// Bit offset at or past which the loop must stop and re-lease.
+    ///
+    /// Always at least [`LZ_SPAN_SLACK_BYTES`] before the end of `data`.
+    pub border_bit: usize,
+}
+
+/// Knobs that let this crate's own tests drive one input through both decode
+/// paths and move the lease boundary to where it can be observed.
+///
+/// Everything here is `cfg(test)`, so no shipped build carries the checks, and
+/// every switch is thread-local, so tests running in parallel cannot disturb
+/// each other. Each setter restores the previous value on unwind.
+#[cfg(test)]
+pub(crate) mod test_hooks {
+    use std::cell::Cell;
+
+    thread_local! {
+        static PER_SYMBOL_ONLY: Cell<bool> = const { Cell::new(false) };
+        static FILL_CAP: Cell<Option<usize>> = const { Cell::new(None) };
+    }
+
+    /// Restores a thread-local switch when the scope ends, panic or not.
+    struct Restore<T: Copy + 'static> {
+        slot: &'static std::thread::LocalKey<Cell<T>>,
+        previous: T,
+    }
+
+    impl<T: Copy + 'static> Drop for Restore<T> {
+        fn drop(&mut self) {
+            self.slot.with(|cell| cell.set(self.previous));
+        }
+    }
+
+    /// Run `body` with every reader declining to lend a span, so the retained
+    /// per-symbol path decodes the whole stream.
+    pub(crate) fn without_lz_span<T>(body: impl FnOnce() -> T) -> T {
+        let _restore = Restore {
+            slot: &PER_SYMBOL_ONLY,
+            previous: PER_SYMBOL_ONLY.with(Cell::get),
+        };
+        PER_SYMBOL_ONLY.with(|cell| cell.set(true));
+        body()
+    }
+
+    /// Run `body` with [`super::StreamingBitReader`] reading at most `bytes`
+    /// per fill.
+    ///
+    /// A production fill is 512 KiB, so the span border — and with it the
+    /// handover to the per-symbol path, the commit arithmetic and the
+    /// accumulator-straddling-two-fills case — is reached once per member.
+    /// Capping the fill makes all three recur every `bytes` instead.
+    pub(crate) fn with_fill_cap<T>(bytes: usize, body: impl FnOnce() -> T) -> T {
+        let _restore = Restore {
+            slot: &FILL_CAP,
+            previous: FILL_CAP.with(Cell::get),
+        };
+        FILL_CAP.with(|cell| cell.set(Some(bytes)));
+        body()
+    }
+
+    pub(super) fn per_symbol_only() -> bool {
+        PER_SYMBOL_ONLY.with(Cell::get)
+    }
+
+    pub(super) fn fill_cap() -> Option<usize> {
+        FILL_CAP.with(Cell::get)
+    }
+}
+
+pub trait BitRead {
+    fn bits_remaining(&mut self) -> usize;
+    fn has_bits(&mut self) -> bool;
+
+    /// Lend the decode loop a contiguous span of buffered input.
+    ///
+    /// `f` receives the span and returns the bit offset in `data` it stopped
+    /// at; the reader then re-establishes its own cursor there. Readers that
+    /// cannot expose a large enough contiguous span — a short buffer, or an
+    /// accumulator still holding bits from a previous fill — return `None` and
+    /// the caller falls back to its per-symbol path.
+    ///
+    /// The default is `None`, so a reader opts in only if it can honour the
+    /// slack contract described on [`LZ_SPAN_SLACK_BYTES`].
+    #[doc(hidden)]
+    fn lease_lz_span<T>(
+        &mut self,
+        f: impl FnOnce(&LzSpan<'_>) -> (usize, T),
+    ) -> RarResult<Option<T>> {
+        let _ = f;
+        Ok(None)
+    }
+    fn has_exact_bits(&mut self, bits: usize) -> RarResult<bool>;
+    fn position(&self) -> usize;
+    fn byte_position(&self) -> usize {
+        self.position() / 8
+    }
+    fn read_bits(&mut self, count: u8) -> RarResult<u32>;
+    /// Read the next eight bits without requiring byte alignment.
+    ///
+    /// Implementations can override this to amortize accumulator refills for
+    /// byte-oriented consumers such as the RAR4 PPMd range decoder.
+    #[inline(always)]
+    fn read_byte(&mut self) -> RarResult<u8> {
+        Ok(self.read_bits(8)? as u8)
+    }
+
+    /// Range decoders conventionally pad truncated input with zero. The
+    /// default preserves that behavior for external readers without changing
+    /// the checked `read_byte` contract.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn read_byte_or_zero(&mut self) -> u8 {
+        self.read_byte().unwrap_or(0)
+    }
+
+    /// How many zero bytes [`Self::read_byte_or_zero`] has invented because the
+    /// input was exhausted.
+    ///
+    /// A range decoder fed endless zeros keeps producing symbols forever, so
+    /// "the stream ran dry" is invisible to it — the PPMd loop in
+    /// `decompress::rar4` sees a well-formed symbol every time. Fuzz
+    /// reproducers `timeout-2c9348e8`, `timeout-8cd4372e` and `timeout-f869e3ff`
+    /// are that shape: a few dozen bytes of packed data against a declared
+    /// unpacked size in the gigabytes.
+    ///
+    /// The count is maintained only on the branch that was already taken when
+    /// the reader is empty, so a real byte costs nothing. Readers that never
+    /// pad report zero.
+    #[doc(hidden)]
+    fn zero_bytes_past_eof(&self) -> u32 {
+        0
+    }
+
+    /// Lend the input bytes from the cursor on, for a byte-oriented consumer
+    /// (the RAR4 PPMd decoder) to read in place.
+    ///
+    /// The span holds at least `min` bytes unless it runs to the end of the
+    /// input, which the flag says. A consumer that keeps no bytes between
+    /// calls can therefore always be offered a whole step's worth of input.
+    /// Lending moves nothing: [`Self::consume_byte_span`] does.
+    ///
+    /// `None` when the cursor is not on a byte boundary or the reader cannot
+    /// lend at all (the default).
+    #[doc(hidden)]
+    fn byte_span(&mut self, min: usize) -> RarResult<Option<(&[u8], bool)>> {
+        let _ = min;
+        Ok(None)
+    }
+
+    /// Move the cursor past the first `count` bytes of the span
+    /// [`Self::byte_span`] last lent. `count` never exceeds that span's
+    /// length, and nothing else reads from the reader in between.
+    #[doc(hidden)]
+    fn consume_byte_span(&mut self, count: usize) {
+        debug_assert_eq!(count, 0, "consume_byte_span without a lent span");
+    }
+    #[inline(always)]
+    fn read_bits64(&mut self, count: u8) -> RarResult<u64> {
+        debug_assert!(count <= 64);
+        if count <= 32 {
+            return Ok(self.read_bits(count)? as u64);
+        }
+
+        let high_bits = count - 32;
+        let high = self.read_bits(high_bits)? as u64;
+        let low = self.read_bits(32)? as u64;
+        Ok((high << 32) | low)
+    }
+    fn peek_16_raw(&mut self) -> RarResult<u32>;
+    fn peek_16_left_aligned(&mut self) -> RarResult<u32>;
+    fn consume_bits(&mut self, count: u8) -> RarResult<()>;
+    fn skip_bits(&mut self, count: u32) -> RarResult<()>;
+    fn align_byte(&mut self) -> RarResult<()>;
+}
+
+/// Bit-level reader with a 64-bit accumulator for fast bit extraction.
+///
+/// The accumulator holds up to 56 bits (7 bytes) of pre-loaded data.
+/// Bits are stored left-aligned in the u64: the next bit to read is
+/// always at bit 63 (MSB). `peek_bits(n)` is a single right-shift,
+/// and `skip_bits(n)` is a left-shift + counter decrement.
+#[derive(Clone)]
+pub struct BitReader<'a> {
+    /// Source data.
+    data: &'a [u8],
+    /// Next byte to load from data into the accumulator.
+    byte_pos: usize,
+    /// Left-aligned accumulator. Next bit to read is at bit 63.
+    acc: u64,
+    /// Number of valid bits currently in the accumulator (0..=64).
+    acc_bits: u8,
+    /// Zero bytes invented past the end of `data`; see
+    /// [`BitRead::zero_bytes_past_eof`].
+    zero_bytes_past_eof: u32,
+}
+
+impl<'a> BitReader<'a> {
+    /// Create a new BitReader over the given byte slice.
+    pub fn new(data: &'a [u8]) -> Self {
+        let mut reader = Self {
+            data,
+            byte_pos: 0,
+            acc: 0,
+            acc_bits: 0,
+            zero_bytes_past_eof: 0,
+        };
+        reader.refill();
+        reader
+    }
+
+    /// Refill the accumulator from the source data.
+    ///
+    /// Fast path is branchless: one 8-byte big-endian load ORed below the
+    /// valid bits, advancing by however many whole bytes fit. After it runs
+    /// the accumulator holds 56-63 valid bits. The byte-loop tail only runs
+    /// within the last 8 bytes of the source.
+    ///
+    /// Consuming operations only shift `acc` left and decrement `acc_bits`,
+    /// so they never refill; the accumulator is topped up on demand. Bits
+    /// below `acc_bits` are therefore *not* zero after a fast refill — that
+    /// load absorbs a full 8 bytes but only credits whole bytes to
+    /// `acc_bits`. The OR stays correct because `byte_pos * 8` always equals
+    /// `position() + acc_bits`, so those leftover bits are exactly the source
+    /// bits the next load starts from: the overlap ORs identical values.
+    #[inline(always)]
+    fn refill(&mut self) {
+        if self.acc_bits > 56 {
+            return;
+        }
+        if self.byte_pos + 8 <= self.data.len() {
+            let chunk = u64::from_be_bytes(
+                self.data[self.byte_pos..self.byte_pos + 8]
+                    .try_into()
+                    .expect("8-byte window"),
+            );
+            self.acc |= chunk >> self.acc_bits;
+            // Whole bytes actually absorbed; leaves acc_bits at 56 + (old % 8).
+            self.byte_pos += (63 - self.acc_bits as usize) >> 3;
+            self.acc_bits |= 56;
+            return;
+        }
+        while self.acc_bits <= 56 && self.byte_pos < self.data.len() {
+            self.acc |= (self.data[self.byte_pos] as u64) << (56 - self.acc_bits);
+            self.byte_pos += 1;
+            self.acc_bits += 8;
+        }
+    }
+
+    /// Top up the accumulator so `count` bits are register-resident.
+    ///
+    /// Hot decode loops call this once per symbol, then peek and consume
+    /// purely from the register — matching UnRAR's one-load-per-symbol shape.
+    /// A short tail near end of stream simply leaves fewer bits buffered; the
+    /// peek entry points still handle that case.
+    #[inline(always)]
+    pub fn ensure_bits(&mut self, count: u8) {
+        debug_assert!(count <= 56);
+        if self.acc_bits < count {
+            self.refill();
+        }
+    }
+
+    /// Returns the total number of bits remaining (accumulator + unread source).
+    #[inline]
+    pub fn bits_remaining(&self) -> usize {
+        self.acc_bits as usize + (self.data.len() - self.byte_pos) * 8
+    }
+
+    /// Returns true if there are no more bits to read.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.acc_bits == 0 && self.byte_pos >= self.data.len()
+    }
+
+    /// Returns true if the accumulator has at least one bit ready.
+    /// Cheaper than `bits_remaining()` — no multiplication.
+    #[inline]
+    pub fn has_bits(&self) -> bool {
+        self.acc_bits > 0 || self.byte_pos < self.data.len()
+    }
+
+    /// Returns the current position in bits from the start.
+    #[inline]
+    pub fn position(&self) -> usize {
+        // Bytes loaded into the accumulator minus bits still unconsumed there.
+        self.byte_pos * 8 - self.acc_bits as usize
+    }
+
+    /// Returns the current byte position (rounded down from bit position).
+    #[inline]
+    pub fn byte_position(&self) -> usize {
+        self.position() / 8
+    }
+
+    /// Read a single bit. Returns 0 or 1.
+    #[inline]
+    pub fn read_bit(&mut self) -> RarResult<u32> {
+        if self.acc_bits == 0 {
+            self.refill();
+            if self.acc_bits == 0 {
+                return Err(RarError::CorruptArchive {
+                    detail: "bitstream: unexpected end of data".into(),
+                });
+            }
+        }
+        let bit = (self.acc >> 63) as u32;
+        self.acc <<= 1;
+        self.acc_bits -= 1;
+        Ok(bit)
+    }
+
+    /// Read N bits (up to 32), MSB-first.
+    ///
+    /// Returns the bits packed into the lower N bits of a u32.
+    ///
+    /// The accumulator fast path must stay small enough to inline into the
+    /// per-symbol decode loops; the refill-and-error tail is outlined.
+    #[inline(always)]
+    pub fn read_bits(&mut self, count: u8) -> RarResult<u32> {
+        debug_assert!(count <= 32);
+        if count == 0 {
+            return Ok(0);
+        }
+        if self.acc_bits < count {
+            return self.read_bits_refill(count);
+        }
+
+        // Extract top `count` bits from accumulator. No refill here: the
+        // accumulator is topped up on demand by the next read that needs it.
+        let result = (self.acc >> (64 - count as u32)) as u32;
+        self.acc <<= count as u32;
+        self.acc_bits -= count;
+        Ok(result)
+    }
+
+    #[cold]
+    fn read_bits_refill(&mut self, count: u8) -> RarResult<u32> {
+        self.refill();
+        if self.acc_bits < count {
+            return Err(RarError::CorruptArchive {
+                detail: format!(
+                    "bitstream: need {} bits but only {} remaining",
+                    count,
+                    self.bits_remaining()
+                ),
+            });
+        }
+
+        let result = (self.acc >> (64 - count as u32)) as u32;
+        self.acc <<= count as u32;
+        self.acc_bits -= count;
+        Ok(result)
+    }
+
+    /// Peek at the next N bits without advancing the position (up to 32 bits).
+    #[inline]
+    pub fn peek_bits(&self, count: u8) -> RarResult<u32> {
+        debug_assert!(count <= 32);
+        if count == 0 {
+            return Ok(0);
+        }
+        if (self.acc_bits as usize) < count as usize {
+            // Near end of stream — not enough in accumulator.
+            // We can't refill (self is &self), so fall back to checking total.
+            if self.bits_remaining() < count as usize {
+                return Err(RarError::CorruptArchive {
+                    detail: format!(
+                        "bitstream: need {} bits to peek but only {} remaining",
+                        count,
+                        self.bits_remaining()
+                    ),
+                });
+            }
+            // We have enough bits total but not in the accumulator.
+            // This can happen when acc_bits < count at end of stream.
+            // Build the result by combining acc + next source bytes.
+            let mut result = if self.acc_bits > 0 {
+                (self.acc >> (64 - self.acc_bits as u32)) as u32
+            } else {
+                0
+            };
+            let have = self.acc_bits;
+            let need = count - have;
+            let mut bp = self.byte_pos;
+            let mut remaining = need;
+            while remaining > 0 && bp < self.data.len() {
+                let byte = self.data[bp] as u32;
+                bp += 1;
+                if remaining >= 8 {
+                    result = (result << 8) | byte;
+                    remaining -= 8;
+                } else {
+                    result = (result << remaining) | (byte >> (8 - remaining));
+                    remaining = 0;
+                }
+            }
+            return Ok(result);
+        }
+        // Fast path: just shift the accumulator.
+        Ok((self.acc >> (64 - count as u32)) as u32)
+    }
+
+    /// Peek up to 16 bits and return them left-aligned in a 16-bit field.
+    ///
+    /// This supports the hot `getbits() & 0xfffe` shape in Huffman decode.
+    #[inline]
+    pub fn peek_16_left_aligned(&self) -> RarResult<u32> {
+        if self.acc_bits >= 16 {
+            return Ok(((self.acc >> 48) as u32) & 0xfffe);
+        }
+
+        let bits_avail = self.bits_remaining();
+        if bits_avail == 0 {
+            return Err(RarError::CorruptArchive {
+                detail: "bitstream: unexpected end of data".into(),
+            });
+        }
+
+        let peek_count = 16.min(bits_avail) as u8;
+        let raw = self.peek_bits(peek_count)?;
+        Ok(if peek_count < 16 {
+            (raw << (16 - peek_count)) & 0xfffe
+        } else {
+            raw & 0xfffe
+        })
+    }
+
+    /// Return the next raw 16 bits without masking.
+    #[inline]
+    pub fn peek_16_raw(&self) -> RarResult<u32> {
+        if self.acc_bits >= 16 {
+            return Ok((self.acc >> 48) as u32);
+        }
+
+        let bits_avail = self.bits_remaining();
+        if bits_avail == 0 {
+            return Err(RarError::CorruptArchive {
+                detail: "bitstream: unexpected end of data".into(),
+            });
+        }
+
+        let peek_count = 16.min(bits_avail) as u8;
+        let raw = self.peek_bits(peek_count)?;
+        Ok(if peek_count < 16 {
+            raw << (16 - peek_count)
+        } else {
+            raw
+        })
+    }
+
+    /// Return the next bits as a left-aligned 16-bit field.
+    #[inline(always)]
+    pub fn getbits(&self) -> RarResult<u32> {
+        self.peek_16_left_aligned()
+    }
+
+    /// Consume a small number of bits using the accumulator fast path when possible.
+    ///
+    /// The fast path is a shift plus a counter decrement, nothing else. A
+    /// decode step that already called [`Self::ensure_bits`] never touches
+    /// memory here.
+    #[inline]
+    pub fn consume_bits(&mut self, count: u8) -> RarResult<()> {
+        debug_assert!(count <= 32);
+        if count == 0 {
+            return Ok(());
+        }
+
+        if self.acc_bits >= count {
+            self.acc <<= count as u32;
+            self.acc_bits -= count;
+            return Ok(());
+        }
+
+        self.refill();
+        if self.acc_bits >= count {
+            self.acc <<= count as u32;
+            self.acc_bits -= count;
+            return Ok(());
+        }
+
+        // Source is exhausted, so `skip_bits` reports the shortfall.
+        self.skip_bits(count as u32)
+    }
+
+    /// Advance by `count` bits.
+    #[inline(always)]
+    pub fn addbits(&mut self, count: u8) -> RarResult<()> {
+        self.consume_bits(count)
+    }
+
+    /// Skip N bits.
+    #[inline]
+    pub fn skip_bits(&mut self, count: u32) -> RarResult<()> {
+        if self.bits_remaining() < count as usize {
+            return Err(RarError::CorruptArchive {
+                detail: format!(
+                    "bitstream: cannot skip {} bits, only {} remaining",
+                    count,
+                    self.bits_remaining()
+                ),
+            });
+        }
+        let mut remaining = count;
+        // Consume from accumulator first.
+        if remaining <= self.acc_bits as u32 {
+            if remaining < 64 {
+                self.acc <<= remaining;
+            } else {
+                self.acc = 0;
+            }
+            self.acc_bits -= remaining as u8;
+            return Ok(());
+        }
+        // Drain accumulator.
+        remaining -= self.acc_bits as u32;
+        self.acc = 0;
+        self.acc_bits = 0;
+        // Skip full bytes directly.
+        let skip_bytes = (remaining / 8) as usize;
+        self.byte_pos += skip_bytes;
+        remaining -= (skip_bytes * 8) as u32;
+        if remaining > 0 {
+            // The `bits_remaining` check above guarantees at least one more
+            // source byte, so this refill yields at least 8 > remaining bits.
+            self.refill();
+            self.acc <<= remaining;
+            self.acc_bits -= remaining as u8;
+        }
+        Ok(())
+    }
+
+    /// Align to the next byte boundary by skipping remaining bits in the current byte.
+    pub fn align_byte(&mut self) {
+        let bit_offset = self.position() % 8;
+        if bit_offset != 0 {
+            let skip = (8 - bit_offset) as u8;
+            // Lazy refills mean the accumulator can hold fewer than `skip`
+            // bits mid-stream; top it up before deciding this is end of data.
+            self.ensure_bits(skip);
+            if skip <= self.acc_bits {
+                self.acc <<= skip as u32;
+                self.acc_bits -= skip;
+            }
+        }
+    }
+
+    /// Read the next eight bits, crossing a byte boundary when unaligned.
+    /// Unlike generic `read_bits`, this leaves the accumulator lazily
+    /// depleted so consecutive byte reads share one bulk refill.
+    #[inline(always)]
+    pub fn read_byte(&mut self) -> RarResult<u8> {
+        if self.acc_bits < 8 {
+            self.refill();
+            if self.acc_bits < 8 {
+                return Err(RarError::CorruptArchive {
+                    detail: format!(
+                        "bitstream: need 8 bits but only {} remaining",
+                        self.bits_remaining()
+                    ),
+                });
+            }
+        }
+
+        let byte = (self.acc >> 56) as u8;
+        self.acc <<= 8;
+        self.acc_bits -= 8;
+        Ok(byte)
+    }
+
+    #[inline(always)]
+    fn read_byte_or_zero(&mut self) -> u8 {
+        if self.acc_bits < 8 {
+            self.refill();
+            if self.acc_bits < 8 {
+                self.zero_bytes_past_eof = self.zero_bytes_past_eof.saturating_add(1);
+                return 0;
+            }
+        }
+
+        let byte = (self.acc >> 56) as u8;
+        self.acc <<= 8;
+        self.acc_bits -= 8;
+        byte
+    }
+
+    /// Read a 32-bit little-endian value from the bitstream.
+    /// This reads 4 bytes, where each byte is read MSB-first in the bitstream.
+    pub fn read_u32_le(&mut self) -> RarResult<u32> {
+        let b0 = self.read_bits(8)?;
+        let b1 = self.read_bits(8)?;
+        let b2 = self.read_bits(8)?;
+        let b3 = self.read_bits(8)?;
+        Ok(b0 | (b1 << 8) | (b2 << 16) | (b3 << 24))
+    }
+
+    /// Re-establish the accumulator at bit offset `position` of the source.
+    ///
+    /// The inverse of the `byte_pos * 8 == position() + acc_bits` invariant a
+    /// leased span reads: drop the accumulator, put `byte_pos` on the byte
+    /// holding `position`, then reload and discard the sub-byte remainder.
+    ///
+    /// Callers only commit positions inside a leased span, which end at least
+    /// [`LZ_SPAN_SLACK_BYTES`] minus one symbol before the source end, so the
+    /// reload here always takes `refill`'s bulk path.
+    #[inline]
+    fn seek_to_bit(&mut self, position: usize) {
+        self.byte_pos = position >> 3;
+        self.acc = 0;
+        self.acc_bits = 0;
+        let offset = (position & 7) as u8;
+        if offset != 0 {
+            self.refill();
+            debug_assert!(self.acc_bits >= offset);
+            self.acc <<= offset;
+            self.acc_bits -= offset;
+        }
+        debug_assert_eq!(self.position(), position);
+    }
+
+    /// Return the remaining unconsumed bytes (aligned to next byte boundary).
+    ///
+    /// If the reader is mid-byte, the partial byte is skipped.
+    pub fn remaining_bytes(&self) -> &'a [u8] {
+        // Calculate the source byte position accounting for bits in the accumulator.
+        // byte_pos is where we'd next load from, but we have acc_bits still buffered.
+        // The "consumed" position in the source is: byte_pos - ceil(acc_bits / 8)
+        // But for remaining_bytes we want to return from the next byte boundary
+        // after the current bit position.
+        let bit_position = self.position();
+        let start = if bit_position.is_multiple_of(8) {
+            bit_position / 8
+        } else {
+            bit_position / 8 + 1
+        };
+        if start >= self.data.len() {
+            &[]
+        } else {
+            &self.data[start..]
+        }
+    }
+}
+
+impl BitRead for BitReader<'_> {
+    fn bits_remaining(&mut self) -> usize {
+        BitReader::bits_remaining(self)
+    }
+
+    fn has_bits(&mut self) -> bool {
+        BitReader::has_bits(self)
+    }
+
+    fn lease_lz_span<T>(
+        &mut self,
+        f: impl FnOnce(&LzSpan<'_>) -> (usize, T),
+    ) -> RarResult<Option<T>> {
+        #[cfg(test)]
+        if test_hooks::per_symbol_only() {
+            return Ok(None);
+        }
+        let Some(border_bytes) = self.data.len().checked_sub(LZ_SPAN_SLACK_BYTES) else {
+            return Ok(None);
+        };
+        let border_bit = border_bytes * 8;
+        let start_bit = BitReader::position(self);
+        if start_bit >= border_bit {
+            return Ok(None);
+        }
+
+        let (end_bit, value) = f(&LzSpan {
+            data: self.data,
+            start_bit,
+            border_bit,
+        });
+        debug_assert!((start_bit..=self.data.len() * 8).contains(&end_bit));
+        self.seek_to_bit(end_bit);
+        Ok(Some(value))
+    }
+
+    fn has_exact_bits(&mut self, bits: usize) -> RarResult<bool> {
+        Ok(BitReader::bits_remaining(self) >= bits)
+    }
+
+    fn position(&self) -> usize {
+        BitReader::position(self)
+    }
+
+    fn read_bits(&mut self, count: u8) -> RarResult<u32> {
+        BitReader::read_bits(self, count)
+    }
+
+    #[inline(always)]
+    fn read_byte(&mut self) -> RarResult<u8> {
+        BitReader::read_byte(self)
+    }
+
+    #[inline(always)]
+    fn read_byte_or_zero(&mut self) -> u8 {
+        BitReader::read_byte_or_zero(self)
+    }
+
+    #[inline(always)]
+    fn zero_bytes_past_eof(&self) -> u32 {
+        self.zero_bytes_past_eof
+    }
+
+    /// The whole rest of the source is one contiguous slice, so the span is
+    /// everything after the cursor and always runs to the end of the input.
+    #[inline]
+    fn byte_span(&mut self, _min: usize) -> RarResult<Option<(&[u8], bool)>> {
+        let position = BitReader::position(self);
+        if !position.is_multiple_of(8) {
+            return Ok(None);
+        }
+        Ok(Some((
+            self.data.get(position / 8..).unwrap_or_default(),
+            true,
+        )))
+    }
+
+    /// Drops the accumulator and reloads it lazily at the new byte, the same
+    /// commit a leased LZ span makes.
+    #[inline]
+    fn consume_byte_span(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        let position = BitReader::position(self) + count * 8;
+        debug_assert!(position.is_multiple_of(8) && position <= self.data.len() * 8);
+        self.seek_to_bit(position);
+    }
+
+    /// The trait takes `&mut self`, so top the accumulator up first and keep
+    /// the register fast path dominant for byte-oriented RAR4 readers.
+    #[inline(always)]
+    fn peek_16_raw(&mut self) -> RarResult<u32> {
+        self.ensure_bits(16);
+        BitReader::peek_16_raw(self)
+    }
+
+    #[inline(always)]
+    fn peek_16_left_aligned(&mut self) -> RarResult<u32> {
+        self.ensure_bits(16);
+        BitReader::peek_16_left_aligned(self)
+    }
+
+    fn consume_bits(&mut self, count: u8) -> RarResult<()> {
+        BitReader::consume_bits(self, count)
+    }
+
+    fn skip_bits(&mut self, count: u32) -> RarResult<()> {
+        BitReader::skip_bits(self, count)
+    }
+
+    fn align_byte(&mut self) -> RarResult<()> {
+        BitReader::align_byte(self);
+        Ok(())
+    }
+}
+
+pub struct StreamingBitReader<R: Read> {
+    inner: R,
+    buf: Box<[u8]>,
+    buf_pos: usize,
+    buf_len: usize,
+    acc: u64,
+    acc_bits: u8,
+    eof: bool,
+    bit_pos: usize,
+    /// Zero bytes invented past the end of the input; see
+    /// [`BitRead::zero_bytes_past_eof`].
+    zero_bytes_past_eof: u32,
+}
+
+impl<R: Read> StreamingBitReader<R> {
+    pub fn new(inner: R) -> Self {
+        Self::with_buffer(inner, Self::alloc_buffer())
+    }
+
+    /// Allocate an input buffer sized for [`StreamingBitReader`].
+    ///
+    /// Exposed so callers that recycle buffers across members (RAR4 decoders)
+    /// can pre-size a slot without going through a full reader construction.
+    pub fn alloc_buffer() -> Box<[u8]> {
+        vec![0u8; STREAMING_INPUT_BUFFER_SIZE + STREAMING_STRADDLE_HEADROOM].into_boxed_slice()
+    }
+
+    /// Build a reader on top of a recycled input buffer.
+    ///
+    /// The buffer contents are deliberately **not** zeroed. Every read of
+    /// `self.buf` in this type is gated on the `buf_pos < buf_len` invariant
+    /// established by `fill_buffer` (which resets `buf_pos = 0` and sets
+    /// `buf_len` to the byte count actually written by `inner.read`):
+    ///   * `refill` touches `buf[buf_pos..buf_pos + 8]` only under
+    ///     `buf_pos + 8 <= buf_len`,
+    ///   * `refill_slow` reads `buf[buf_pos]` only after checking
+    ///     `buf_pos < buf_len`,
+    ///   * `peek_bits`' byte loop breaks/errors at `pos >= buf_len`.
+    ///
+    /// No path can therefore observe a byte above `buf_len`, i.e. stale data
+    /// left over from a previous member is unreachable and re-zeroing a
+    /// 512 KiB buffer per member would be pure overhead.
+    ///
+    /// A short buffer (only possible if a caller hands back something it did
+    /// not obtain from [`Self::alloc_buffer`]/[`Self::into_buffer`]) is
+    /// replaced with a correctly sized allocation.
+    pub fn with_buffer(inner: R, buf: Box<[u8]>) -> Self {
+        let buf = if buf.len() >= STREAMING_INPUT_BUFFER_SIZE + STREAMING_STRADDLE_HEADROOM {
+            buf
+        } else {
+            Self::alloc_buffer()
+        };
+        Self {
+            inner,
+            buf,
+            buf_pos: 0,
+            buf_len: 0,
+            acc: 0,
+            acc_bits: 0,
+            eof: false,
+            bit_pos: 0,
+            zero_bytes_past_eof: 0,
+        }
+    }
+
+    /// Reclaim the input buffer so the caller can hand it to the next member.
+    pub fn into_buffer(self) -> Box<[u8]> {
+        self.buf
+    }
+
+    /// Bytes a single fill may read: the buffer less
+    /// [`STREAMING_STRADDLE_HEADROOM`]. Always that much outside tests.
+    #[cfg(not(test))]
+    #[inline(always)]
+    fn fill_limit(&self) -> usize {
+        self.buf.len() - STREAMING_STRADDLE_HEADROOM
+    }
+
+    /// Test build: honour [`test_hooks::with_fill_cap`], clamped to a usable
+    /// range so a capped fill still makes progress and never reads into the
+    /// headroom.
+    #[cfg(test)]
+    #[inline]
+    fn fill_limit(&self) -> usize {
+        let whole = self.buf.len() - STREAMING_STRADDLE_HEADROOM;
+        test_hooks::fill_cap().unwrap_or(whole).clamp(1, whole)
+    }
+
+    #[inline]
+    fn fill_buffer(&mut self) -> RarResult<()> {
+        if self.buf_pos < self.buf_len || self.eof {
+            return Ok(());
+        }
+
+        let limit = self.fill_limit();
+        let n = self
+            .inner
+            .read(&mut self.buf[..limit])
+            .map_err(RarError::Io)?;
+        self.buf_pos = 0;
+        self.buf_len = n;
+        if n == 0 {
+            self.eof = true;
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn refill(&mut self) -> RarResult<()> {
+        if self.acc_bits > 56 {
+            return Ok(());
+        }
+        if self.buf_pos + 8 <= self.buf_len {
+            // Branchless bulk refill: one 8-byte big-endian load, absorbing
+            // whole bytes below the valid bits (low bits of `acc` are zero).
+            let chunk = u64::from_be_bytes(
+                self.buf[self.buf_pos..self.buf_pos + 8]
+                    .try_into()
+                    .expect("8-byte window"),
+            );
+            self.acc |= chunk >> self.acc_bits;
+            self.buf_pos += (63 - self.acc_bits as usize) >> 3;
+            self.acc_bits |= 56;
+            return Ok(());
+        }
+        self.refill_slow()
+    }
+
+    #[cold]
+    fn refill_slow(&mut self) -> RarResult<()> {
+        while self.acc_bits <= 56 {
+            self.fill_buffer()?;
+            if self.buf_pos >= self.buf_len {
+                break;
+            }
+            self.acc |= (self.buf[self.buf_pos] as u64) << (56 - self.acc_bits);
+            self.buf_pos += 1;
+            self.acc_bits += 8;
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn refill_if_needed(&mut self) -> RarResult<()> {
+        if self.acc_bits <= 56 {
+            self.refill()?;
+        }
+        Ok(())
+    }
+
+    #[cold]
+    fn read_bits_refill(&mut self, count: u8) -> RarResult<u32> {
+        self.refill()?;
+
+        if self.acc_bits >= count {
+            let result = (self.acc >> (64 - count as u32)) as u32;
+            self.acc <<= count as u32;
+            self.acc_bits -= count;
+            self.bit_pos += count as usize;
+            self.refill_if_needed()?;
+            return Ok(result);
+        }
+
+        let available = self.acc_bits as usize + (self.buf_len - self.buf_pos) * 8;
+        if available < count as usize && self.eof {
+            return Err(RarError::CorruptArchive {
+                detail: format!(
+                    "bitstream: need {} bits but only {} remaining",
+                    count, available
+                ),
+            });
+        }
+
+        let result = self.peek_bits(count)?;
+        self.consume_bits(count)?;
+        Ok(result)
+    }
+
+    /// Bit offset inside the current buffer fill that the cursor sits at.
+    ///
+    /// `refill`/`refill_slow` only ever credit whole bytes of `buf` to the
+    /// accumulator, so `buf_pos * 8` counts every bit of this fill that has
+    /// been loaded, consumed or not — making `buf_pos * 8 - acc_bits` the
+    /// unconsumed position.
+    ///
+    /// The one case where that does not hold is an accumulator straddling two
+    /// fills: `refill_slow` can top up across a `fill_buffer`, which resets
+    /// `buf_pos` to zero while the accumulator still holds bits of the
+    /// previous fill. Those bits are the oldest in the accumulator, so they
+    /// are consumed first and the invariant restores itself within one
+    /// symbol; until then `buf_pos * 8 < acc_bits` and this returns `None`.
+    #[inline]
+    fn buffer_bit_position(&self) -> Option<usize> {
+        (self.buf_pos * 8).checked_sub(self.acc_bits as usize)
+    }
+
+    /// Re-establish the accumulator at bit offset `position` of the buffer.
+    ///
+    /// The inverse of [`Self::buffer_bit_position`], and the same argument as
+    /// [`BitReader::seek_to_bit`]: committed positions always leave at least
+    /// [`LZ_SPAN_SLACK_BYTES`] minus one symbol of buffer behind them, so the
+    /// reload takes `refill`'s bulk path and never reaches `fill_buffer`.
+    #[inline]
+    fn seek_to_buffer_bit(&mut self, position: usize) -> RarResult<()> {
+        self.buf_pos = position >> 3;
+        self.acc = 0;
+        self.acc_bits = 0;
+        let offset = (position & 7) as u8;
+        if offset != 0 {
+            self.refill()?;
+            if self.acc_bits < offset {
+                return Err(RarError::CorruptArchive {
+                    detail: "bitstream: truncated span commit".into(),
+                });
+            }
+            self.acc <<= offset;
+            self.acc_bits -= offset;
+        }
+        debug_assert_eq!(self.buffer_bit_position(), Some(position));
+        Ok(())
+    }
+
+    /// Lay the unread input out contiguously from the start of the buffer and
+    /// read until it holds `min` bytes or the inner reader ends.
+    ///
+    /// The unread bytes are the whole bytes left in the accumulator (the
+    /// cursor is byte-aligned) followed by `buf[buf_pos..buf_len]`; that
+    /// holds whether or not the accumulator straddles two fills. Afterwards
+    /// the accumulator is empty and the cursor sits at buffer byte 0, from
+    /// where `refill` reloads it lazily. Runs once per fill, on at most a
+    /// few hundred bytes, except in the straddling case.
+    ///
+    /// Straddling, the accumulator holds bytes of the previous fill that the
+    /// buffer no longer does, so the whole current fill moves up behind them
+    /// and the unread bytes come to more than the fill. Only `fill_buffer`
+    /// starts a fill under a loaded accumulator, and it leaves
+    /// [`STREAMING_STRADDLE_HEADROOM`] free for exactly this.
+    #[cold]
+    #[inline(never)]
+    fn gather_byte_span(&mut self, min: usize) -> RarResult<()> {
+        debug_assert!(self.acc_bits.is_multiple_of(8));
+        let held = usize::from(self.acc_bits / 8);
+        let tail = self.buf_len - self.buf_pos;
+        debug_assert!(held + tail <= self.buf.len());
+        self.buf.copy_within(self.buf_pos..self.buf_len, held);
+        for (index, slot) in self.buf[..held].iter_mut().enumerate() {
+            *slot = (self.acc >> (56 - 8 * index)) as u8;
+        }
+        self.buf_len = held + tail;
+        self.buf_pos = 0;
+        self.acc = 0;
+        self.acc_bits = 0;
+        let limit = self.fill_limit();
+        while self.buf_len < min && !self.eof {
+            let end = (self.buf_len + limit).min(self.buf.len());
+            let n = self
+                .inner
+                .read(&mut self.buf[self.buf_len..end])
+                .map_err(RarError::Io)?;
+            self.buf_len += n;
+            if n == 0 {
+                self.eof = true;
+            }
+        }
+        debug_assert_eq!(self.buffer_bit_position(), Some(0));
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn peek_bits(&mut self, count: u8) -> RarResult<u32> {
+        debug_assert!(count <= 32);
+        if count == 0 {
+            return Ok(0);
+        }
+
+        if self.acc_bits >= count {
+            return Ok((self.acc >> (64 - count as u32)) as u32);
+        }
+
+        self.refill()?;
+
+        if self.acc_bits >= count {
+            return Ok((self.acc >> (64 - count as u32)) as u32);
+        }
+
+        let available = self.acc_bits as usize + (self.buf_len - self.buf_pos) * 8;
+        if available < count as usize && self.eof {
+            return Err(RarError::CorruptArchive {
+                detail: format!(
+                    "bitstream: need {} bits to peek but only {} remaining",
+                    count, available
+                ),
+            });
+        }
+
+        if self.acc_bits >= count {
+            return Ok((self.acc >> (64 - count as u32)) as u32);
+        }
+
+        let mut result = if self.acc_bits > 0 {
+            (self.acc >> (64 - self.acc_bits as u32)) as u32
+        } else {
+            0
+        };
+        let mut need = count - self.acc_bits;
+        let mut pos = self.buf_pos;
+
+        while need > 0 {
+            if pos >= self.buf_len {
+                if self.eof {
+                    break;
+                }
+                return Err(RarError::CorruptArchive {
+                    detail: "bitstream: truncated buffered read".into(),
+                });
+            }
+            let byte = self.buf[pos] as u32;
+            pos += 1;
+            if need >= 8 {
+                result = (result << 8) | byte;
+                need -= 8;
+            } else {
+                result = (result << need) | (byte >> (8 - need));
+                need = 0;
+            }
+        }
+
+        Ok(result)
+    }
+}
+
+impl<R: Read> BitRead for StreamingBitReader<R> {
+    #[inline]
+    fn bits_remaining(&mut self) -> usize {
+        // Once `eof` is set nothing can enter the accumulator, so `refill`
+        // below is a guaranteed-empty round trip through the cold
+        // `refill_slow`. `sample` on fuzz reproducer `timeout-3b5f5167` put
+        // 68% of the process in `bits_remaining -> refill -> refill_slow`
+        // doing exactly that, once per LZ loop iteration. Returning early
+        // removes work on a path the decode loops already walk and changes no
+        // result: the count below is what `refill` would have left behind.
+        if self.eof {
+            return self.acc_bits as usize + (self.buf_len.saturating_sub(self.buf_pos)) * 8;
+        }
+        let _ = self.refill();
+        let buffered = self.acc_bits as usize + (self.buf_len.saturating_sub(self.buf_pos)) * 8;
+        if self.eof {
+            buffered
+        } else {
+            buffered.saturating_add(64)
+        }
+    }
+
+    #[inline(always)]
+    fn has_bits(&mut self) -> bool {
+        if self.acc_bits > 0 || self.buf_pos < self.buf_len {
+            return true;
+        }
+
+        if self.eof {
+            return false;
+        }
+
+        self.fill_buffer().is_ok() && self.buf_pos < self.buf_len
+    }
+
+    fn lease_lz_span<T>(
+        &mut self,
+        f: impl FnOnce(&LzSpan<'_>) -> (usize, T),
+    ) -> RarResult<Option<T>> {
+        #[cfg(test)]
+        if test_hooks::per_symbol_only() {
+            return Ok(None);
+        }
+        let Some(border_bytes) = self.buf_len.checked_sub(LZ_SPAN_SLACK_BYTES) else {
+            return Ok(None);
+        };
+        let border_bit = border_bytes * 8;
+        let Some(start_bit) = self.buffer_bit_position() else {
+            return Ok(None);
+        };
+        if start_bit >= border_bit {
+            return Ok(None);
+        }
+
+        let (end_bit, value) = f(&LzSpan {
+            data: &self.buf[..self.buf_len],
+            start_bit,
+            border_bit,
+        });
+        debug_assert!((start_bit..=self.buf_len * 8).contains(&end_bit));
+        self.bit_pos += end_bit - start_bit;
+        self.seek_to_buffer_bit(end_bit)?;
+        Ok(Some(value))
+    }
+
+    fn has_exact_bits(&mut self, bits: usize) -> RarResult<bool> {
+        self.refill()?;
+        let buffered = self.acc_bits as usize + (self.buf_len.saturating_sub(self.buf_pos)) * 8;
+        Ok(buffered >= bits)
+    }
+
+    fn position(&self) -> usize {
+        self.bit_pos
+    }
+
+    #[inline(always)]
+    fn read_bits(&mut self, count: u8) -> RarResult<u32> {
+        debug_assert!(count <= 32);
+        if count == 0 {
+            return Ok(0);
+        }
+
+        if self.acc_bits >= count {
+            let result = (self.acc >> (64 - count as u32)) as u32;
+            self.acc <<= count as u32;
+            self.acc_bits -= count;
+            self.bit_pos += count as usize;
+            self.refill_if_needed()?;
+            return Ok(result);
+        }
+
+        self.read_bits_refill(count)
+    }
+
+    #[inline(always)]
+    fn read_byte(&mut self) -> RarResult<u8> {
+        if self.acc_bits < 8 {
+            self.refill()?;
+            if self.acc_bits < 8 {
+                let available =
+                    self.acc_bits as usize + (self.buf_len.saturating_sub(self.buf_pos)) * 8;
+                return Err(RarError::CorruptArchive {
+                    detail: format!("bitstream: need 8 bits but only {available} remaining"),
+                });
+            }
+        }
+
+        let byte = (self.acc >> 56) as u8;
+        self.acc <<= 8;
+        self.acc_bits -= 8;
+        self.bit_pos += 8;
+        Ok(byte)
+    }
+
+    #[inline(always)]
+    fn read_byte_or_zero(&mut self) -> u8 {
+        if self.acc_bits < 8 && (self.refill().is_err() || self.acc_bits < 8) {
+            self.zero_bytes_past_eof = self.zero_bytes_past_eof.saturating_add(1);
+            return 0;
+        }
+
+        let byte = (self.acc >> 56) as u8;
+        self.acc <<= 8;
+        self.acc_bits -= 8;
+        self.bit_pos += 8;
+        byte
+    }
+
+    #[inline(always)]
+    fn zero_bytes_past_eof(&self) -> u32 {
+        self.zero_bytes_past_eof
+    }
+
+    /// The span is the rest of the current fill while that holds `min`
+    /// bytes. Near the end of a fill, or while the accumulator still
+    /// straddles two fills (see [`Self::buffer_bit_position`]), the unread
+    /// bytes move to the front of the buffer and further reads top it up
+    /// first ([`Self::gather_byte_span`]). The span runs to the end of the
+    /// input once the inner reader has reported its end.
+    #[inline]
+    fn byte_span(&mut self, min: usize) -> RarResult<Option<(&[u8], bool)>> {
+        if !self.bit_pos.is_multiple_of(8) {
+            return Ok(None);
+        }
+        // A fill starts on a byte of the stream, so a byte-aligned stream
+        // position is a byte-aligned buffer position.
+        let start = match self.buffer_bit_position() {
+            Some(bit) if self.buf_len - bit / 8 >= min => bit / 8,
+            _ => {
+                self.gather_byte_span(min)?;
+                0
+            }
+        };
+        Ok(Some((&self.buf[start..self.buf_len], self.eof)))
+    }
+
+    #[inline]
+    fn consume_byte_span(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        let Some(bit) = self.buffer_bit_position() else {
+            debug_assert!(false, "consume_byte_span without a lent span");
+            return;
+        };
+        debug_assert!(bit / 8 + count <= self.buf_len);
+        self.bit_pos += count * 8;
+        // A byte-aligned commit never reloads, so it cannot fail.
+        let committed = self.seek_to_buffer_bit(bit + count * 8);
+        debug_assert!(committed.is_ok());
+    }
+
+    #[inline(always)]
+    fn peek_16_raw(&mut self) -> RarResult<u32> {
+        if self.acc_bits >= 16 {
+            return Ok((self.acc >> 48) as u32);
+        }
+
+        self.refill()?;
+
+        if self.acc_bits >= 16 {
+            return Ok((self.acc >> 48) as u32);
+        }
+
+        let bits_avail = self.acc_bits as usize + (self.buf_len - self.buf_pos) * 8;
+        if bits_avail == 0 {
+            return Err(RarError::CorruptArchive {
+                detail: "bitstream: unexpected end of data".into(),
+            });
+        }
+        let peek_count = 16.min(bits_avail) as u8;
+        let raw = self.peek_bits(peek_count)?;
+        Ok(if peek_count < 16 {
+            raw << (16 - peek_count)
+        } else {
+            raw
+        })
+    }
+
+    #[inline(always)]
+    fn peek_16_left_aligned(&mut self) -> RarResult<u32> {
+        if self.acc_bits >= 16 {
+            return Ok(((self.acc >> 48) as u32) & 0xfffe);
+        }
+
+        self.refill()?;
+
+        if self.acc_bits >= 16 {
+            return Ok(((self.acc >> 48) as u32) & 0xfffe);
+        }
+
+        let bits_avail = self.acc_bits as usize + (self.buf_len - self.buf_pos) * 8;
+        if bits_avail == 0 {
+            return Err(RarError::CorruptArchive {
+                detail: "bitstream: unexpected end of data".into(),
+            });
+        }
+        let peek_count = 16.min(bits_avail) as u8;
+        let raw = self.peek_bits(peek_count)?;
+        Ok(if peek_count < 16 {
+            (raw << (16 - peek_count)) & 0xfffe
+        } else {
+            raw & 0xfffe
+        })
+    }
+
+    #[inline(always)]
+    fn consume_bits(&mut self, count: u8) -> RarResult<()> {
+        debug_assert!(count <= 32);
+        if count == 0 {
+            return Ok(());
+        }
+
+        if self.acc_bits >= count {
+            self.acc <<= count as u32;
+            self.acc_bits -= count;
+            self.bit_pos += count as usize;
+            self.refill_if_needed()?;
+            return Ok(());
+        }
+
+        self.refill()?;
+
+        if self.acc_bits >= count {
+            self.acc <<= count as u32;
+            self.acc_bits -= count;
+            self.bit_pos += count as usize;
+            self.refill_if_needed()?;
+            return Ok(());
+        }
+
+        let available = self.acc_bits as usize + (self.buf_len - self.buf_pos) * 8;
+        if available < count as usize && self.eof {
+            return Err(RarError::CorruptArchive {
+                detail: format!(
+                    "bitstream: cannot consume {} bits, only {} remaining",
+                    count, available
+                ),
+            });
+        }
+
+        if self.acc_bits < count {
+            return Err(RarError::CorruptArchive {
+                detail: "bitstream: truncated code".into(),
+            });
+        }
+
+        self.acc <<= count as u32;
+        self.acc_bits -= count;
+        self.bit_pos += count as usize;
+        self.refill_if_needed()?;
+        Ok(())
+    }
+
+    fn skip_bits(&mut self, count: u32) -> RarResult<()> {
+        let mut remaining = count;
+        while remaining > 0 {
+            let step = remaining.min(32) as u8;
+            self.consume_bits(step)?;
+            remaining -= step as u32;
+        }
+        Ok(())
+    }
+
+    fn align_byte(&mut self) -> RarResult<()> {
+        let bit_offset = self.position() % 8;
+        if bit_offset != 0 {
+            self.consume_bits((8 - bit_offset) as u8)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_read_single_bits() {
+        // 0xA5 = 1010_0101
+        let data = [0xA5];
+        let mut reader = BitReader::new(&data);
+        assert_eq!(reader.read_bit().unwrap(), 1);
+        assert_eq!(reader.read_bit().unwrap(), 0);
+        assert_eq!(reader.read_bit().unwrap(), 1);
+        assert_eq!(reader.read_bit().unwrap(), 0);
+        assert_eq!(reader.read_bit().unwrap(), 0);
+        assert_eq!(reader.read_bit().unwrap(), 1);
+        assert_eq!(reader.read_bit().unwrap(), 0);
+        assert_eq!(reader.read_bit().unwrap(), 1);
+        assert!(reader.is_empty());
+    }
+
+    #[test]
+    fn test_read_bits_multi() {
+        // 0xFF 0x00 = 11111111 00000000
+        let data = [0xFF, 0x00];
+        let mut reader = BitReader::new(&data);
+        assert_eq!(reader.read_bits(4).unwrap(), 0xF);
+        assert_eq!(reader.read_bits(4).unwrap(), 0xF);
+        assert_eq!(reader.read_bits(8).unwrap(), 0x00);
+    }
+
+    #[test]
+    fn test_read_bits_crossing_boundary() {
+        // 0b10110011 0b01100101
+        let data = [0xB3, 0x65];
+        let mut reader = BitReader::new(&data);
+        // Read 5 bits: 10110 = 22
+        assert_eq!(reader.read_bits(5).unwrap(), 0b10110);
+        // Read 6 bits across boundary: 011_011 = 0b011011 = 27
+        assert_eq!(reader.read_bits(6).unwrap(), 0b011011);
+        // Read remaining 5 bits: 00101 = 5
+        assert_eq!(reader.read_bits(5).unwrap(), 0b00101);
+        assert!(reader.is_empty());
+    }
+
+    #[test]
+    fn test_peek_does_not_advance() {
+        let data = [0xAB]; // 10101011
+        let reader = BitReader::new(&data);
+        let peeked = reader.peek_bits(4).unwrap();
+        assert_eq!(peeked, 0b1010);
+        // Position should not change
+        assert_eq!(reader.position(), 0);
+        assert_eq!(reader.bits_remaining(), 8);
+    }
+
+    #[test]
+    fn test_skip_bits() {
+        let data = [0xFF, 0x00]; // 11111111 00000000
+        let mut reader = BitReader::new(&data);
+        reader.skip_bits(4).unwrap();
+        assert_eq!(reader.read_bits(4).unwrap(), 0xF);
+        reader.skip_bits(4).unwrap();
+        assert_eq!(reader.read_bits(4).unwrap(), 0x0);
+    }
+
+    #[test]
+    fn test_align_byte() {
+        let data = [0xFF, 0xAA]; // 11111111 10101010
+        let mut reader = BitReader::new(&data);
+        reader.read_bits(3).unwrap(); // read 3 bits
+        reader.align_byte(); // skip to byte boundary
+        assert_eq!(reader.position(), 8);
+        assert_eq!(reader.read_bits(8).unwrap(), 0xAA);
+    }
+
+    #[test]
+    fn test_align_byte_already_aligned() {
+        let data = [0xFF, 0xAA];
+        let mut reader = BitReader::new(&data);
+        reader.align_byte(); // already aligned, should be no-op
+        assert_eq!(reader.position(), 0);
+    }
+
+    #[test]
+    fn test_read_past_end() {
+        let data = [0xFF];
+        let mut reader = BitReader::new(&data);
+        reader.read_bits(8).unwrap();
+        assert!(reader.read_bit().is_err());
+    }
+
+    #[test]
+    fn test_read_bits_zero() {
+        let data = [0xFF];
+        let mut reader = BitReader::new(&data);
+        assert_eq!(reader.read_bits(0).unwrap(), 0);
+        assert_eq!(reader.position(), 0);
+    }
+
+    #[test]
+    fn test_bits_remaining() {
+        let data = [0xFF, 0x00, 0xAA];
+        let mut reader = BitReader::new(&data);
+        assert_eq!(reader.bits_remaining(), 24);
+        reader.read_bits(5).unwrap();
+        assert_eq!(reader.bits_remaining(), 19);
+        reader.read_bits(8).unwrap();
+        assert_eq!(reader.bits_remaining(), 11);
+    }
+
+    #[test]
+    fn test_empty_data() {
+        let data: &[u8] = &[];
+        let reader = BitReader::new(data);
+        assert!(reader.is_empty());
+        assert_eq!(reader.bits_remaining(), 0);
+    }
+
+    #[test]
+    fn test_read_u32_le() {
+        // Bytes 0x01 0x02 0x03 0x04 as LE u32 = 0x04030201
+        let data = [0x01, 0x02, 0x03, 0x04];
+        let mut reader = BitReader::new(&data);
+        assert_eq!(reader.read_u32_le().unwrap(), 0x04030201);
+    }
+
+    #[test]
+    fn test_read_32_bits_at_once() {
+        // 0xDEADBEEF in MSB-first bitstream
+        let data = [0xDE, 0xAD, 0xBE, 0xEF];
+        let mut reader = BitReader::new(&data);
+        assert_eq!(reader.read_bits(32).unwrap(), 0xDEADBEEF);
+    }
+
+    #[test]
+    fn test_skip_then_read() {
+        let data = [0b11001010, 0b11110000];
+        let mut reader = BitReader::new(&data);
+        reader.skip_bits(4).unwrap();
+        // Remaining in first byte: 1010, then 11110000
+        assert_eq!(reader.read_bits(8).unwrap(), 0b1010_1111);
+    }
+
+    #[test]
+    fn test_peek_then_read_consistency() {
+        let data = [0xAB, 0xCD, 0xEF];
+        let mut reader = BitReader::new(&data);
+        // Peek and read should return the same value
+        let peeked = reader.peek_bits(12).unwrap();
+        let read = reader.read_bits(12).unwrap();
+        assert_eq!(peeked, read);
+        // Position should have advanced by 12 bits
+        assert_eq!(reader.position(), 12);
+    }
+
+    #[test]
+    fn test_read_byte_unaligned() {
+        // Read 3 bits, then a full byte crossing byte boundary
+        let data = [0b11100110, 0b10100000];
+        let mut reader = BitReader::new(&data);
+        let first3 = reader.read_bits(3).unwrap();
+        assert_eq!(first3, 0b111); // first 3 bits of 0b11100110
+        let byte = reader.read_byte().unwrap();
+        // Next 8 bits: 00110_101 = 0b00110101 = 0x35
+        assert_eq!(byte, 0b00110101);
+    }
+
+    struct ChunkedReader<'a> {
+        data: &'a [u8],
+        position: usize,
+        chunk_size: usize,
+    }
+
+    impl std::io::Read for ChunkedReader<'_> {
+        fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+            let remaining = &self.data[self.position..];
+            let count = remaining.len().min(output.len()).min(self.chunk_size);
+            output[..count].copy_from_slice(&remaining[..count]);
+            self.position += count;
+            Ok(count)
+        }
+    }
+
+    #[test]
+    fn read_byte_matches_read_bits_at_every_alignment() {
+        let data = [0xd3, 0x6a, 0xf0, 0x19, 0x87, 0x55, 0xaa, 0x0f, 0xc3];
+        for alignment in 0..8u32 {
+            let mut expected = BitReader::new(&data);
+            let mut actual = BitReader::new(&data);
+            expected.skip_bits(alignment).unwrap();
+            actual.skip_bits(alignment).unwrap();
+
+            while expected.bits_remaining() >= 8 {
+                assert_eq!(
+                    actual.read_byte().unwrap(),
+                    expected.read_bits(8).unwrap() as u8
+                );
+                assert_eq!(actual.position(), expected.position());
+            }
+            assert!(actual.read_byte().is_err());
+        }
+    }
+
+    #[test]
+    fn streaming_read_byte_matches_slice_reader_with_short_chunks() {
+        let data = [0xd3, 0x6a, 0xf0, 0x19, 0x87, 0x55, 0xaa, 0x0f, 0xc3];
+        for alignment in 0..8u32 {
+            let mut expected = BitReader::new(&data);
+            expected.skip_bits(alignment).unwrap();
+            let mut actual = StreamingBitReader::new(ChunkedReader {
+                data: &data,
+                position: 0,
+                chunk_size: 2,
+            });
+            actual.skip_bits(alignment).unwrap();
+
+            while expected.bits_remaining() >= 8 {
+                assert_eq!(
+                    actual.read_byte().unwrap(),
+                    expected.read_bits(8).unwrap() as u8
+                );
+                assert_eq!(actual.position(), expected.position());
+            }
+            assert!(actual.read_byte().is_err());
+        }
+    }
+
+    #[test]
+    fn test_skip_to_exact_end() {
+        let data = [0xFF, 0x00];
+        let mut reader = BitReader::new(&data);
+        reader.skip_bits(16).unwrap();
+        assert!(reader.is_empty());
+        assert_eq!(reader.bits_remaining(), 0);
+    }
+
+    #[test]
+    fn test_skip_past_end_fails() {
+        let data = [0xFF];
+        let mut reader = BitReader::new(&data);
+        assert!(reader.skip_bits(9).is_err());
+    }
+
+    #[test]
+    fn test_read_bits_insufficient_fails() {
+        let data = [0xFF];
+        let mut reader = BitReader::new(&data);
+        reader.read_bits(4).unwrap();
+        // Only 4 bits left, asking for 5
+        assert!(reader.read_bits(5).is_err());
+    }
+
+    fn model_peek(data: &[u8], position: usize, count: usize) -> u64 {
+        let mut value = 0u64;
+        for bit in position..position + count {
+            value = (value << 1) | u64::from((data[bit / 8] >> (7 - bit % 8)) & 1);
+        }
+        value
+    }
+
+    fn xorshift(state: &mut u64) -> u64 {
+        *state ^= *state << 13;
+        *state ^= *state >> 7;
+        *state ^= *state << 17;
+        *state
+    }
+
+    #[test]
+    fn lazy_refills_keep_reads_and_position_exact() {
+        // Consumes no longer refill, so the accumulator can hold anywhere from
+        // 0 to 63 bits between operations. Every read must still match a
+        // bit-by-bit model and leave `position` at the exact bit offset.
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        for trial in 0..32u64 {
+            let len = 1 + (xorshift(&mut state) % 40) as usize;
+            let data: Vec<u8> = (0..len)
+                .map(|_| (xorshift(&mut state) >> 32) as u8)
+                .collect();
+            let total = len * 8;
+
+            let mut reader = BitReader::new(&data);
+            let mut position = 0usize;
+            loop {
+                let count = (1 + (xorshift(&mut state) % 32)) as u8;
+                if position + count as usize > total {
+                    assert!(
+                        reader.read_bits(count).is_err(),
+                        "trial {trial}: short read"
+                    );
+                    break;
+                }
+                assert_eq!(
+                    u64::from(reader.read_bits(count).unwrap()),
+                    model_peek(&data, position, count as usize),
+                    "trial {trial}: read_bits({count}) at {position}"
+                );
+                position += count as usize;
+                assert_eq!(reader.position(), position, "trial {trial}: position");
+                assert_eq!(reader.bits_remaining(), total - position);
+            }
+        }
+    }
+
+    #[test]
+    fn ensure_bits_does_not_change_observable_state() {
+        let data = [
+            0xd3, 0x6a, 0xf0, 0x19, 0x87, 0x55, 0xaa, 0x0f, 0xc3, 0x2e, 0x91,
+        ];
+        // `read_bits(32)` leaves 24 accumulator bits, so draining `tail` more
+        // than 8 further bits puts the un-topped reader below 16 and forces
+        // the `&self` reconstruct path. Both must agree with each other.
+        for tail in 0..=24u8 {
+            let mut plain = BitReader::new(&data);
+            let mut topped = BitReader::new(&data);
+            for reader in [&mut plain, &mut topped] {
+                reader.read_bits(32).unwrap();
+                reader.read_bits(tail).unwrap();
+            }
+            topped.ensure_bits(16);
+
+            assert_eq!(topped.position(), plain.position(), "tail {tail}");
+            assert_eq!(
+                topped.bits_remaining(),
+                plain.bits_remaining(),
+                "tail {tail}"
+            );
+            assert_eq!(
+                topped.peek_16_left_aligned().unwrap(),
+                plain.peek_16_left_aligned().unwrap(),
+                "tail {tail}"
+            );
+            assert_eq!(
+                topped.peek_16_raw().unwrap(),
+                plain.peek_16_raw().unwrap(),
+                "tail {tail}"
+            );
+            assert_eq!(
+                topped.read_bits(13).unwrap(),
+                plain.read_bits(13).unwrap(),
+                "tail {tail}"
+            );
+            assert_eq!(topped.position(), plain.position(), "tail {tail}");
+        }
+    }
+
+    #[test]
+    fn align_byte_tops_up_a_short_accumulator() {
+        // Drain the accumulator to a handful of bits mid-stream, then align.
+        // Without an on-demand refill this used to silently do nothing.
+        let data = [0x12u8, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x11, 0x22];
+        let mut reader = BitReader::new(&data);
+        reader.read_bits(32).unwrap();
+        reader.read_bits(29).unwrap();
+        assert_eq!(reader.position(), 61);
+        reader.align_byte();
+        assert_eq!(reader.position(), 64);
+        assert_eq!(reader.read_bits(8).unwrap(), 0x11);
+
+        // At a true end of stream alignment stays a no-op.
+        let tail = [0xFFu8];
+        let mut reader = BitReader::new(&tail);
+        reader.read_bits(3).unwrap();
+        reader.align_byte();
+        assert_eq!(reader.position(), 8);
+        reader.align_byte();
+        assert_eq!(reader.position(), 8);
+    }
+
+    /// `bits_remaining` used to call `refill` unconditionally, so once the
+    /// input was exhausted every call paid a trip through the cold
+    /// `refill_slow` to learn nothing. Behaviour has to be identical either
+    /// way: the count is stable, and it is the same one a reader that still
+    /// refilled would report.
+    #[test]
+    fn streaming_bits_remaining_is_stable_and_refill_free_at_eof() {
+        let mut reader = StreamingBitReader::new(std::io::Cursor::new(vec![0xABu8, 0xCD]));
+        assert_eq!(reader.read_bits(16).unwrap(), 0xABCD);
+
+        // The first call is what discovers the end; every one after it must
+        // agree, without touching the source again.
+        let first = reader.bits_remaining();
+        assert_eq!(first, 0);
+        for _ in 0..4 {
+            assert_eq!(reader.bits_remaining(), first);
+        }
+        assert!(!reader.has_bits());
+    }
+
+    /// A partially consumed accumulator still reports what it holds after the
+    /// source runs dry — this is the state the RAR4 outer decode loops test
+    /// with `bits_remaining() < 1`.
+    #[test]
+    fn streaming_bits_remaining_reports_the_stale_accumulator_at_eof() {
+        let mut reader = StreamingBitReader::new(std::io::Cursor::new(vec![0xFFu8]));
+        assert_eq!(reader.read_bits(3).unwrap(), 0b111);
+        assert_eq!(reader.bits_remaining(), 5);
+        assert_eq!(reader.bits_remaining(), 5);
+    }
+
+    /// The counter behind the PPMd exhaustion guard: zeros invented past the
+    /// end of the input are counted, real bytes are not.
+    #[test]
+    fn streaming_read_byte_or_zero_counts_only_invented_bytes() {
+        let mut reader = StreamingBitReader::new(std::io::Cursor::new(vec![0x5Au8, 0xA5]));
+        assert_eq!(reader.read_byte_or_zero(), 0x5A);
+        assert_eq!(reader.read_byte_or_zero(), 0xA5);
+        assert_eq!(reader.zero_bytes_past_eof(), 0);
+
+        for expected in 1..=5u32 {
+            assert_eq!(reader.read_byte_or_zero(), 0);
+            assert_eq!(reader.zero_bytes_past_eof(), expected);
+        }
+    }
+
+    /// Same contract for the slice-backed reader, which is what the in-memory
+    /// RAR4 entry points hand to the range decoder.
+    #[test]
+    fn slice_read_byte_or_zero_counts_only_invented_bytes() {
+        let data = [0x5Au8, 0xA5];
+        let mut reader = BitReader::new(&data);
+        assert_eq!(BitRead::read_byte_or_zero(&mut reader), 0x5A);
+        assert_eq!(BitRead::read_byte_or_zero(&mut reader), 0xA5);
+        assert_eq!(BitRead::zero_bytes_past_eof(&reader), 0);
+
+        for expected in 1..=5u32 {
+            assert_eq!(BitRead::read_byte_or_zero(&mut reader), 0);
+            assert_eq!(BitRead::zero_bytes_past_eof(&reader), expected);
+        }
+    }
+
+    /// A refill that crosses a fill border leaves the last bytes of the old
+    /// fill in the accumulator, ahead of a new fill that is a whole one when
+    /// the source hands over as much as it is asked for. The bytes a span
+    /// lends from there are those few followed by the entire fill — more than
+    /// one fill's worth, which the buffer must have room to lay out.
+    #[test]
+    fn byte_span_gathers_an_accumulator_straddling_two_whole_fills() {
+        const FILL: usize = STREAMING_INPUT_BUFFER_SIZE;
+        const MIN: usize = 300;
+        let data: Vec<u8> = (0..(2 * FILL + 4096) as u32)
+            .map(|i| (i.wrapping_mul(131) ^ (i >> 5)) as u8)
+            .collect();
+
+        // `back` bytes of the first fill are still unread when the span is
+        // asked for. The accumulator asks for more with at most seven bytes
+        // in it, so up to seven straddle; eight and nine are the same walk
+        // without a straddle.
+        for back in 1..=9usize {
+            // A slice reads out as many bytes as it is asked for, so every
+            // fill is a whole one.
+            let mut reader = StreamingBitReader::new(data.as_slice());
+            let mut at = FILL - back;
+            reader.skip_bits((at * 8) as u32).unwrap();
+            assert_eq!(
+                reader.buffer_bit_position().is_none(),
+                back <= 7,
+                "back {back}: straddling"
+            );
+            if back <= 7 {
+                assert_eq!(reader.buf_len, FILL, "back {back}: a whole second fill");
+            }
+
+            let (span, last) = reader
+                .byte_span(MIN)
+                .unwrap()
+                .expect("a byte-aligned reader lends");
+            assert!(!last, "back {back}");
+            assert!(span.len() >= MIN, "back {back}: {} bytes", span.len());
+            assert!(span == &data[at..at + span.len()], "back {back}");
+            reader.consume_byte_span(MIN);
+            at += MIN;
+            assert_eq!(reader.position(), at * 8, "back {back}");
+            assert_eq!(reader.read_bits(8).unwrap() as u8, data[at], "back {back}");
+            at += 1;
+
+            // Nothing was dropped or repeated: the rest of the stream follows,
+            // through the fill after this one, to the end of the source.
+            loop {
+                let (span, last) = reader
+                    .byte_span(MIN)
+                    .unwrap()
+                    .expect("a byte-aligned reader lends");
+                let count = span.len();
+                assert!(last || count >= MIN, "back {back} at {at}: {count} bytes");
+                assert!(span == &data[at..at + count], "back {back} at {at}");
+                reader.consume_byte_span(count);
+                at += count;
+                if last {
+                    break;
+                }
+            }
+            assert_eq!(at, data.len(), "back {back}");
+            assert_eq!(reader.position(), at * 8, "back {back}");
+        }
+    }
+}

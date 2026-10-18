@@ -11,7 +11,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 wasm-bindgen = "=0.2.126"
 js-sys = "0.3.103"
-sevenz-rust2 = { version = "0.24.0", default-features = false }
+sevenz-rust2 = { version = "0.24.0", default-features = false, features = ["bzip2", "ppmd", "deflate"] }
+pbz2-core = { version = "0.2.0", features = ["simd"] }
 lzma-rust2 = { version = "0.22.0", default-features = false, features = [
   "std",
   "optimization",

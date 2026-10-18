@@ -1,10 +1,10 @@
-import { libarchiveWasm } from "libarchive-wasm";
-import type { LibarchiveWasm } from "libarchive-wasm/dist/libarchiveWasm";
-import wasmUrl from "libarchive-wasm/dist/libarchive.wasm?url";
-import unrarUrl from "node-unrar-js/esm/js/unrar.wasm?url";
 import { archiveSuffix, isArchiveName } from "../utils/archiveFormats";
 import { compileZipCoreModule } from "../wasm/loadZipCore";
-import init, { classify_log_name_or_content } from "../wasm/pkg_zip/zip_core.js";
+import init, {
+  classify_log_name_or_content,
+  extract_archive_stream,
+  inspect_tar_blob,
+} from "../wasm/pkg_zip/zip_core.js";
 import type { ZipWorkerResponse } from "./zipExtractWorker";
 
 export type ArchiveEntryInfo = {
@@ -13,10 +13,12 @@ export type ArchiveEntryInfo = {
   size: number;
 };
 
+type ManifestEntry = { name: string; size: number; directory: boolean };
+type TarEntry = ManifestEntry & { offset: number };
+
 export type ArchiveWorkerResponse =
   | ZipWorkerResponse
-  | { type: "MANIFEST"; payload: ArchiveEntryInfo[] }
-  | { type: "RESET" };
+  | { type: "MANIFEST"; payload: ArchiveEntryInfo[] };
 
 declare const self: {
   onmessage:
@@ -25,15 +27,18 @@ declare const self: {
   postMessage: (message: ArchiveWorkerResponse, transfer?: Transferable[]) => void;
 };
 
-function sendEntry(path: string, data: Int8Array | Uint8Array): void {
+declare const FileReaderSync: {
+  new (): { readAsArrayBuffer: (file: Blob) => ArrayBuffer };
+};
+
+function sendEntry(path: string, data: Uint8Array): void {
   const name = path.replace(/\\/g, "/").split("/").pop() || path;
-  // SAFETY: both decoders return a newly allocated, standalone typed array.
+  // SAFETY: the Rust streaming adapter and parallel 7z decoder allocate standalone output arrays.
   const buffer = data.buffer as ArrayBuffer;
-  const view = new Uint8Array(buffer);
-  const suffix = archiveSuffix(view);
+  const suffix = archiveSuffix(data);
   const nested = suffix !== null || isArchiveName(name);
   const cleanName = suffix && !isArchiveName(name) ? name + suffix : name;
-  const sniffed = classify_log_name_or_content(name, view.subarray(0, 4096));
+  const sniffed = classify_log_name_or_content(name, data.subarray(0, 4096));
   self.postMessage(
     {
       type: "ENTRY_RESULT",
@@ -71,181 +76,157 @@ function entryInfo(path: string, size: number, isFile = true): ArchiveEntryInfo 
 
 self.onmessage = async ({ data: { file, decoderWorkers } }) => {
   const t0 = performance.now();
-  let archive: LibarchiveWasm | undefined;
-  let handle = 0;
-  let inputPtr = 0;
-  let scratchPtr = 0;
   try {
-    const [header] = await Promise.all([
+    const [header, wasm] = await Promise.all([
       file.slice(0, 512).arrayBuffer(),
       compileZipCoreModule().then((module) => init({ module_or_path: module })),
     ]);
     const suffix = archiveSuffix(new Uint8Array(header));
     if (suffix === ".7z" && file.size < 32) throw new Error("Truncated 7z archive header");
-    let totalBytes = 0;
     const skipped: string[] = [];
-    if (/\.rar$/i.test(file.name) || suffix === ".rar") {
-      const [{ createRarExtractor }, response] = await Promise.all([
-        import("./rarExtractor"),
-        fetch(unrarUrl),
-      ]);
-      if (!response.ok) throw new Error("Could not load RAR decoder");
-      const extractor = await createRarExtractor(file, await response.arrayBuffer());
-      const manifest = extractor.getFileList();
-      if (manifest.arcHeader.flags.volume)
-        throw new Error("Split-volume RAR archives are not supported");
+    const onManifest = (entries: ManifestEntry[]) => {
       self.postMessage({
         type: "MANIFEST",
-        payload: Array.from(manifest.fileHeaders, (entry) => {
-          if (entry.flags.encrypted)
-            throw new Error("Password-protected archives are not supported");
-          return entryInfo(entry.name, entry.unpSize, !entry.flags.directory);
-        }),
+        payload: entries.map((entry) => entryInfo(entry.name, entry.size, !entry.directory)),
       });
-      const extracted = extractor.extract({
-        files: (entry) => {
-          const info = entryInfo(entry.name, entry.unpSize, !entry.flags.directory);
-          if (info.category === "skip") {
-            skipped.push(entry.name);
-            return false;
-          }
-          return true;
+    };
+    let totalBytes: number | undefined;
+    if (suffix === ".rar" || /\.rar$/i.test(file.name)) {
+      const [{ compileRarCoreModule }, { default: initRar, RarExtractor }] = await Promise.all([
+        import("../wasm/loadRarCore"),
+        import("../wasm/pkg_rar/rar_core.js"),
+      ]);
+      const rar = await initRar({ module_or_path: await compileRarCoreModule() });
+      const reader = new FileReaderSync();
+      const extractor = new RarExtractor(
+        file.size,
+        (offset: number, pointer: number, length: number) => {
+          const bytes = reader.readAsArrayBuffer(file.slice(offset, offset + length));
+          if (bytes.byteLength !== length) throw new Error("Truncated RAR input");
+          new Uint8Array(rar.memory.buffer, pointer, length).set(new Uint8Array(bytes));
         },
-      });
-      for (const entry of extracted.files) {
-        if (!entry.extraction?.byteLength) continue;
-        totalBytes += entry.extraction.byteLength;
-        sendEntry(entry.fileHeader.name, entry.extraction);
+      );
+      try {
+        // SAFETY: Rust serializes validated RAR entry names, sizes and file types.
+        const entries = JSON.parse(extractor.manifest()) as ManifestEntry[];
+        onManifest(entries);
+        totalBytes = 0;
+        for (const [index, entry] of entries.entries()) {
+          if (
+            entryInfo(entry.name, entry.size, !entry.directory).category === "skip" ||
+            entry.size === 0
+          ) {
+            skipped.push(entry.name);
+            extractor.skip(index);
+            continue;
+          }
+          if (entry.size > 0x7fffffff)
+            throw new Error(`RAR entry exceeds the browser size limit: ${entry.name}`);
+          const output = new Uint8Array(entry.size);
+          let written = 0;
+          extractor.extract(index, (pointer: number, length: number) => {
+            output.set(new Uint8Array(rar.memory.buffer, pointer, length), written);
+            written += length;
+          });
+          totalBytes += output.byteLength;
+          sendEntry(entry.name, output);
+        }
+      } finally {
+        extractor.free();
       }
-    } else {
-      if (suffix === ".7z") {
-        const { extractSevenZip } = await import("./sevenZipExtractor");
-        const extractedBytes = await extractSevenZip(
+    }
+    if (suffix === ".7z") {
+      const { extractSevenZip } = await import("./sevenZipExtractor");
+      totalBytes = await extractSevenZip(
+        file,
+        sendEntry,
+        (path) => skipped.push(path),
+        (path) => entryInfo(path, 1).category === "skip",
+        decoderWorkers,
+        onManifest,
+      );
+    }
+    if (suffix === ".xz" && decoderWorkers > 1) {
+      const { extractXzTar } = await import("./xzExtractor");
+      totalBytes = await extractXzTar(
+        file,
+        wasm.memory,
+        sendEntry,
+        (path) => skipped.push(path),
+        decoderWorkers,
+      );
+    }
+    if (totalBytes === undefined) {
+      const reader = new FileReaderSync();
+      const read = (offset: number, pointer: number, length: number) => {
+        const bytes = reader.readAsArrayBuffer(file.slice(offset, offset + length));
+        if (bytes.byteLength !== length) throw new Error("Truncated archive input");
+        new Uint8Array(wasm.memory.buffer, pointer, length).set(new Uint8Array(bytes));
+      };
+      if (suffix === ".tar" || (suffix === null && /\.tar$/i.test(file.name))) {
+        // SAFETY: Rust's TAR reader validates metadata, entry offsets and input bounds.
+        const entries = JSON.parse(inspect_tar_blob(file.size, read)) as TarEntry[];
+        onManifest(entries);
+        totalBytes = 0;
+        let next = 0;
+        await Promise.all(
+          Array.from({ length: Math.min(2, entries.length) }, async () => {
+            while (next < entries.length) {
+              const entry = entries[next++]!;
+              if (
+                entryInfo(entry.name, entry.size, !entry.directory).category === "skip" ||
+                entry.size === 0
+              ) {
+                skipped.push(entry.name);
+                continue;
+              }
+              if (entry.size > 0x7fffffff)
+                throw new Error(`Archive entry exceeds the browser size limit: ${entry.name}`);
+              const buffer = await file
+                .slice(entry.offset, entry.offset + entry.size)
+                .arrayBuffer();
+              totalBytes! += buffer.byteLength;
+              sendEntry(entry.name, new Uint8Array(buffer));
+            }
+          }),
+        );
+      } else if (suffix === ".bz2" && decoderWorkers > 1 && file.size >= 1024 * 1024) {
+        const { extractBzipTar } = await import("./bzipExtractor");
+        totalBytes = await extractBzipTar(
           file,
+          wasm.memory,
           sendEntry,
           (path) => skipped.push(path),
-          (path) => entryInfo(path, 1).category === "skip",
           decoderWorkers,
-          (entries) => {
-            self.postMessage({
-              type: "MANIFEST",
-              payload: entries.map((entry) => entryInfo(entry.name, entry.size, !entry.directory)),
-            });
+        );
+      } else {
+        let output = new Uint8Array();
+        let outputPath = "";
+        let written = 0;
+        totalBytes = extract_archive_stream(
+          file.size,
+          suffix?.slice(1) ?? (/\.rar$/i.test(file.name) ? "rar" : "tar"),
+          read,
+          (path: string, size: number) => {
+            outputPath = path;
+            output = new Uint8Array(size);
+            written = 0;
+          },
+          (pointer: number, length: number) => {
+            output.set(new Uint8Array(wasm.memory.buffer, pointer, length), written);
+            written += length;
+          },
+          () => {
+            sendEntry(outputPath, output);
+            output = new Uint8Array();
+          },
+          (path: string) => skipped.push(path),
+          (json: string) => {
+            // SAFETY: Rust serializes validated archive entries using this exact structure.
+            onManifest(JSON.parse(json) as ManifestEntry[]);
           },
         );
-        if (extractedBytes !== undefined) {
-          self.postMessage({
-            type: "RESULT",
-            payload: {
-              fileName: file.name,
-              files: [],
-              skipped,
-              totalBytes: extractedBytes,
-              durationMs: Math.round(performance.now() - t0),
-            },
-          });
-          return;
-        }
       }
-      const isTar =
-        /\.(?:tar|tar\.(?:gz|bz2|xz)|tgz|tbz2?|txz)$/i.test(file.name) ||
-        suffix === ".tar" ||
-        suffix === ".bz2" ||
-        suffix === ".xz";
-      if (isTar) {
-        try {
-          const { extract_tar_wasm } = await import("../wasm/pkg_zip/zip_core.js");
-          const bytes = new Uint8Array(await file.arrayBuffer());
-          totalBytes = extract_tar_wasm(
-            bytes,
-            (path: string, data: Uint8Array) => sendEntry(path, data),
-            (path: string) => skipped.push(path),
-          );
-          self.postMessage({
-            type: "RESULT",
-            payload: {
-              fileName: file.name,
-              files: [],
-              skipped,
-              totalBytes,
-              durationMs: Math.round(performance.now() - t0),
-            },
-          });
-          return;
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
-          if (
-            /corrupt|truncated|incomplete|invalid|mismatch|overflow|checksum|trailer|unexpectedeof/i.test(
-              msg,
-            )
-          ) {
-            throw error;
-          }
-          // Keep libarchive compatibility for sparse/PAX edge cases
-          self.postMessage({ type: "RESET" });
-          skipped.length = 0;
-          totalBytes = 0;
-        }
-      }
-      archive = await libarchiveWasm({ locateFile: () => wasmUrl });
-      inputPtr = archive.module._malloc(file.size);
-      if (!inputPtr) throw new Error("Could not allocate archive input buffer");
-      // Copy bounded slices directly into Wasm, avoiding a second whole compressed archive.
-      for (let offset = 0; offset < file.size; offset += 16 * 1024 * 1024) {
-        const chunk = await file.slice(offset, offset + 16 * 1024 * 1024).arrayBuffer();
-        archive.module.HEAP8.set(new Int8Array(chunk), inputPtr + offset);
-      }
-      const openReader = () => {
-        const reader = archive!.read_new();
-        archive!.read_support_filter_all(reader);
-        archive!.read_support_format_all(reader);
-        archive!.read_open_memory(reader, inputPtr, file.size);
-        return reader;
-      };
-      handle = openReader();
-      const scratchSize = 8 * 1024 * 1024;
-      scratchPtr = archive.module._malloc(scratchSize);
-      if (!scratchPtr) throw new Error("Could not allocate archive decode buffer");
-      for (
-        let entry = archive.read_next_entry(handle);
-        entry;
-        entry = archive.read_next_entry(handle)
-      ) {
-        const path = archive.entry_pathname(entry);
-        const info = entryInfo(
-          path,
-          archive.entry_size(entry),
-          archive.entry_filetype(entry) === 0o100000,
-        );
-        if (archive.entry_is_encrypted(entry))
-          throw new Error("Password-protected archives are not supported");
-        if (info.category === "skip" || info.size === 0) {
-          skipped.push(path);
-          archive.read_data_skip(handle);
-          continue;
-        }
-        if (!Number.isSafeInteger(info.size) || info.size < 0 || info.size > 0x7fffffff) {
-          throw new Error(`Archive entry exceeds the browser size limit: ${path}`);
-        }
-        const data = new Int8Array(info.size);
-        let offset = 0;
-        while (offset < info.size) {
-          const count = archive.read_data(
-            handle,
-            scratchPtr,
-            Math.min(scratchSize, info.size - offset),
-          );
-          if (!count) throw new Error(`Incomplete archive entry: ${path}`);
-          data.set(archive.module.HEAP8.subarray(scratchPtr, scratchPtr + count), offset);
-          offset += count;
-        }
-        if (archive.read_data(handle, scratchPtr, 1) !== 0)
-          throw new Error(`Archive entry size mismatch: ${path}`);
-        totalBytes += data.byteLength;
-        sendEntry(path, data);
-      }
-      const error = archive.error_string(handle);
-      if (error) throw new Error(error);
     }
     self.postMessage({
       type: "RESULT",
@@ -258,15 +239,14 @@ self.onmessage = async ({ data: { file, decoderWorkers } }) => {
       },
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     self.postMessage({
       type: "ERROR",
       payload: {
-        message: error instanceof Error ? error.message : String(error),
+        message: message.includes("AES256_SHA256")
+          ? "Password-protected archives are not supported"
+          : message,
       },
     });
-  } finally {
-    if (scratchPtr) archive?.module._free(scratchPtr);
-    if (handle) archive?.read_free(handle);
-    if (inputPtr) archive?.module._free(inputPtr);
   }
 };

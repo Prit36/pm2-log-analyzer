@@ -1,9 +1,21 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const __wbg_bzipblockdecoder_free: (a: number, b: number) => void;
+export const __wbg_bzipscanner_free: (a: number, b: number) => void;
 export const __wbg_fastdecompressor_free: (a: number, b: number) => void;
+export const __wbg_tarstream_free: (a: number, b: number) => void;
+export const bzipblockdecoder_block_length: (a: number) => number;
+export const bzipblockdecoder_crc: (a: number) => number;
+export const bzipblockdecoder_decode: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const bzipblockdecoder_end_bit: (a: number) => number;
+export const bzipblockdecoder_new: () => number;
+export const bzipblockdecoder_output_len: (a: number) => number;
+export const bzipscanner_markers: (a: number) => [number, number];
+export const bzipscanner_new: () => number;
+export const bzipscanner_scan: (a: number, b: number, c: number) => void;
 export const classify_log_name_or_content: (a: number, b: number, c: number, d: number) => [number, number];
-export const extract_tar_wasm: (a: number, b: number, c: any, d: any) => [number, number, number];
+export const extract_archive_stream: (a: number, b: number, c: number, d: any, e: any, f: any, g: any, h: any, i: any) => [number, number, number];
 export const fastdecompressor_clear: (a: number) => void;
 export const fastdecompressor_decompress_deflate: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const fastdecompressor_decompress_gzip: (a: number, b: number, c: number) => [number, number, number];
@@ -13,12 +25,21 @@ export const fastdecompressor_output_crc: (a: number, b: number, c: number) => [
 export const fastdecompressor_output_len: (a: number) => number;
 export const fastdecompressor_output_ptr: (a: number) => number;
 export const inspect_sevenz: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+export const inspect_tar_blob: (a: number, b: any) => [number, number, number, number];
+export const inspect_xz_blob: (a: number, b: any) => [number, number, number, number];
+export const tarstream_feed: (a: number, b: number, c: number) => [number, number];
+export const tarstream_finish: (a: number) => [number, number, number];
+export const tarstream_new: (a: any, b: any, c: any, d: any) => number;
+export const xzblockdecoder_decode: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+export const xzblockdecoder_output_len: (a: number) => number;
+export const xzblockdecoder_new: () => number;
 export const sevenz_crc_combine: (a: number, b: number, c: number) => number;
+export const __wbg_xzblockdecoder_free: (a: number, b: number) => void;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
 export const __wbindgen_exn_store: (a: number) => void;
 export const __externref_table_alloc: () => number;
 export const __wbindgen_externrefs: WebAssembly.Table;
-export const __wbindgen_malloc: (a: number, b: number) => number;
-export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-export const __wbindgen_free: (a: number, b: number, c: number) => void;
 export const __externref_table_dealloc: (a: number) => void;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
 export const __wbindgen_start: () => void;
