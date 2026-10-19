@@ -141,9 +141,12 @@ try {
     const rssSamples = memory.filter((sample) => sample !== null);
     measured.rssPeakMB = rssSamples.length ? Math.max(...rssSamples) : null;
     measured.rssAfterMB = await rssMB();
-    for (const value of ["5xx", "all"]) {
+    for (const label of ["5xx", "All status"]) {
       const previous = await page.evaluate(() => window.__NGINX_BENCH__.reaggTimes.length);
-      await page.getByTestId("nginx-filter-status").selectOption(value);
+      await page
+        .getByTestId("nginx-filter-status")
+        .getByRole("button", { name: label, exact: true })
+        .click();
       await page.waitForFunction(
         (length) => window.__NGINX_BENCH__.reaggTimes.length > length,
         previous,

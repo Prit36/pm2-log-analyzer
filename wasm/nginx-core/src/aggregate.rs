@@ -84,6 +84,23 @@ pub struct Endpoint {
     pub upstream_time: Latency,
 }
 
+/// Exact endpoint ranking for the overview, independent of the table sort and Top N.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Hotspot {
+    pub method: String,
+    pub path: String,
+    pub count: u64,
+    pub error_count: u64,
+    pub timed_count: u64,
+    pub avg_ms: Option<f64>,
+    pub p95_ms: Option<f64>,
+}
+
+/// Endpoints need this many timed requests before their p95 is ranked as slowest.
+const HOTSPOT_MIN_TIMED: u64 = 10;
+const HOTSPOT_LIMIT: usize = 5;
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeBucket {
@@ -116,6 +133,8 @@ pub struct Report {
     pub summary: Summary,
     pub endpoints: Vec<Endpoint>,
     pub endpoint_count: usize,
+    pub slowest_endpoints: Vec<Hotspot>,
+    pub failing_endpoints: Vec<Hotspot>,
     pub hourly_stats: Vec<TimeBucket>,
     pub daily_stats: Vec<TimeBucket>,
     pub clients: Vec<Breakdown>,
@@ -550,6 +569,60 @@ impl Partial {
                 .then_with(|| a.1.cmp(&b.1))
                 .then_with(|| a.0.cmp(&b.0))
         };
+        let upstream = filters.metric == "upstream";
+        let timing = |metrics| selected_timing(metrics, upstream);
+        let hotspot = |index: usize, p95_ms: Option<f64>| {
+            let (method, path, metrics, _) = &candidates[index];
+            let time = timing(metrics);
+            Hotspot {
+                method: method.clone(),
+                path: path.clone(),
+                count: metrics.counts.count,
+                error_count: metrics.counts.errors,
+                timed_count: time.count,
+                avg_ms: time.sort_value("avgMs"),
+                p95_ms,
+            }
+        };
+        let by_name = |a: usize, b: usize| {
+            candidates[a]
+                .1
+                .cmp(&candidates[b].1)
+                .then_with(|| candidates[a].0.cmp(&candidates[b].0))
+        };
+        let mut slow: Vec<(f64, usize)> = candidates
+            .iter()
+            .enumerate()
+            .filter_map(|(index, (_, _, metrics, _))| {
+                let time = timing(metrics);
+                if time.count < HOTSPOT_MIN_TIMED {
+                    return None;
+                }
+                time.sort_value("p95Ms").map(|p95| (p95, index))
+            })
+            .collect();
+        slow.sort_unstable_by(|a, b| b.0.total_cmp(&a.0).then_with(|| by_name(a.1, b.1)));
+        let slowest_endpoints: Vec<_> = slow
+            .into_iter()
+            .take(HOTSPOT_LIMIT)
+            .map(|(p95, index)| hotspot(index, Some(p95)))
+            .collect();
+        let mut failing: Vec<usize> = (0..candidates.len())
+            .filter(|&index| candidates[index].2.counts.errors > 0)
+            .collect();
+        failing.sort_unstable_by(|&a, &b| {
+            candidates[b]
+                .2
+                .counts
+                .errors
+                .cmp(&candidates[a].2.counts.errors)
+                .then_with(|| by_name(a, b))
+        });
+        let failing_endpoints: Vec<_> = failing
+            .into_iter()
+            .take(HOTSPOT_LIMIT)
+            .map(|index| hotspot(index, timing(&candidates[index].2).sort_value("p95Ms")))
+            .collect();
         if filters.top_n > 0 && filters.top_n < candidates.len() {
             candidates.select_nth_unstable_by(filters.top_n, &compare);
             candidates.truncate(filters.top_n);
@@ -589,6 +662,8 @@ impl Partial {
             summary,
             endpoints,
             endpoint_count,
+            slowest_endpoints,
+            failing_endpoints,
             hourly_stats: time_buckets(self.hourly),
             daily_stats: time_buckets(self.daily),
             clients: breakdown(self.clients),
@@ -602,6 +677,14 @@ impl Partial {
             methods,
             diagnostics: self.diagnostics,
         }
+    }
+}
+
+fn selected_timing(metrics: &Metrics, upstream: bool) -> &TimingAcc {
+    if upstream {
+        &metrics.upstream
+    } else {
+        &metrics.request
     }
 }
 

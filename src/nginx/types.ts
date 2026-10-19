@@ -55,6 +55,17 @@ export type NginxEndpoint = {
   upstreamTime: NginxLatency;
 };
 
+/** Exact top endpoints for the overview, independent of the table sort and Top N. */
+export type NginxHotspot = {
+  method: string;
+  path: string;
+  count: number;
+  errorCount: number;
+  timedCount: number;
+  avgMs: number | null;
+  p95Ms: number | null;
+};
+
 export type NginxBreakdown = {
   value: string;
   count: number;
@@ -75,6 +86,8 @@ export type NginxResult = {
   summary: NginxSummary;
   endpoints: NginxEndpoint[];
   endpointCount: number;
+  slowestEndpoints: NginxHotspot[];
+  failingEndpoints: NginxHotspot[];
   hourlyStats: NginxTimeBucket[];
   dailyStats: NginxTimeBucket[];
   clients: NginxBreakdown[];

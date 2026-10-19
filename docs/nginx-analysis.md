@@ -17,7 +17,7 @@ All HTTP methods are counted. The errors metric includes 4xx and 5xx responses. 
 
 Path normalization matches PM2's existing Exact / Strip query / Collapse IDs modes. Filters affect every report aggregate. A positive minimum-duration threshold excludes requests lacking the selected metric; the default zero threshold retains untimed requests. Percentiles use nearest-rank selection over logarithmic buckets with approximately 1% relative accuracy, including valid zero measurements. With two measured times of 0 and 845 ms, p95 selects the positive sample's bucket rather than zero.
 
-Endpoint results are sorted globally before Top N is applied. Clients, referrers, and user agents show the exact top 100 by requests, plus total distinct counts. Their logged values are retained without user-agent classification or referrer rewriting. Spreadsheet export includes the displayed report, both timing metrics, coverage, and filter metadata; it does not export every raw request.
+Endpoint results are sorted globally before Top N is applied. The overview's "Slowest endpoints" (p95 of the selected timing, endpoints with at least 10 timed requests) and "Most errors" lists are ranked over all endpoint groups in the core, independent of the table sort and Top N. Clients, referrers, and user agents show the exact top 100 by requests, plus total distinct counts. Their logged values are retained without user-agent classification or referrer rewriting. Spreadsheet export includes the displayed report, both timing metrics, coverage, and filter metadata; it does not export every raw request.
 
 ## Execution and memory
 

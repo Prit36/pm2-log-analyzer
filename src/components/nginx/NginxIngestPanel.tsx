@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
-import { ChevronDown, ClipboardPaste, FolderOpen, Plus, Upload } from "lucide-react";
+import { ChevronDown, ClipboardPaste, FileText, FolderOpen, Plus, Upload } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useNginxStore } from "../../store/nginxStore";
 import { cancelNginx, parseNginxText } from "../../hooks/useNginxParserWorker";
@@ -11,7 +11,7 @@ import {
   pickNativeDirectory,
   pickNativeFiles,
 } from "../../services/nativeBridge";
-import { formatBytes } from "../../utils/format";
+import { formatBytes, formatNum } from "../../utils/format";
 import { cn } from "../../utils/cn";
 
 const { setPasteOpen, showToast, setError } = useNginxStore.getState();
@@ -73,8 +73,20 @@ export function NginxIngestPanel() {
   const [dragOver, setDragOver] = useState(false);
   const [pending, setPending] = useState<File[] | null>(null);
   const [text, setText] = useState("");
-  const { hasData, isParsing, progress, pasteOpen, fileNames, fileSize, error } = useNginxStore(
+  const {
+    hasData,
+    isParsing,
+    progress,
+    pasteOpen,
+    fileNames,
+    fileSize,
+    error,
+    sourceKind,
+    requestCount,
+  } = useNginxStore(
     useShallow((s) => ({
+      sourceKind: s.sourceKind,
+      requestCount: s.result?.diagnostics.matchedLines,
       hasData: s.hasData,
       isParsing: s.isParsing,
       progress: s.progress,
@@ -115,7 +127,15 @@ export function NginxIngestPanel() {
   };
   const accept = ".log,.txt,.out,.1,.2,.3,.4,.5,.6,.7,.8,.9,text/plain," + ARCHIVE_ACCEPT;
   return (
-    <section className="rounded border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+    <section
+      className={cn(
+        "rounded-lg bg-white dark:bg-slate-900",
+        hasData
+          ? "border border-slate-200 dark:border-slate-800"
+          : "border-2 border-dashed border-slate-300 dark:border-slate-700",
+        dragOver && "border-violet-400 dark:border-violet-500",
+      )}
+    >
       <div
         onDragOver={(event) => {
           event.preventDefault();
@@ -123,30 +143,64 @@ export function NginxIngestPanel() {
         }}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
-        className={cn("px-4 py-4", dragOver && "bg-violet-50 dark:bg-violet-950/30")}
+        className={cn(
+          "rounded-lg",
+          hasData ? "flex flex-wrap items-center gap-3 px-4 py-2.5" : "px-4 py-12",
+          dragOver && "bg-violet-50 dark:bg-violet-950/30",
+        )}
       >
         {!hasData && (
-          <div className="mb-4 text-center">
-            <Upload className="mx-auto mb-2 size-7 text-violet-500" aria-hidden />
+          <div className="mb-5 text-center">
+            <div className="mx-auto mb-3 flex size-11 items-center justify-center rounded-full bg-violet-50 dark:bg-violet-950/50">
+              <Upload className="size-5 text-violet-600 dark:text-violet-400" aria-hidden />
+            </div>
             <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
               Drop Nginx access logs here
             </h2>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Combined logs, with or without rt / urt timings · Files, folders, and archives
+              Combined format, with or without rt= / urt= timings · Files, folders, and archives
             </p>
           </div>
         )}
-        {hasData && fileNames.length > 1 && (
-          <p
-            className="mb-3 truncate text-xs text-slate-600 dark:text-slate-300"
-            title={fileNames.join("\n")}
-          >
-            {fileNames.length} file{fileNames.length === 1 ? "" : "s"} ·{" "}
-            {fileNames.slice(0, 3).join(", ")}
-            {fileSize != null && ` · ${formatBytes(fileSize)}`}
-          </p>
+        {hasData && (
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <FileText className="size-4 shrink-0 text-violet-500" aria-hidden />
+            <div className="min-w-0">
+              <p
+                className="truncate text-xs font-medium text-slate-700 dark:text-slate-200"
+                title={fileNames.join("\n")}
+              >
+                {sourceKind === "paste"
+                  ? "Pasted log lines"
+                  : fileNames.length === 1
+                    ? fileNames[0]
+                    : `${formatNum(fileNames.length)} files · ${fileNames.slice(0, 3).join(", ")}${fileNames.length > 3 ? ", …" : ""}`}
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                {fileSize != null && `${formatBytes(fileSize)} · `}
+                {requestCount != null && `${formatNum(requestCount)} requests · `}
+                drop more files here to add or replace
+              </p>
+            </div>
+          </div>
         )}
-        <div className="flex flex-wrap items-center justify-center gap-2">
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-2",
+            hasData ? "justify-end" : "justify-center",
+          )}
+        >
+          {hasData && (
+            <button
+              type="button"
+              disabled={isParsing}
+              onClick={() => choose("append")}
+              className={primaryClass}
+            >
+              <Plus className="size-3.5" aria-hidden />
+              Add files
+            </button>
+          )}
           <button
             type="button"
             disabled={isParsing}
@@ -156,17 +210,6 @@ export function NginxIngestPanel() {
             <Upload className="size-3.5" aria-hidden />
             {hasData ? "Replace" : "Choose files"}
           </button>
-          {hasData && (
-            <button
-              type="button"
-              disabled={isParsing}
-              onClick={() => choose("append")}
-              className={primaryClass}
-            >
-              <Plus className="size-3.5" aria-hidden />
-              Add / Append
-            </button>
-          )}
           {hasData ? (
             <details ref={folderMenuRef} className="relative">
               <summary
@@ -182,7 +225,7 @@ export function NginxIngestPanel() {
                 Folder
                 <ChevronDown className="size-3" aria-hidden />
               </summary>
-              <div className="absolute left-0 top-full z-20 mt-1 w-40 rounded border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+              <div className="absolute right-0 top-full z-20 mt-1 w-40 rounded border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
                 <button
                   type="button"
                   disabled={isParsing}
@@ -223,7 +266,7 @@ export function NginxIngestPanel() {
           </button>
         </div>
         {isParsing && (
-          <div className="mt-3 flex items-center gap-3" role="status">
+          <div className={cn("flex items-center gap-3", hasData ? "w-full" : "mt-4")} role="status">
             <div className="h-1.5 flex-1 overflow-hidden rounded bg-slate-100 dark:bg-slate-800">
               <div
                 className="h-full bg-violet-500"
@@ -243,7 +286,13 @@ export function NginxIngestPanel() {
           </div>
         )}
         {error && (
-          <p role="alert" className="mt-3 text-xs text-rose-600 dark:text-rose-400">
+          <p
+            role="alert"
+            className={cn(
+              "text-xs text-rose-600 dark:text-rose-400",
+              hasData ? "w-full" : "mt-3 text-center",
+            )}
+          >
             {error}
           </p>
         )}
