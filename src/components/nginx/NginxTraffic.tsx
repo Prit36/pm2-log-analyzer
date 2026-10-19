@@ -20,7 +20,7 @@ import type { NginxMetric, NginxResult, NginxTimeBucket } from "../../nginx/type
 import type { StatusFamily } from "../../parser";
 import { formatBytes, formatNum } from "../../utils/format";
 import { cn } from "../../utils/cn";
-import { updateNginxFilters } from "./NginxFilterBar";
+import { filterNginxStatusCode, updateNginxFilters } from "./NginxFilterBar";
 import { NginxLatencyProfile } from "./NginxOverview";
 import {
   bucketLabelFormatter,
@@ -38,6 +38,40 @@ import {
 } from "./nginxUi";
 
 type Granularity = "hourly" | "daily";
+const statusText = new Map([
+  [200, "OK"],
+  [201, "Created"],
+  [204, "No Content"],
+  [206, "Partial Content"],
+  [301, "Moved Permanently"],
+  [302, "Found"],
+  [304, "Not Modified"],
+  [307, "Temporary Redirect"],
+  [308, "Permanent Redirect"],
+  [400, "Bad Request"],
+  [401, "Unauthorized"],
+  [403, "Forbidden"],
+  [404, "Not Found"],
+  [405, "Method Not Allowed"],
+  [408, "Request Timeout"],
+  [409, "Conflict"],
+  [413, "Payload Too Large"],
+  [414, "URI Too Long"],
+  [415, "Unsupported Media Type"],
+  [422, "Unprocessable Content"],
+  [429, "Too Many Requests"],
+  [444, "No Response (nginx)"],
+  [494, "Header Too Large (nginx)"],
+  [495, "SSL Cert Error (nginx)"],
+  [496, "No SSL Cert (nginx)"],
+  [497, "HTTP to HTTPS (nginx)"],
+  [499, "Client Closed (nginx)"],
+  [500, "Internal Server Error"],
+  [501, "Not Implemented"],
+  [502, "Bad Gateway"],
+  [503, "Service Unavailable"],
+  [504, "Gateway Timeout"],
+]);
 const toneOrder: StatusTone[] = ["ok", "redirect", "client", "server", "other"];
 const familyOf = {
   ok: "2xx",
@@ -218,9 +252,14 @@ export function NginxTimelineChart({
 
 /** HTTP status mix; clicking a family applies it as the status filter. */
 export function NginxStatusCard({ result }: { result: NginxResult }) {
-  const { statusFamily, isParsing } = useNginxStore(
-    useShallow((s) => ({ statusFamily: s.filters.statusFamily, isParsing: s.isParsing })),
+  const { statusFamily, statusCode, isParsing } = useNginxStore(
+    useShallow((s) => ({
+      statusFamily: s.filters.statusFamily,
+      statusCode: s.filters.statusCode,
+      isParsing: s.isParsing,
+    })),
   );
+  const [showAll, setShowAll] = useState(false);
   const total = result.summary.count;
   const families = useMemo(() => {
     const sums = new Map<StatusTone, number>();
@@ -265,7 +304,9 @@ export function NginxStatusCard({ result }: { result: NginxResult }) {
                 type="button"
                 disabled={isParsing || family === "all"}
                 aria-pressed={active}
-                onClick={() => updateNginxFilters({ statusFamily: active ? "all" : family })}
+                onClick={() =>
+                  updateNginxFilters({ statusFamily: active ? "all" : family, statusCode: 0 })
+                }
                 className={cn(
                   "flex items-center gap-2 rounded-md px-2 py-1 text-left text-[11px] ring-1 ring-transparent hover:bg-slate-50 dark:hover:bg-slate-800",
                   active &&
@@ -287,25 +328,49 @@ export function NginxStatusCard({ result }: { result: NginxResult }) {
           })}
         </div>
         <ul className="mt-2.5 flex flex-col divide-y divide-slate-100 border-t border-slate-100 text-xs dark:divide-slate-800 dark:border-slate-800">
-          {codes.slice(0, 8).map((row) => (
-            <li key={row.status} className="flex items-center gap-2 py-1 tabular-nums">
-              <span
-                className="w-9 rounded py-0.5 text-center text-[10px] font-semibold text-white"
-                style={{ background: toneColor[statusTone(row.status)] }}
-              >
-                {row.status}
-              </span>
-              <span className="flex-1 text-right text-slate-700 dark:text-slate-200">
-                {formatNum(row.count)}
-              </span>
-              <span className="w-12 text-right text-[11px] text-slate-500">
-                {percent(row.count, total)}
-              </span>
-            </li>
-          ))}
+          {(showAll ? codes : codes.slice(0, 8)).map((row) => {
+            const active = statusCode === row.status;
+            return (
+              <li key={row.status}>
+                <button
+                  type="button"
+                  disabled={isParsing}
+                  aria-pressed={active}
+                  title={active ? "Clear status filter" : `Show only ${row.status} responses`}
+                  onClick={() => filterNginxStatusCode(active ? 0 : row.status)}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded px-1 py-1 tabular-nums hover:bg-slate-50 dark:hover:bg-slate-800",
+                    active && "bg-violet-50 dark:bg-violet-950/40",
+                  )}
+                >
+                  <span
+                    className="w-9 rounded py-0.5 text-center text-[10px] font-semibold text-white"
+                    style={{ background: toneColor[statusTone(row.status)] }}
+                  >
+                    {row.status}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-left text-[11px] text-slate-500 dark:text-slate-400">
+                    {statusText.get(row.status) ?? ""}
+                  </span>
+                  <span className="text-right text-slate-700 dark:text-slate-200">
+                    {formatNum(row.count)}
+                  </span>
+                  <span className="w-12 text-right text-[11px] text-slate-500">
+                    {percent(row.count, total)}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
         {codes.length > 8 && (
-          <p className={cn(mutedClass, "mt-1")}>+{codes.length - 8} more codes in the export</p>
+          <button
+            type="button"
+            onClick={() => setShowAll(!showAll)}
+            className={cn(mutedClass, "mt-1 font-medium text-violet-700 dark:text-violet-300")}
+          >
+            {showAll ? "Show fewer codes" : `Show all ${codes.length} codes`}
+          </button>
         )}
       </div>
     </section>
@@ -314,14 +379,16 @@ export function NginxStatusCard({ result }: { result: NginxResult }) {
 
 function Highlight({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className={cn(panelClass, "px-3 py-2.5")}>
+    <div className="min-w-0 bg-white px-3 py-2 dark:bg-slate-900">
       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {label}
       </div>
-      <div className="mt-0.5 font-mono-data text-base font-semibold text-slate-900 dark:text-slate-100">
-        {value}
+      <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
+        <span className="shrink-0 font-mono-data text-sm font-semibold text-slate-900 dark:text-slate-100">
+          {value}
+        </span>
+        <span className="truncate text-[10px] text-slate-500 dark:text-slate-400">{detail}</span>
       </div>
-      <div className="mt-0.5 truncate text-[10px] text-slate-500 dark:text-slate-400">{detail}</div>
     </div>
   );
 }
@@ -373,9 +440,15 @@ export function NginxTrafficView({ result, metric }: { result: NginxResult; metr
     );
   }
   const { busiest, slowest, worstErrors } = highlights;
+  const profiled = result.summary.requestTime.count > 0 || result.summary.upstreamTime.count > 0;
   return (
     <div className="flex flex-col gap-3">
-      <div className={cn("grid gap-2", slowest ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+      <div
+        className={cn(
+          "grid gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200 dark:border-slate-800 dark:bg-slate-800",
+          slowest ? "sm:grid-cols-3" : "sm:grid-cols-2",
+        )}
+      >
         {busiest && (
           <Highlight
             label="Busiest period"
@@ -398,9 +471,19 @@ export function NginxTrafficView({ result, metric }: { result: NginxResult; metr
           />
         )}
       </div>
-      <NginxTimelineChart result={result} metric={metric} height={240} shared={shared} />
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <NginxTimelineChart result={result} metric={metric} height={262} shared={shared} />
+        <NginxStatusCard result={result} />
+      </div>
       <div
-        className={cn("grid items-start gap-3", measured > 0 ? "lg:grid-cols-3" : "lg:grid-cols-2")}
+        className={cn(
+          "grid items-start gap-3",
+          measured > 0 && profiled
+            ? "lg:grid-cols-3"
+            : measured > 0 || profiled
+              ? "lg:grid-cols-2"
+              : "",
+        )}
       >
         {measured > 0 && (
           <section className={cn(panelClass, "flex flex-col")}>
@@ -411,7 +494,7 @@ export function NginxTrafficView({ result, metric }: { result: NginxResult; metr
               </span>
             </div>
             <div className="p-3">
-              <div className="h-56">
+              <div className="h-44">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
                     <CartesianGrid stroke={theme.grid} strokeDasharray="3 3" vertical={false} />
@@ -475,7 +558,7 @@ export function NginxTrafficView({ result, metric }: { result: NginxResult; metr
             <h2 className={panelTitleClass}>Bandwidth</h2>
           </div>
           <div className="p-3">
-            <div className="h-56">
+            <div className="h-44">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
                   <CartesianGrid stroke={theme.grid} strokeDasharray="3 3" vertical={false} />
@@ -510,11 +593,8 @@ export function NginxTrafficView({ result, metric }: { result: NginxResult; metr
             </div>
           </div>
         </section>
-        <NginxStatusCard result={result} />
+        {profiled && <NginxLatencyProfile result={result} />}
       </div>
-      {(result.summary.requestTime.count > 0 || result.summary.upstreamTime.count > 0) && (
-        <NginxLatencyProfile result={result} />
-      )}
     </div>
   );
 }

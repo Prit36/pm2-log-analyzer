@@ -1,22 +1,34 @@
 import { useState, type ReactNode } from "react";
-import { ChevronDown, RotateCcw, Search, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, RotateCcw, Search, SlidersHorizontal, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useNginxStore } from "../../store/nginxStore";
 import { reaggregateNginx } from "../../hooks/useNginxParserWorker";
-import type { NginxFilters, NginxView } from "../../nginx/types";
-import type { NormalizeMode, StatusFamily } from "../../parser";
+import { DEFAULT_NGINX_FILTERS } from "../../nginx/types";
+import type { NginxFilters, NginxStatusFamily, NginxView } from "../../nginx/types";
+import type { NormalizeMode } from "../../parser";
 import { formatNum } from "../../utils/format";
 import { cn } from "../../utils/cn";
+import { percent } from "./nginxUi";
 
 const { setFilters, resetFilters, setActiveView } = useNginxStore.getState();
 const fieldClass =
   "rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100";
 const normalizeModes: NormalizeMode[] = ["collapseIds", "stripQuery", "exact"];
-const statusFamilies: StatusFamily[] = ["all", "2xx", "3xx", "4xx", "5xx"];
+const statusFamilies: NginxStatusFamily[] = ["all", "errors", "2xx", "3xx", "4xx", "5xx"];
+const normalizeLabels = {
+  collapseIds: "Collapse IDs",
+  stripQuery: "Strip query",
+  exact: "Exact path",
+} satisfies Record<NormalizeMode, string>;
 
 export function updateNginxFilters(patch: Partial<NginxFilters>): void {
   setFilters(patch);
   void reaggregateNginx();
+}
+
+/** Exact status code filter; a family filter would contradict it, so it resets. */
+export function filterNginxStatusCode(statusCode: number): void {
+  updateNginxFilters({ statusCode, statusFamily: "all" });
 }
 
 export function resetNginxFilters(): void {
@@ -83,6 +95,80 @@ function Segmented<T extends string>({
   );
 }
 
+type Chip = { key: string; label: string; clear: Partial<NginxFilters> };
+
+function activeChips(filters: NginxFilters): Chip[] {
+  const d = DEFAULT_NGINX_FILTERS;
+  const chips: Chip[] = [];
+  if (filters.query.trim())
+    chips.push({ key: "query", label: `Search: ${filters.query.trim()}`, clear: { query: "" } });
+  if (filters.statusCode !== 0)
+    chips.push({ key: "code", label: `Status ${filters.statusCode}`, clear: { statusCode: 0 } });
+  if (filters.statusFamily !== "all")
+    chips.push({
+      key: "family",
+      label:
+        filters.statusFamily === "errors" ? "Errors (4xx + 5xx)" : `Status ${filters.statusFamily}`,
+      clear: { statusFamily: "all" },
+    });
+  if (filters.methods.length > 0)
+    chips.push({ key: "methods", label: filters.methods.join(", "), clear: { methods: [] } });
+  if (filters.dateFilter !== "all")
+    chips.push({ key: "date", label: filters.dateFilter, clear: { dateFilter: "all" } });
+  if (filters.minMs > 0)
+    chips.push({ key: "minMs", label: `≥ ${formatNum(filters.minMs)} ms`, clear: { minMs: 0 } });
+  if (filters.normalizeMode !== d.normalizeMode)
+    chips.push({
+      key: "normalize",
+      label: normalizeLabels[filters.normalizeMode],
+      clear: { normalizeMode: d.normalizeMode },
+    });
+  return chips;
+}
+
+function ActiveFilters({
+  filters,
+  matched,
+  total,
+}: {
+  filters: NginxFilters;
+  matched: number;
+  total: number;
+}) {
+  const chips = activeChips(filters);
+  if (chips.length === 0) return null;
+  return (
+    <div
+      data-testid="nginx-active-filters"
+      className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 px-3 py-1.5 dark:border-slate-800"
+    >
+      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+        Showing{" "}
+        <span className="font-semibold text-slate-700 dark:text-slate-200">
+          {formatNum(matched)}
+        </span>{" "}
+        of {formatNum(total)} requests ({percent(matched, total)})
+      </span>
+      {chips.map((chip) => (
+        <span
+          key={chip.key}
+          className="inline-flex max-w-72 items-center gap-1 rounded-full bg-violet-50 py-0.5 pr-1 pl-2 text-[11px] font-medium text-violet-700 ring-1 ring-violet-200 dark:bg-violet-950/50 dark:text-violet-300 dark:ring-violet-900"
+        >
+          <span className="truncate">{chip.label}</span>
+          <button
+            type="button"
+            aria-label={`Remove filter ${chip.label}`}
+            onClick={() => updateNginxFilters(chip.clear)}
+            className="rounded-full p-0.5 hover:bg-violet-200 dark:hover:bg-violet-900"
+          >
+            <X className="size-3" aria-hidden />
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function ViewTabs() {
   const { activeView, endpointCount, clientCount, referrerCount, userAgentCount } = useNginxStore(
     useShallow((s) => ({
@@ -142,16 +228,19 @@ function ViewTabs() {
 }
 
 export function NginxFilterBar() {
-  const { filters, dates, methods, isParsing, requestTimed, upstreamTimed } = useNginxStore(
-    useShallow((s) => ({
-      filters: s.filters,
-      dates: s.result?.dates,
-      methods: s.result?.methods,
-      isParsing: s.isParsing,
-      requestTimed: s.result?.summary.requestTime.count ?? 0,
-      upstreamTimed: s.result?.summary.upstreamTime.count ?? 0,
-    })),
-  );
+  const { filters, dates, methods, isParsing, requestTimed, upstreamTimed, matched, total } =
+    useNginxStore(
+      useShallow((s) => ({
+        matched: s.result?.summary.count ?? 0,
+        total: s.result?.diagnostics.matchedLines ?? 0,
+        filters: s.filters,
+        dates: s.result?.dates,
+        methods: s.result?.methods,
+        isParsing: s.isParsing,
+        requestTimed: s.result?.summary.requestTime.count ?? 0,
+        upstreamTimed: s.result?.summary.upstreamTime.count ?? 0,
+      })),
+    );
   const extraCount = countMoreFilters(filters);
   const [expanded, setExpanded] = useState(extraCount > 0);
   const hasTiming =
@@ -160,6 +249,7 @@ export function NginxFilterBar() {
     extraCount > 0 ||
     filters.query !== "" ||
     filters.statusFamily !== "all" ||
+    filters.statusCode !== 0 ||
     filters.metric !== "request" ||
     filters.sortKey !== "count" ||
     filters.sortDir !== "desc" ||
@@ -196,9 +286,9 @@ export function NginxFilterBar() {
           value={filters.statusFamily}
           options={statusFamilies.map((value) => ({
             value,
-            label: value === "all" ? "All status" : value,
+            label: value === "all" ? "All status" : value === "errors" ? "Errors" : value,
           }))}
-          onChange={(statusFamily) => updateNginxFilters({ statusFamily })}
+          onChange={(statusFamily) => updateNginxFilters({ statusFamily, statusCode: 0 })}
         />
         {hasTiming && (
           <Segmented
@@ -244,6 +334,7 @@ export function NginxFilterBar() {
           </button>
         )}
       </fieldset>
+      <ActiveFilters filters={filters} matched={matched} total={total} />
       {expanded && (
         <fieldset
           id="nginx-extra-filters"

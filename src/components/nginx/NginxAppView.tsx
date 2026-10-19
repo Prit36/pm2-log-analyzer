@@ -6,9 +6,10 @@ import type { NginxResult } from "../../nginx/types";
 import { formatNum } from "../../utils/format";
 import { cn } from "../../utils/cn";
 import { NginxIngestPanel } from "./NginxIngestPanel";
+import { NginxEmptyState } from "./NginxEmptyState";
 import { NginxFilterBar } from "./NginxFilterBar";
 import { NginxEndpointTable } from "./NginxEndpointTable";
-import { NginxBreakdownTable } from "./NginxBreakdowns";
+import { NginxReferrersView, NginxUserAgentsView } from "./NginxBreakdowns";
 import { NginxTimelineChart, NginxTrafficView } from "./NginxTraffic";
 import { percent } from "./nginxUi";
 import { NginxFailingPanel, NginxKpiRow, NginxSlowestPanel } from "./NginxOverview";
@@ -79,12 +80,18 @@ function Overview({ result, metric }: { result: NginxResult; metric: "request" |
 }
 
 export function NginxAppView() {
-  const { result, activeView, metric } = useNginxStore(
-    useShallow((s) => ({ result: s.result, activeView: s.activeView, metric: s.filters.metric })),
+  const { result, activeView, metric, isParsing } = useNginxStore(
+    useShallow((s) => ({
+      result: s.result,
+      activeView: s.activeView,
+      metric: s.filters.metric,
+      isParsing: s.isParsing,
+    })),
   );
   return (
     <div className="flex flex-col gap-3">
       <NginxIngestPanel />
+      {!result && !isParsing && <NginxEmptyState />}
       {result && (
         <>
           <NginxKpiRow result={result} />
@@ -92,33 +99,18 @@ export function NginxAppView() {
           {activeView === "endpoints" && <Overview result={result} metric={metric} />}
           {activeView === "traffic" && <NginxTrafficView result={result} metric={metric} />}
           {activeView === "clients" && (
-            <Suspense
-              fallback={<p className="p-4 text-xs text-slate-500">Loading offline country data…</p>}
-            >
+            <Suspense fallback={<p className="p-4 text-xs text-slate-500">Loading clients…</p>}>
               <NginxClientsView result={result} />
             </Suspense>
           )}
-          {activeView === "referrers" && (
-            <NginxBreakdownTable
-              title="Referrers"
-              rows={result.referrers}
-              distinct={result.referrerCount}
-              total={result.summary.count}
-            />
-          )}
-          {activeView === "userAgents" && (
-            <NginxBreakdownTable
-              title="User agents"
-              rows={result.userAgents}
-              distinct={result.userAgentCount}
-              total={result.summary.count}
-            />
-          )}
+          {activeView === "referrers" && <NginxReferrersView result={result} />}
+          {activeView === "userAgents" && <NginxUserAgentsView result={result} />}
           <Diagnostics result={result} />
         </>
       )}
       <footer className="pb-6 pt-2 text-center text-[11px] text-slate-400">
-        Nginx combined access logs · Parses locally · Logs never leave this machine
+        Nginx combined access logs · Parsed locally · The Clients tab sends public client IPs to
+        country.is for location lookups
       </footer>
     </div>
   );

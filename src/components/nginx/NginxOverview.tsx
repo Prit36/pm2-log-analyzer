@@ -2,7 +2,9 @@ import { useMemo } from "react";
 import type { NginxHotspot, NginxLatency, NginxMetric, NginxResult } from "../../nginx/types";
 import { formatBytes, formatNum } from "../../utils/format";
 import { cn } from "../../utils/cn";
-import { copyNginxPath, getMethodClass } from "./NginxEndpointTable";
+import { filterNginxEndpoint, getMethodClass } from "./NginxEndpointTable";
+import { updateNginxFilters } from "./NginxFilterBar";
+import { useNginxStore } from "../../store/nginxStore";
 import { errorTone, latency, panelClass, panelTitleClass, percent } from "./nginxUi";
 
 type Kpi = {
@@ -11,7 +13,11 @@ type Kpi = {
   detail: string;
   valueTone?: string;
   title?: string;
+  onClick?: () => void;
+  active?: boolean;
 };
+
+const { setActiveView } = useNginxStore.getState();
 
 function timingKpi(label: string, time: NginxLatency, total: number, field: string): Kpi {
   if (time.count === 0) return { label, value: "—", detail: `${field} not logged` };
@@ -25,6 +31,7 @@ function timingKpi(label: string, time: NginxLatency, total: number, field: stri
 }
 
 export function NginxKpiRow({ result }: { result: NginxResult }) {
+  const errorsOnly = useNginxStore((state) => state.filters.statusFamily === "errors");
   const s = result.summary;
   const hours = result.hourlyStats;
   const peak = hours.reduce((max, bucket) => Math.max(max, bucket.count), 0);
@@ -50,7 +57,10 @@ export function NginxKpiRow({ result }: { result: NginxResult }) {
       value: percent(s.errorCount, s.count),
       detail: `${formatNum(s.errorCount)} errors · ${formatNum(serverErrors)} are 5xx`,
       valueTone: rateTone,
-      title: "4xx + 5xx responses",
+      title: errorsOnly ? "Show all responses" : "Show only 4xx + 5xx responses",
+      active: errorsOnly,
+      onClick: () =>
+        updateNginxFilters({ statusFamily: errorsOnly ? "all" : "errors", statusCode: 0 }),
     },
     ...(s.requestTime.count > 0
       ? [timingKpi("Request time p95", s.requestTime, s.count, "rt")]
@@ -73,6 +83,8 @@ export function NginxKpiRow({ result }: { result: NginxResult }) {
       label: "Unique clients",
       value: formatNum(s.uniqueClients),
       detail: topClient ? `top ${topClient.value} · ${percent(topClient.count, s.count)}` : "",
+      title: "Open the Clients tab",
+      onClick: () => setActiveView("clients"),
     },
   ];
   return (
@@ -87,30 +99,40 @@ export function NginxKpiRow({ result }: { result: NginxResult }) {
             : "sm:grid-cols-3 xl:grid-cols-6",
       )}
     >
-      {items.map((item) => (
-        <div
-          key={item.label}
-          title={item.title}
-          className="flex min-w-0 flex-col bg-white px-3 py-2.5 dark:bg-slate-900"
-        >
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            {item.label}
-          </div>
-          <div
+      {items.map((item) => {
+        const Tag = item.onClick ? "button" : "div";
+        return (
+          <Tag
+            key={item.label}
+            title={item.title}
+            {...(item.onClick
+              ? { type: "button" as const, onClick: item.onClick, "aria-pressed": item.active }
+              : {})}
             className={cn(
-              "mt-1 font-mono-data text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100",
-              item.valueTone,
+              "flex min-w-0 flex-col bg-white px-3 py-2.5 text-left dark:bg-slate-900",
+              item.onClick && "hover:bg-slate-50 dark:hover:bg-slate-800/70",
+              item.active && "bg-violet-50 dark:bg-violet-950/40",
             )}
           >
-            {item.value}
-          </div>
-          {item.detail && (
-            <div className="mt-0.5 truncate text-[10px] text-slate-500 dark:text-slate-400">
-              {item.detail}
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              {item.label}
             </div>
-          )}
-        </div>
-      ))}
+            <div
+              className={cn(
+                "mt-1 font-mono-data text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100",
+                item.valueTone,
+              )}
+            >
+              {item.value}
+            </div>
+            {item.detail && (
+              <div className="mt-0.5 truncate text-[10px] text-slate-500 dark:text-slate-400">
+                {item.detail}
+              </div>
+            )}
+          </Tag>
+        );
+      })}
     </section>
   );
 }
@@ -148,8 +170,8 @@ function HotspotRow({
         </span>
         <button
           type="button"
-          title={`Copy: ${row.path}`}
-          onClick={() => void copyNginxPath(row.path)}
+          title={`Filter the dashboard to ${row.path}`}
+          onClick={() => filterNginxEndpoint(row.path)}
           className="min-w-0 flex-1 truncate text-left font-mono-data text-[11px] text-slate-800 hover:text-violet-600 dark:text-slate-200 dark:hover:text-violet-400"
         >
           {row.path}
@@ -301,7 +323,7 @@ export function NginxLatencyProfile({ result }: { result: NginxResult }) {
           {rows.map(([label, request, upstream]) => (
             <div
               key={label}
-              className="grid grid-cols-[56px_1fr_1fr] items-center gap-x-4 border-t border-slate-100 py-1 text-xs dark:border-slate-800"
+              className="grid grid-cols-[56px_1fr_1fr] items-center gap-x-4 border-t border-slate-100 py-[3px] text-xs dark:border-slate-800"
             >
               <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
                 {label}

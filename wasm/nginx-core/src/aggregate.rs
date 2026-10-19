@@ -11,6 +11,8 @@ use crate::{Engine, Normalized, Row};
 pub struct Filters {
     pub normalize_mode: String,
     pub status_family: String,
+    /// Exact HTTP status; 0 matches every status.
+    pub status_code: u16,
     pub min_ms: f64,
     pub methods: Vec<String>,
     pub query: String,
@@ -26,6 +28,7 @@ impl Default for Filters {
         Self {
             normalize_mode: "collapseIds".into(),
             status_family: "all".into(),
+            status_code: 0,
             min_ms: 0.0,
             methods: Vec::new(),
             query: String::new(),
@@ -435,6 +438,8 @@ impl Engine {
             "3xx" => 3,
             "4xx" => 4,
             "5xx" => 5,
+            // 4xx + 5xx, the same responses counted as errors.
+            "errors" => 9,
             _ => 0,
         };
         let mut summary = Metrics::default();
@@ -452,7 +457,9 @@ impl Engine {
                 || !exact_client_matches
                 || !method_allowed[row.method as usize]
                 || !date_allowed[row.date as usize]
-                || (family != 0 && row.status / 100 != family)
+                || (family == 9 && row.status < 400)
+                || (family != 0 && family != 9 && row.status / 100 != family)
+                || (filters.status_code != 0 && row.status != filters.status_code)
             {
                 continue;
             }

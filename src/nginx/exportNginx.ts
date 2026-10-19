@@ -1,6 +1,8 @@
 import type ExcelJS from "exceljs";
 import { useNginxStore } from "../store/nginxStore";
 import type { NginxBreakdown, NginxLatency, NginxTimeBucket } from "./types";
+import { countryName, useIpInfoStore } from "./ipLookup";
+import { agentKindLabel, parseUserAgent } from "./userAgent";
 
 const { showToast } = useNginxStore.getState();
 const timeHeaders = [
@@ -131,9 +133,48 @@ export async function exportNginxSpreadsheet(): Promise<void> {
     addSheet(workbook, "Hourly", bucketHeaders, bucketRows(result.hourlyStats));
     addSheet(workbook, "Daily", bucketHeaders, bucketRows(result.dailyStats));
     const headers = ["Value", "Requests", "Errors", "Body bytes"];
-    addSheet(workbook, "Clients", headers, breakdownRows(result.clients));
+    // Locations already resolved on the Clients tab; export never starts new lookups.
+    const { infos } = useIpInfoStore.getState();
+    addSheet(
+      workbook,
+      "Clients",
+      ["Client IP", "Country", "Network", "ASN", "Requests", "Errors", "Body bytes"],
+      result.clients.map((row) => {
+        const info = infos[row.value];
+        const network = info?.kind === "public" ? info : null;
+        return [
+          row.value,
+          info?.kind === "private"
+            ? "Private network"
+            : network?.country
+              ? countryName(network.country)
+              : "",
+          network?.org ?? "",
+          network?.asn ?? null,
+          row.count,
+          row.errorCount,
+          row.bodyBytes,
+        ];
+      }),
+    );
     addSheet(workbook, "Referrers", headers, breakdownRows(result.referrers));
-    addSheet(workbook, "User agents", headers, breakdownRows(result.userAgents));
+    addSheet(
+      workbook,
+      "User agents",
+      ["User agent", "Type", "Client", "OS", "Requests", "Errors", "Body bytes"],
+      result.userAgents.map((row) => {
+        const agent = parseUserAgent(row.value);
+        return [
+          row.value,
+          agentKindLabel[agent.kind],
+          agent.name,
+          agent.os ?? "",
+          row.count,
+          row.errorCount,
+          row.bodyBytes,
+        ];
+      }),
+    );
     addSheet(
       workbook,
       "Status codes",

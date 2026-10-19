@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Copy } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Filter } from "lucide-react";
 import { List, type RowComponentProps } from "react-window";
 import { useShallow } from "zustand/react/shallow";
 import { useNginxStore } from "../../store/nginxStore";
@@ -61,6 +61,15 @@ export async function copyNginxPath(path: string): Promise<void> {
   }
 }
 
+/** Narrows every report to one endpoint, keeping any exact client (`ip:`) filter. */
+export function filterNginxEndpoint(path: string): void {
+  const clients = useNginxStore
+    .getState()
+    .filters.query.split(/\s+/)
+    .filter((part) => part.toLowerCase().startsWith("ip:"));
+  updateNginxFilters({ query: [...clients, path].join(" ") });
+}
+
 export function sortNginxEndpoints(sortKey: NginxSortKey): void {
   const filters = useNginxStore.getState().filters;
   updateNginxFilters({
@@ -90,7 +99,7 @@ function EndpointRow({
     <div
       role="row"
       style={style}
-      className={`${endpointGrid(timed)} border-b border-slate-100 text-xs tabular-nums text-slate-700 hover:bg-violet-50/40 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-violet-950/20`}
+      className={`${endpointGrid(timed)} group/row border-b border-slate-100 text-xs tabular-nums text-slate-700 hover:bg-violet-50/40 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-violet-950/20`}
     >
       <div role="cell" className="flex min-w-0 items-center gap-2">
         <span
@@ -103,13 +112,32 @@ function EndpointRow({
         </span>
         <button
           type="button"
-          title={`Copy: ${row.path}`}
-          onClick={() => void copyNginxPath(row.path)}
-          className="group flex min-w-0 items-center gap-1.5 text-left font-mono-data text-[11px] text-slate-800 hover:text-violet-600 dark:text-slate-200 dark:hover:text-violet-400"
+          title={`Filter the dashboard to ${row.path}`}
+          onClick={() => filterNginxEndpoint(row.path)}
+          className="min-w-0 truncate text-left font-mono-data text-[11px] text-slate-800 hover:text-violet-600 hover:underline dark:text-slate-200 dark:hover:text-violet-400"
         >
-          <span className="truncate">{row.path}</span>
-          <Copy className="size-3 shrink-0 opacity-0 group-hover:opacity-100" aria-hidden />
+          {row.path}
         </button>
+        <span className="flex shrink-0 items-center opacity-0 group-hover/row:opacity-100 focus-within:opacity-100">
+          <button
+            type="button"
+            title="Filter to this endpoint"
+            aria-label={`Filter to ${row.path}`}
+            onClick={() => filterNginxEndpoint(row.path)}
+            className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-violet-700 dark:hover:bg-slate-800 dark:hover:text-violet-300"
+          >
+            <Filter className="size-3" aria-hidden />
+          </button>
+          <button
+            type="button"
+            title="Copy path"
+            aria-label={`Copy ${row.path}`}
+            onClick={() => void copyNginxPath(row.path)}
+            className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-violet-700 dark:hover:bg-slate-800 dark:hover:text-violet-300"
+          >
+            <Copy className="size-3" aria-hidden />
+          </button>
+        </span>
       </div>
       <div role="cell" className="flex items-center justify-end gap-2">
         <span className="h-1.5 w-10 shrink-0 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">

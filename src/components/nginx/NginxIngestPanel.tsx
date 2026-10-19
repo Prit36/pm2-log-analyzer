@@ -146,7 +146,7 @@ export function NginxIngestPanel() {
         onDrop={onDrop}
         className={cn(
           "rounded-lg",
-          hasData ? "flex flex-wrap items-center justify-between gap-2 px-3 py-2" : "px-4 py-12",
+          hasData ? "flex flex-wrap items-center justify-between gap-2 px-3 py-2" : "px-4 py-10",
           dragOver && "bg-violet-50 dark:bg-violet-950/30",
         )}
       >
@@ -278,6 +278,12 @@ export function NginxIngestPanel() {
             {pasteOpen ? "Close paste" : "Paste logs"}
           </button>
         </div>
+        {!hasData && (
+          <p className="mt-3 text-center font-mono-data text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
+            Example: 203.0.113.7 - - [13/Oct/2026:12:33:59 +0400] "GET /api/health HTTP/1.1" 200 42
+            "-" "curl/8.5" rt=0.012
+          </p>
+        )}
         {isParsing && (
           <div className={cn("flex items-center gap-3", hasData ? "w-full" : "mt-4")} role="status">
             <div className="h-1.5 flex-1 overflow-hidden rounded bg-slate-100 dark:bg-slate-800">

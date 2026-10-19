@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import { DEFAULT_NGINX_FILTERS } from "../nginx/types";
 import type { NginxFilters, NginxResult, NginxView } from "../nginx/types";
 import type { ParseProgress, SourceKind } from "./analysisStore";
+import { resolveIps } from "../nginx/ipLookup";
 
 export type NginxSource = { name: string; size: number };
 
@@ -79,8 +80,11 @@ export const useNginxStore = create<NginxStoreState>()(
       setWorkerReady: (ready) => set({ isWorkerReady: ready }),
       setParsing: (parsing) => set({ isParsing: parsing }),
       setProgress: (progress) => set({ progress }),
-      setResult: (result) =>
-        set({ result, hasData: result !== null && result.diagnostics.totalLines > 0 }),
+      setResult: (result) => {
+        set({ result, hasData: result !== null && result.diagnostics.totalLines > 0 });
+        if (result && get().activeView === "clients")
+          void resolveIps(result.clients.map((row) => row.value));
+      },
       setError: (error) => set({ error }),
       setSourceFile: (name, size) => set(sourceState([{ name, size }])),
       setSourceFiles: (sources) => set(sourceState(sources)),
@@ -109,7 +113,11 @@ export const useNginxStore = create<NginxStoreState>()(
         }),
       setFilters: (patch) => set({ filters: { ...get().filters, ...patch } }),
       resetFilters: () => set({ filters: { ...DEFAULT_NGINX_FILTERS } }),
-      setActiveView: (activeView) => set({ activeView }),
+      setActiveView: (activeView) => {
+        set({ activeView });
+        const clients = get().result?.clients;
+        if (activeView === "clients" && clients) void resolveIps(clients.map((row) => row.value));
+      },
       setPasteOpen: (pasteOpen) => set({ pasteOpen }),
       showToast: (toast) => {
         if (toastTimer) clearTimeout(toastTimer);
@@ -137,6 +145,16 @@ export const useNginxStore = create<NginxStoreState>()(
     }),
     {
       name: "nginx-analyzer-filters",
+      // Filters saved before a field existed keep working with its default.
+      merge: (persisted, current) => {
+        // SAFETY: persisted state was written by partialize below.
+        const saved = (persisted ?? {}) as Partial<Pick<NginxStoreState, "filters" | "activeView">>;
+        return {
+          ...current,
+          ...saved,
+          filters: { ...DEFAULT_NGINX_FILTERS, ...saved.filters },
+        };
+      },
       partialize: (state) => ({ filters: state.filters, activeView: state.activeView }),
     },
   ),

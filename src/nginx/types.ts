@@ -1,6 +1,8 @@
 import type { NormalizeMode, StatusFamily } from "../parser";
 
 export type NginxMetric = "request" | "upstream";
+/** Status families plus "errors" (4xx + 5xx). */
+export type NginxStatusFamily = StatusFamily | "errors";
 export type NginxView = "endpoints" | "traffic" | "clients" | "referrers" | "userAgents";
 export type NginxSortKey =
   | "count"
@@ -14,7 +16,9 @@ export type NginxSortKey =
 
 export type NginxFilters = {
   normalizeMode: NormalizeMode;
-  statusFamily: StatusFamily;
+  statusFamily: NginxStatusFamily;
+  /** Exact HTTP status; 0 matches every status. */
+  statusCode: number;
   minMs: number;
   methods: string[];
   query: string;
@@ -111,6 +115,7 @@ export type NginxResult = {
 export const DEFAULT_NGINX_FILTERS: NginxFilters = {
   normalizeMode: "collapseIds",
   statusFamily: "all",
+  statusCode: 0,
   minMs: 0,
   methods: [],
   query: "",
