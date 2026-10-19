@@ -17,7 +17,15 @@ All HTTP methods are counted. The errors metric includes 4xx and 5xx responses. 
 
 Path normalization matches PM2's existing Exact / Strip query / Collapse IDs modes. Filters affect every report aggregate. A positive minimum-duration threshold excludes requests lacking the selected metric; the default zero threshold retains untimed requests. Percentiles use nearest-rank selection over logarithmic buckets with approximately 1% relative accuracy, including valid zero measurements. With two measured times of 0 and 845 ms, p95 selects the positive sample's bucket rather than zero.
 
-Endpoint results are sorted globally before Top N is applied. The overview's "Slowest endpoints" (p95 of the selected timing, endpoints with at least 10 timed requests) and "Most errors" lists are ranked over all endpoint groups in the core, independent of the table sort and Top N. Clients, referrers, and user agents show the exact top 100 by requests, plus total distinct counts. Their logged values are retained without user-agent classification or referrer rewriting. Spreadsheet export includes the displayed report, both timing metrics, coverage, and filter metadata; it does not export every raw request.
+Endpoint results are sorted globally before Top N is applied. The overview's "Slowest endpoints" (p95 of the selected timing, endpoints with timed requests) and "Most errors" lists are ranked over all endpoint groups in the core, independent of the table sort and Top N. Clients, referrers, and user agents show the exact top 100 by requests, plus total distinct counts. Their logged values are retained without user-agent classification or referrer rewriting. Spreadsheet export includes the displayed report, both timing metrics, coverage, and filter metadata; it does not export every raw request.
+
+## Dashboard and client search
+
+The Endpoints tab opens with the endpoint table. Standard logs without timings show only request count, error rate, bandwidth, and unique clients; unavailable latency KPIs, columns, sorting presets, and empty timing cards are hidden. Request volume and the core-ranked error endpoints sit alongside the table on wide screens. Detailed status codes, bandwidth, and available latency charts/profile live in Traffic. Clients, referrers, and user agents remain accessible in their own tabs.
+
+Search matches endpoint paths or logged client addresses, case-insensitively. An IP address or `ip:217.165.49.189` selects a client; `217.165.49.189 /api/admin` combines that client with path search. Clicking a client switches to its endpoint report while retaining the path search and other filters. IP filtering applies to every aggregate, including KPIs, traffic, rankings, and export. Ordinary IP search uses substring matching; use `ip:` for exact addresses.
+
+The Clients tab estimates countries locally using bundled IPv4 and IPv6 range tables from the PDDL-licensed ip-location-db user-country dataset. The data is loaded only when Clients opens, with no external API calls or transmission of client IPs. Private/reserved addresses are labelled separately and missing ranges are Unknown; countries are estimates, not proof of a client's physical location. Snapshot provenance and refresh instructions live in `src/nginx/data/README.md`.
 
 ## Execution and memory
 

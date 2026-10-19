@@ -94,7 +94,7 @@ function ViewTabs() {
     })),
   );
   const views: { value: NginxView; label: string; count?: number }[] = [
-    { value: "endpoints", label: "Overview", count: endpointCount },
+    { value: "endpoints", label: "Endpoints", count: endpointCount },
     { value: "traffic", label: "Traffic" },
     { value: "clients", label: "Clients", count: clientCount },
     { value: "referrers", label: "Referrers", count: referrerCount },
@@ -115,7 +115,7 @@ function ViewTabs() {
             aria-current={active ? "page" : undefined}
             onClick={() => setActiveView(view.value)}
             className={cn(
-              "flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-semibold",
+              "flex shrink-0 items-center gap-1.5 px-3 py-2 text-xs font-semibold",
               active
                 ? "text-violet-700 shadow-[inset_0_-2px_0_var(--color-violet-600)] dark:text-violet-300 dark:shadow-[inset_0_-2px_0_var(--color-violet-400)]"
                 : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
@@ -142,16 +142,20 @@ function ViewTabs() {
 }
 
 export function NginxFilterBar() {
-  const { filters, dates, methods, isParsing } = useNginxStore(
+  const { filters, dates, methods, isParsing, requestTimed, upstreamTimed } = useNginxStore(
     useShallow((s) => ({
       filters: s.filters,
       dates: s.result?.dates,
       methods: s.result?.methods,
       isParsing: s.isParsing,
+      requestTimed: s.result?.summary.requestTime.count ?? 0,
+      upstreamTimed: s.result?.summary.upstreamTime.count ?? 0,
     })),
   );
   const extraCount = countMoreFilters(filters);
   const [expanded, setExpanded] = useState(extraCount > 0);
+  const hasTiming =
+    requestTimed > 0 || upstreamTimed > 0 || filters.minMs > 0 || filters.metric !== "request";
   const changed =
     extraCount > 0 ||
     filters.query !== "" ||
@@ -168,10 +172,10 @@ export function NginxFilterBar() {
       <ViewTabs />
       <fieldset
         disabled={isParsing}
-        className="flex flex-wrap items-center gap-2 px-3 py-2.5 disabled:opacity-50"
+        className="flex flex-wrap items-center gap-2 px-3 py-2 disabled:opacity-50"
       >
         <label className="relative min-w-[14rem] flex-1">
-          <span className="sr-only">Path search</span>
+          <span className="sr-only">Search paths or client IPs</span>
           <Search
             className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-slate-400"
             aria-hidden
@@ -180,7 +184,8 @@ export function NginxFilterBar() {
             type="search"
             data-testid="nginx-filter-search"
             className={cn(fieldClass, "w-full pl-8")}
-            placeholder="Search endpoint paths…"
+            placeholder="Search paths or client IPs…"
+            title="Search a path or IP. Use ip:ADDRESS /path to combine an exact client with a path."
             value={filters.query}
             onChange={(event) => updateNginxFilters({ query: event.target.value })}
           />
@@ -195,16 +200,18 @@ export function NginxFilterBar() {
           }))}
           onChange={(statusFamily) => updateNginxFilters({ statusFamily })}
         />
-        <Segmented
-          label="Timing metric"
-          testId="nginx-filter-metric"
-          value={filters.metric}
-          options={[
-            { value: "request", label: "Request time" },
-            { value: "upstream", label: "Upstream time" },
-          ]}
-          onChange={(metric) => updateNginxFilters({ metric })}
-        />
+        {hasTiming && (
+          <Segmented
+            label="Timing metric"
+            testId="nginx-filter-metric"
+            value={filters.metric}
+            options={[
+              { value: "request", label: "Request time" },
+              { value: "upstream", label: "Upstream time" },
+            ]}
+            onChange={(metric) => updateNginxFilters({ metric })}
+          />
+        )}
         <button
           type="button"
           data-testid="nginx-more-filters"
@@ -257,18 +264,20 @@ export function NginxFilterBar() {
               <option value="exact">Exact path</option>
             </select>
           </Field>
-          <Field label="Slower than (ms)">
-            <input
-              data-testid="nginx-filter-min-ms"
-              className={fieldClass + " w-24"}
-              type="number"
-              min={0}
-              value={filters.minMs}
-              onChange={(event) =>
-                updateNginxFilters({ minMs: Math.max(0, Number(event.target.value) || 0) })
-              }
-            />
-          </Field>
+          {hasTiming && (
+            <Field label="Slower than (ms)">
+              <input
+                data-testid="nginx-filter-min-ms"
+                className={fieldClass + " w-24"}
+                type="number"
+                min={0}
+                value={filters.minMs}
+                onChange={(event) =>
+                  updateNginxFilters({ minMs: Math.max(0, Number(event.target.value) || 0) })
+                }
+              />
+            </Field>
+          )}
           {dates && (dates.length > 1 || filters.dateFilter !== "all") && (
             <Field label="Day · log-local time">
               <select

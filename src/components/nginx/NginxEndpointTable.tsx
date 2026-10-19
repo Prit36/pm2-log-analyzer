@@ -6,11 +6,33 @@ import type { NginxEndpoint, NginxMetric, NginxResult, NginxSortKey } from "../.
 import { formatBytes, formatNum } from "../../utils/format";
 import { cn } from "../../utils/cn";
 import { updateNginxFilters } from "./NginxFilterBar";
-import { errorTone, latency, mutedClass, panelClass, panelTitleClass, percent } from "./nginxUi";
+import { errorTone, latency, panelClass, percent } from "./nginxUi";
 
 const { showToast } = useNginxStore.getState();
-const endpointGrid =
-  "grid grid-cols-[minmax(280px,1fr)_110px_110px_72px_72px_72px_72px_84px_64px] items-center gap-2 px-3";
+export function getMethodClass(method: string): string {
+  switch (method) {
+    case "GET":
+      return "bg-sky-50 text-sky-700 ring-sky-200 dark:border dark:border-sky-600/60 dark:bg-[#062238] dark:text-[#38bdf8]";
+    case "POST":
+      return "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:border dark:border-emerald-600/60 dark:bg-[#06261c] dark:text-[#34d399]";
+    case "PUT":
+    case "PATCH":
+      return "bg-amber-50 text-amber-700 ring-amber-200 dark:border dark:border-amber-600/60 dark:bg-[#381a06] dark:text-[#fbbf24]";
+    case "DELETE":
+      return "bg-rose-50 text-rose-700 ring-rose-200 dark:border dark:border-rose-600/60 dark:bg-[#3d0818] dark:text-[#fb7185]";
+    default:
+      return "bg-slate-50 text-slate-600 ring-slate-200 dark:border dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-400";
+  }
+}
+
+function endpointGrid(timed: boolean): string {
+  return cn(
+    "grid items-center gap-2 px-3",
+    timed
+      ? "grid-cols-[minmax(280px,1fr)_110px_110px_72px_72px_72px_72px_84px_64px]"
+      : "grid-cols-[minmax(280px,1fr)_110px_110px_100px]",
+  );
+}
 const columns: { label: string; key: NginxSortKey | null; title?: string }[] = [
   { label: "Endpoint", key: "path" },
   { label: "Requests", key: "count" },
@@ -47,13 +69,19 @@ export function sortNginxEndpoints(sortKey: NginxSortKey): void {
   });
 }
 
-type EndpointRowProps = { rows: NginxEndpoint[]; metric: NginxMetric; maxCount: number };
+type EndpointRowProps = {
+  rows: NginxEndpoint[];
+  metric: NginxMetric;
+  maxCount: number;
+  timed: boolean;
+};
 function EndpointRow({
   index,
   style,
   rows,
   metric,
   maxCount,
+  timed,
 }: RowComponentProps<EndpointRowProps>) {
   const row = rows[index];
   if (!row) return null;
@@ -62,10 +90,15 @@ function EndpointRow({
     <div
       role="row"
       style={style}
-      className={`${endpointGrid} border-b border-slate-100 text-xs tabular-nums text-slate-700 hover:bg-violet-50/40 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-violet-950/20`}
+      className={`${endpointGrid(timed)} border-b border-slate-100 text-xs tabular-nums text-slate-700 hover:bg-violet-50/40 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-violet-950/20`}
     >
       <div role="cell" className="flex min-w-0 items-center gap-2">
-        <span className="w-12 shrink-0 rounded bg-slate-100 py-0.5 text-center text-[10px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+        <span
+          className={cn(
+            "inline-block w-11 shrink-0 rounded py-0.5 text-center text-[10px] font-bold uppercase tracking-wide ring-1 dark:ring-0",
+            getMethodClass(row.method),
+          )}
+        >
           {row.method}
         </span>
         <button
@@ -99,28 +132,37 @@ function EndpointRow({
           </>
         )}
       </div>
-      <div role="cell" className="text-right">
-        {latency(time.avgMs)}
-      </div>
-      <div role="cell" className="text-right font-semibold text-violet-700 dark:text-violet-300">
-        {latency(time.p95Ms)}
-      </div>
-      <div role="cell" className="text-right">
-        {latency(time.p99Ms)}
-      </div>
-      <div role="cell" className="text-right">
-        {latency(time.maxMs)}
-      </div>
+      {timed && (
+        <>
+          <div role="cell" className="text-right">
+            {latency(time.avgMs)}
+          </div>
+          <div
+            role="cell"
+            className="text-right font-semibold text-violet-700 dark:text-violet-300"
+          >
+            {latency(time.p95Ms)}
+          </div>
+          <div role="cell" className="text-right">
+            {latency(time.p99Ms)}
+          </div>
+          <div role="cell" className="text-right">
+            {latency(time.maxMs)}
+          </div>
+        </>
+      )}
       <div role="cell" className="text-right text-slate-500 dark:text-slate-400">
         {formatBytes(row.bodyBytes)}
       </div>
-      <div
-        role="cell"
-        className="text-right text-slate-400 dark:text-slate-500"
-        title={`${formatNum(time.count)} / ${formatNum(row.count)} timed`}
-      >
-        {time.count === row.count ? "100%" : percent(time.count, row.count)}
-      </div>
+      {timed && (
+        <div
+          role="cell"
+          className="text-right text-slate-400 dark:text-slate-500"
+          title={`${formatNum(time.count)} / ${formatNum(row.count)} timed`}
+        >
+          {time.count === row.count ? "100%" : percent(time.count, row.count)}
+        </div>
+      )}
     </div>
   );
 }
@@ -140,47 +182,59 @@ export function NginxEndpointTable({
       isParsing: s.isParsing,
     })),
   );
+  const timed =
+    (metric === "request" ? result.summary.requestTime : result.summary.upstreamTime).count > 0;
+  const visibleColumns = timed
+    ? columns
+    : columns.filter(
+        (column) =>
+          column.key === "path" ||
+          column.key === "count" ||
+          column.key === "errorCount" ||
+          column.key === "bodyBytes",
+      );
   return (
     <section className={panelClass}>
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <div>
-          <h2 className={panelTitleClass}>
-            Endpoints{" "}
-            <span className="ml-1 text-xs font-normal text-slate-500">
-              top {formatNum(result.endpoints.length)} of {formatNum(result.endpointCount)}
-            </span>
-          </h2>
-          <p className={cn(mutedClass, "mt-0.5")}>
-            Latency = {metric === "request" ? "request time (rt)" : "total upstream time (urt)"} ·
-            click a path to copy
-          </p>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+          Endpoints{" "}
+          <span className="font-normal text-slate-400">
+            ({formatNum(result.endpoints.length)}
+            {result.endpointCount > result.endpoints.length
+              ? ` / ${formatNum(result.endpointCount)}`
+              : ""}
+            )
+          </span>
+        </h2>
         <fieldset
           disabled={isParsing}
           className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 disabled:opacity-50 dark:text-slate-400"
         >
           <div role="group" aria-label="Sort endpoints" className="flex flex-wrap gap-1">
-            {presets.map((preset) => (
-              <button
-                key={preset.key}
-                type="button"
-                aria-pressed={sortKey === preset.key}
-                onClick={() => updateNginxFilters({ sortKey: preset.key, sortDir: "desc" })}
-                className={cn(
-                  "rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 ring-slate-200 hover:bg-slate-50 dark:ring-slate-700 dark:hover:bg-slate-800",
-                  sortKey === preset.key &&
-                    "bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/60 dark:text-violet-300 dark:ring-violet-800",
-                )}
-              >
-                {preset.label}
-              </button>
-            ))}
+            {presets
+              .filter((preset) => timed || preset.key !== "p95Ms")
+              .map((preset) => (
+                <button
+                  key={preset.key}
+                  type="button"
+                  aria-pressed={sortKey === preset.key}
+                  onClick={() => updateNginxFilters({ sortKey: preset.key, sortDir: "desc" })}
+                  className={cn(
+                    "rounded px-2 py-0.5 text-[10px] font-medium transition-colors",
+                    sortKey === preset.key
+                      ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+                      : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800",
+                  )}
+                >
+                  {preset.label}
+                </button>
+              ))}
           </div>
-          <label className="flex items-center gap-1.5">
+          <label className="flex items-center gap-1">
             Show
             <select
               aria-label="Endpoint row limit"
-              className="rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+              className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
               value={topN}
               onChange={(event) => updateNginxFilters({ topN: Number(event.target.value) })}
             >
@@ -194,12 +248,12 @@ export function NginxEndpointTable({
         </fieldset>
       </div>
       <div className="overflow-x-auto" role="table" aria-label="Nginx endpoints">
-        <div className="min-w-[1000px]">
+        <div className={timed ? "min-w-[1000px]" : "min-w-[640px]"}>
           <div
             role="row"
-            className={`${endpointGrid} h-9 border-y border-slate-200 bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-400`}
+            className={`${endpointGrid(timed)} h-8 border-b border-slate-200 bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-400`}
           >
-            {columns.map((column, index) =>
+            {visibleColumns.map((column, index) =>
               column.key ? (
                 <button
                   role="columnheader"
@@ -239,12 +293,13 @@ export function NginxEndpointTable({
               rowProps={{
                 rows: result.endpoints,
                 metric,
+                timed,
                 maxCount: result.endpoints.reduce((max, row) => Math.max(max, row.count), 0),
               }}
               rowCount={result.endpoints.length}
-              rowHeight={40}
+              rowHeight={32}
               overscanCount={8}
-              style={{ height: Math.min(560, result.endpoints.length * 40) }}
+              style={{ height: Math.min(512, result.endpoints.length * 32) }}
             />
           )}
         </div>

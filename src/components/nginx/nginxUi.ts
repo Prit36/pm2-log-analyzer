@@ -2,7 +2,8 @@ import { formatMs } from "../../utils/format";
 
 export const panelClass =
   "overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900";
-export const panelTitleClass = "text-sm font-semibold text-slate-800 dark:text-slate-100";
+export const panelTitleClass =
+  "text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300";
 export const mutedClass = "text-[11px] text-slate-500 dark:text-slate-400";
 
 const compactFormat = new Intl.NumberFormat(undefined, {

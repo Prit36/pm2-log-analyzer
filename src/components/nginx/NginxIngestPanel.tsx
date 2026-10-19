@@ -16,9 +16,9 @@ import { cn } from "../../utils/cn";
 
 const { setPasteOpen, showToast, setError } = useNginxStore.getState();
 const buttonClass =
-  "inline-flex items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700";
+  "inline-flex items-center justify-center gap-1.5 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700";
 const primaryClass =
-  "inline-flex items-center justify-center gap-1.5 rounded bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-40";
+  "inline-flex items-center justify-center gap-1.5 rounded bg-violet-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-40";
 type UploadMode = "replace" | "append";
 
 function reportUploadError(error: Error | string) {
@@ -50,16 +50,17 @@ async function pickNginxNative(mode: UploadMode, folder: boolean): Promise<void>
 }
 
 export async function analyzeNginxPaste(text: string): Promise<void> {
-  if (!text.trim()) {
+  const raw = String(text ?? "");
+  if (!raw.trim()) {
     showToast("Paste some Nginx access log lines first");
     return;
   }
-  if (new Blob([text]).size > 8 * 1024 * 1024) {
+  if (new Blob([raw]).size > 8 * 1024 * 1024) {
     showToast("For more than 8 MiB, save the logs as a file and upload it");
     return;
   }
   try {
-    await parseNginxText(text);
+    await parseNginxText(raw);
   } catch (error) {
     reportUploadError(error instanceof Error ? error : String(error));
   }
@@ -145,7 +146,7 @@ export function NginxIngestPanel() {
         onDrop={onDrop}
         className={cn(
           "rounded-lg",
-          hasData ? "flex flex-wrap items-center gap-3 px-4 py-2.5" : "px-4 py-12",
+          hasData ? "flex flex-wrap items-center justify-between gap-2 px-3 py-2" : "px-4 py-12",
           dragOver && "bg-violet-50 dark:bg-violet-950/30",
         )}
       >
@@ -163,25 +164,37 @@ export function NginxIngestPanel() {
           </div>
         )}
         {hasData && (
-          <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            <FileText className="size-4 shrink-0 text-violet-500" aria-hidden />
-            <div className="min-w-0">
-              <p
-                className="truncate text-xs font-medium text-slate-700 dark:text-slate-200"
-                title={fileNames.join("\n")}
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+            <FileText className="size-3.5 shrink-0 text-violet-500" aria-hidden />
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              {sourceKind === "paste"
+                ? "Pasted logs:"
+                : `${fileNames.length} file${fileNames.length > 1 ? "s" : ""}:`}
+            </span>
+            {fileNames.slice(0, 4).map((name) => (
+              <span
+                key={name}
+                className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 font-mono-data text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                title={name}
               >
-                {sourceKind === "paste"
-                  ? "Pasted log lines"
-                  : fileNames.length === 1
-                    ? fileNames[0]
-                    : `${formatNum(fileNames.length)} files · ${fileNames.slice(0, 3).join(", ")}${fileNames.length > 3 ? ", …" : ""}`}
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                {fileSize != null && `${formatBytes(fileSize)} · `}
-                {requestCount != null && `${formatNum(requestCount)} requests · `}
-                drop more files here to add or replace
-              </p>
-            </div>
+                <span className="max-w-[150px] truncate">{name}</span>
+              </span>
+            ))}
+            {fileNames.length > 4 && (
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                +{fileNames.length - 4} more
+              </span>
+            )}
+            {fileSize != null && (
+              <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                ({formatBytes(fileSize)})
+              </span>
+            )}
+            {requestCount != null && (
+              <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                · {formatNum(requestCount)} requests
+              </span>
+            )}
           </div>
         )}
         <div

@@ -21,6 +21,7 @@ import type { StatusFamily } from "../../parser";
 import { formatBytes, formatNum } from "../../utils/format";
 import { cn } from "../../utils/cn";
 import { updateNginxFilters } from "./NginxFilterBar";
+import { NginxLatencyProfile } from "./NginxOverview";
 import {
   bucketLabelFormatter,
   compactBytes,
@@ -116,7 +117,7 @@ function useBuckets(result: NginxResult) {
 export function NginxTimelineChart({
   result,
   metric,
-  height = 240,
+  height = 220,
   shared,
 }: {
   result: NginxResult;
@@ -140,18 +141,12 @@ export function NginxTimelineChart({
     [buckets, metric],
   );
   return (
-    <section className={cn(panelClass, "px-4 py-3")}>
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className={panelTitleClass}>Requests over time</h2>
-          <p className={cn(mutedClass, "mt-0.5")}>
-            Log-local time · bars = requests (4xx/5xx in red)
-            {measured > 0 && " · line = p95 latency"}
-          </p>
-        </div>
+    <section className={panelClass}>
+      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+        <h2 className={panelTitleClass}>Requests over time</h2>
         {toggle}
       </div>
-      <div style={{ height }}>
+      <div className="p-3" style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
             <CartesianGrid stroke={theme.grid} strokeDasharray="3 3" vertical={false} />
@@ -243,83 +238,90 @@ export function NginxStatusCard({ result }: { result: NginxResult }) {
     [result.statusCounts],
   );
   return (
-    <section className={cn(panelClass, "flex flex-col px-4 py-3")}>
-      <h2 className={panelTitleClass}>Status codes</h2>
-      <p className={cn(mutedClass, "mt-0.5")}>Click a class to filter the whole report</p>
-      <div className="mt-3 flex h-2.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-        {families.map(([tone, count]) => (
-          <span
-            key={tone}
-            title={`${toneLabel[tone]}: ${formatNum(count)}`}
-            style={{ width: `${(count * 100) / Math.max(1, total)}%`, background: toneColor[tone] }}
-          />
-        ))}
+    <section className={cn(panelClass, "flex flex-col")}>
+      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+        <h2 className={panelTitleClass}>Status codes</h2>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-1.5">
-        {families.map(([tone, count]) => {
-          const family = familyOf[tone];
-          const active = statusFamily === family && family !== "all";
-          return (
-            <button
-              key={tone}
-              type="button"
-              disabled={isParsing || family === "all"}
-              aria-pressed={active}
-              onClick={() => updateNginxFilters({ statusFamily: active ? "all" : family })}
-              className={cn(
-                "flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] ring-1 ring-transparent hover:bg-slate-50 dark:hover:bg-slate-800",
-                active && "bg-violet-50 ring-violet-200 dark:bg-violet-950/40 dark:ring-violet-800",
-              )}
-            >
-              <span
-                className="size-2 shrink-0 rounded-full"
-                style={{ background: toneColor[tone] }}
-              />
-              <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300">
-                {toneLabel[tone]}
-              </span>
-              <span className="font-semibold tabular-nums text-slate-800 dark:text-slate-100">
-                {percent(count, total)}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <ul className="mt-3 flex flex-col divide-y divide-slate-100 border-t border-slate-100 text-xs dark:divide-slate-800 dark:border-slate-800">
-        {codes.slice(0, 8).map((row) => (
-          <li key={row.status} className="flex items-center gap-2 py-1.5 tabular-nums">
+      <div className="p-3">
+        <div className="flex h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+          {families.map(([tone, count]) => (
             <span
-              className="w-10 rounded py-0.5 text-center text-[11px] font-semibold text-white"
-              style={{ background: toneColor[statusTone(row.status)] }}
-            >
-              {row.status}
-            </span>
-            <span className="flex-1 text-right text-slate-700 dark:text-slate-200">
-              {formatNum(row.count)}
-            </span>
-            <span className="w-12 text-right text-[11px] text-slate-500">
-              {percent(row.count, total)}
-            </span>
-          </li>
-        ))}
-      </ul>
-      {codes.length > 8 && (
-        <p className={cn(mutedClass, "mt-1")}>+{codes.length - 8} more codes in the export</p>
-      )}
+              key={tone}
+              title={`${toneLabel[tone]}: ${formatNum(count)}`}
+              style={{
+                width: `${(count * 100) / Math.max(1, total)}%`,
+                background: toneColor[tone],
+              }}
+            />
+          ))}
+        </div>
+        <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+          {families.map(([tone, count]) => {
+            const family = familyOf[tone];
+            const active = statusFamily === family && family !== "all";
+            return (
+              <button
+                key={tone}
+                type="button"
+                disabled={isParsing || family === "all"}
+                aria-pressed={active}
+                onClick={() => updateNginxFilters({ statusFamily: active ? "all" : family })}
+                className={cn(
+                  "flex items-center gap-2 rounded-md px-2 py-1 text-left text-[11px] ring-1 ring-transparent hover:bg-slate-50 dark:hover:bg-slate-800",
+                  active &&
+                    "bg-violet-50 ring-violet-200 dark:bg-violet-950/40 dark:ring-violet-800",
+                )}
+              >
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ background: toneColor[tone] }}
+                />
+                <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300">
+                  {toneLabel[tone]}
+                </span>
+                <span className="font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                  {percent(count, total)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <ul className="mt-2.5 flex flex-col divide-y divide-slate-100 border-t border-slate-100 text-xs dark:divide-slate-800 dark:border-slate-800">
+          {codes.slice(0, 8).map((row) => (
+            <li key={row.status} className="flex items-center gap-2 py-1 tabular-nums">
+              <span
+                className="w-9 rounded py-0.5 text-center text-[10px] font-semibold text-white"
+                style={{ background: toneColor[statusTone(row.status)] }}
+              >
+                {row.status}
+              </span>
+              <span className="flex-1 text-right text-slate-700 dark:text-slate-200">
+                {formatNum(row.count)}
+              </span>
+              <span className="w-12 text-right text-[11px] text-slate-500">
+                {percent(row.count, total)}
+              </span>
+            </li>
+          ))}
+        </ul>
+        {codes.length > 8 && (
+          <p className={cn(mutedClass, "mt-1")}>+{codes.length - 8} more codes in the export</p>
+        )}
+      </div>
     </section>
   );
 }
 
 function Highlight({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className={cn(panelClass, "px-4 py-3")}>
+    <div className={cn(panelClass, "px-3 py-2.5")}>
       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {label}
       </div>
-      <div className="mt-1 font-mono-data text-base font-semibold text-slate-900 dark:text-slate-100">
+      <div className="mt-0.5 font-mono-data text-base font-semibold text-slate-900 dark:text-slate-100">
         {value}
       </div>
-      <div className={cn(mutedClass, "mt-0.5")}>{detail}</div>
+      <div className="mt-0.5 truncate text-[10px] text-slate-500 dark:text-slate-400">{detail}</div>
     </div>
   );
 }
@@ -372,8 +374,8 @@ export function NginxTrafficView({ result, metric }: { result: NginxResult; metr
   }
   const { busiest, slowest, worstErrors } = highlights;
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid gap-3 sm:grid-cols-3">
+    <div className="flex flex-col gap-3">
+      <div className={cn("grid gap-2", slowest ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
         {busiest && (
           <Highlight
             label="Busiest period"
@@ -381,14 +383,12 @@ export function NginxTrafficView({ result, metric }: { result: NginxResult; metr
             detail={`${formatNum(busiest.count)} requests · ${formatBytes(busiest.bodyBytes)}`}
           />
         )}
-        {slowest ? (
+        {slowest && (
           <Highlight
             label="Slowest period (p95)"
             value={slowest.label}
             detail={`p95 ${latency(bucketTime(slowest, metric).p95Ms)} · avg ${latency(bucketTime(slowest, metric).avgMs)}`}
           />
-        ) : (
-          <Highlight label="Slowest period (p95)" value="—" detail="No timings logged" />
         )}
         {worstErrors && (
           <Highlight
@@ -398,23 +398,86 @@ export function NginxTrafficView({ result, metric }: { result: NginxResult; metr
           />
         )}
       </div>
-      <NginxTimelineChart result={result} metric={metric} height={280} shared={shared} />
-      <div className="grid gap-4 lg:grid-cols-3">
-        <section className={cn(panelClass, "px-4 py-3")}>
-          <div className="mb-2">
-            <h2 className={panelTitleClass}>Latency percentiles</h2>
-            <p className={cn(mutedClass, "mt-0.5")}>
-              {metric === "request" ? "Request time" : "Total upstream time"}
-            </p>
+      <NginxTimelineChart result={result} metric={metric} height={240} shared={shared} />
+      <div
+        className={cn("grid items-start gap-3", measured > 0 ? "lg:grid-cols-3" : "lg:grid-cols-2")}
+      >
+        {measured > 0 && (
+          <section className={cn(panelClass, "flex flex-col")}>
+            <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+              <h2 className={panelTitleClass}>Latency percentiles</h2>
+              <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                {metric === "request" ? "Request time" : "Upstream time"}
+              </span>
+            </div>
+            <div className="p-3">
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
+                    <CartesianGrid stroke={theme.grid} strokeDasharray="3 3" vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      tick={theme.tick}
+                      tickFormatter={formatLabel}
+                      minTickGap={24}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      width={52}
+                      tick={theme.tick}
+                      tickFormatter={(value: number) => latency(value)}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={theme.tooltip}
+                      formatter={(value) => latency(value == null ? null : Number(value))}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} iconSize={10} />
+                    <Line
+                      dataKey="p50"
+                      stroke="#a78bfa"
+                      dot={false}
+                      connectNulls
+                      isAnimationActive={false}
+                    />
+                    <Line
+                      dataKey="avg"
+                      stroke="#64748b"
+                      strokeDasharray="4 3"
+                      dot={false}
+                      connectNulls
+                      isAnimationActive={false}
+                    />
+                    <Line
+                      dataKey="p95"
+                      stroke="#f59e0b"
+                      strokeWidth={2}
+                      dot={false}
+                      connectNulls
+                      isAnimationActive={false}
+                    />
+                    <Line
+                      dataKey="p99"
+                      stroke="#f43f5e"
+                      dot={false}
+                      connectNulls
+                      isAnimationActive={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </section>
+        )}
+        <section className={cn(panelClass, "flex flex-col")}>
+          <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+            <h2 className={panelTitleClass}>Bandwidth</h2>
           </div>
-          {measured === 0 ? (
-            <p className="py-16 text-center text-xs text-slate-500">
-              No {metric === "request" ? "rt" : "urt"} timings in these logs.
-            </p>
-          ) : (
-            <div className="h-60">
+          <div className="p-3">
+            <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
+                <AreaChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
                   <CartesianGrid stroke={theme.grid} strokeDasharray="3 3" vertical={false} />
                   <XAxis
                     dataKey="label"
@@ -426,91 +489,32 @@ export function NginxTrafficView({ result, metric }: { result: NginxResult; metr
                   <YAxis
                     width={52}
                     tick={theme.tick}
-                    tickFormatter={(value: number) => latency(value)}
+                    tickFormatter={compactBytes}
                     axisLine={false}
                     tickLine={false}
                   />
                   <Tooltip
                     contentStyle={theme.tooltip}
-                    formatter={(value) => latency(value == null ? null : Number(value))}
+                    formatter={(value) => formatBytes(Number(value))}
                   />
-                  <Legend wrapperStyle={{ fontSize: 11 }} iconSize={10} />
-                  <Line
-                    dataKey="p50"
-                    stroke="#a78bfa"
-                    dot={false}
-                    connectNulls
+                  <Area
+                    dataKey="bytes"
+                    name="Body bytes"
+                    fill="#8b5cf6"
+                    fillOpacity={0.15}
+                    stroke="#8b5cf6"
                     isAnimationActive={false}
                   />
-                  <Line
-                    dataKey="avg"
-                    stroke="#64748b"
-                    strokeDasharray="4 3"
-                    dot={false}
-                    connectNulls
-                    isAnimationActive={false}
-                  />
-                  <Line
-                    dataKey="p95"
-                    stroke="#f59e0b"
-                    strokeWidth={2}
-                    dot={false}
-                    connectNulls
-                    isAnimationActive={false}
-                  />
-                  <Line
-                    dataKey="p99"
-                    stroke="#f43f5e"
-                    dot={false}
-                    connectNulls
-                    isAnimationActive={false}
-                  />
-                </LineChart>
+                </AreaChart>
               </ResponsiveContainer>
             </div>
-          )}
-        </section>
-        <section className={cn(panelClass, "px-4 py-3")}>
-          <div className="mb-2">
-            <h2 className={panelTitleClass}>Bandwidth</h2>
-            <p className={cn(mutedClass, "mt-0.5")}>body_bytes_sent per period</p>
-          </div>
-          <div className="h-60">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
-                <CartesianGrid stroke={theme.grid} strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="label"
-                  tick={theme.tick}
-                  tickFormatter={formatLabel}
-                  minTickGap={24}
-                  tickLine={false}
-                />
-                <YAxis
-                  width={52}
-                  tick={theme.tick}
-                  tickFormatter={compactBytes}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip
-                  contentStyle={theme.tooltip}
-                  formatter={(value) => formatBytes(Number(value))}
-                />
-                <Area
-                  dataKey="bytes"
-                  name="Body bytes"
-                  fill="#8b5cf6"
-                  fillOpacity={0.15}
-                  stroke="#8b5cf6"
-                  isAnimationActive={false}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
           </div>
         </section>
         <NginxStatusCard result={result} />
       </div>
+      {(result.summary.requestTime.count > 0 || result.summary.upstreamTime.count > 0) && (
+        <NginxLatencyProfile result={result} />
+      )}
     </div>
   );
 }

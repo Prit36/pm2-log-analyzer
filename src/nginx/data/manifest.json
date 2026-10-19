@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "database": "sapics/ip-location-db user-country",
+  "snapshotDate": "2026-10-18",
+  "repository": "https://github.com/sapics/ip-location-db",
+  "license": {
+    "name": "PDDL-1.0",
+    "url": "https://opendatacommons.org/licenses/pddl/1-0/",
+    "sourceUrl": "https://github.com/sapics/ip-location-db#original-databases-update-daily"
+  },
+  "sources": {
+    "ipv4": {
+      "sourceUrl": "https://github.com/sapics/ip-location-db/releases/download/latest/user-country-ipv4-num.csv",
+      "checksumUrl": "https://github.com/sapics/ip-location-db/releases/download/checksum/user-country-ipv4-num.csv.sha256",
+      "sourceLastModified": "Sun, 18 Oct 2026 22:50:58 GMT",
+      "sourceSha256": "4964980a4bea1b28a8ad09b7df39b12416f071f78ea7dbaedfa386164ef93644",
+      "binaryFile": "country-ipv4.bin",
+      "binarySha256": "e3cfda04db538f4f74aa41e4bd9980e328c512852697f21ea7510708c75ed39d",
+      "rangeCount": 294599,
+      "recordBytes": 10,
+      "binaryBytes": 2945990,
+      "skippedRanges": 0
+    },
+    "ipv6": {
+      "sourceUrl": "https://github.com/sapics/ip-location-db/releases/download/latest/user-country-ipv6-num.csv",
+      "checksumUrl": "https://github.com/sapics/ip-location-db/releases/download/checksum/user-country-ipv6-num.csv.sha256",
+      "sourceLastModified": "Sun, 18 Oct 2026 22:51:00 GMT",
+      "sourceSha256": "764c25cc5abfc2c617b57ced2d00c4c57f72f6d0a2d5c229f86145946e07f701",
+      "binaryFile": "country-ipv6.bin",
+      "binarySha256": "1cef88af7e803ecb7694cf8925adafe508ef11bb200c55357a49b13a16122416",
+      "rangeCount": 285418,
+      "recordBytes": 34,
+      "binaryBytes": 9704212,
+      "skippedRanges": 0
+    }
+  }
+}
