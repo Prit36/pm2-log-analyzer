@@ -1,13 +1,20 @@
 import { useAnalysisStore } from "../store/analysisStore";
 import { useMongoStore } from "../store/mongoStore";
 import { useAppModeStore } from "../store/appModeStore";
+import { useNginxStore } from "../store/nginxStore";
 
 export function Toast() {
   const mode = useAppModeStore((s) => s.mode);
   const pm2Toast = useAnalysisStore((s) => s.toast);
   const mongoToast = useMongoStore((s) => s.toast);
+  const nginxToast = useNginxStore((s) => s.toast);
 
-  const toast = mode === "mongo" ? (mongoToast ?? pm2Toast) : (pm2Toast ?? mongoToast);
+  const toast =
+    mode === "nginx"
+      ? nginxToast
+      : mode === "mongo"
+        ? (mongoToast ?? pm2Toast)
+        : (pm2Toast ?? mongoToast);
 
   if (!toast) return null;
 

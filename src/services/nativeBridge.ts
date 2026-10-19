@@ -8,6 +8,8 @@ import { useAnalysisStore, workerParseOptions } from "../store/analysisStore";
 import { useMongoStore } from "../store/mongoStore";
 import { useAppModeStore } from "../store/appModeStore";
 import type { MongoAggregationResult } from "../mongo/types";
+import { useNginxStore } from "../store/nginxStore";
+import type { NginxResult } from "../nginx/types";
 
 /**
  * Large results travel through the Rust loopback payload server instead of the
@@ -40,16 +42,24 @@ type MongoNativeResult = {
   total_lines: number;
 };
 
+type NginxNativeResult = {
+  payload?: NativePayload;
+  parse_wall_ms: number;
+  hit_count: number;
+  shard_count: number;
+};
+
 type NativeFileInfo = {
   name: string;
   path: string;
   size: number;
-  category: "pm2" | "mongo" | "skip" | "unknown";
+  category: "pm2" | "mongo" | "nginx" | "skip" | "unknown";
 };
 
 type NativeIngestResult = {
   pm2: Pm2NativeResult | null;
   mongo: MongoNativeResult | null;
+  nginx: NginxNativeResult | null;
   files: NativeFileInfo[];
   total_bytes: number;
   parse_wall_ms: number;
@@ -109,12 +119,26 @@ function waitForFirstPaint(selector: string): Promise<void> {
 
 let nativePm2Active = false;
 let nativeMongoActive = false;
+let nativeNginxActive = false;
 
 // Ingest and reaggregate now run off the webview thread, so a slow request can
 // finish after a newer one. Tag requests per store and let only the newest
 // write its result, otherwise a stale reaggregate overwrites a fresh ingest.
 let pm2RequestSeq = 0;
 let mongoRequestSeq = 0;
+let nginxRequestSeq = 0;
+
+const {
+  setParsing: setNginxParsing,
+  setProgress: setNginxProgress,
+  setResult: setNginxResult,
+  setError: setNginxError,
+  showToast: showNginxToast,
+  appendLoadedFiles: appendNginxFiles,
+  setLoadedFiles: setNginxFiles,
+  setSourcePaste: setNginxSourcePaste,
+  clearAnalysis: clearNginxAnalysis,
+} = useNginxStore.getState();
 
 export function isNativePm2Active(): boolean {
   return nativePm2Active;
@@ -122,6 +146,100 @@ export function isNativePm2Active(): boolean {
 
 export function isNativeMongoActive(): boolean {
   return nativeMongoActive;
+}
+
+export function isNativeNginxActive(): boolean {
+  return nativeNginxActive;
+}
+
+export async function parseNginxTextNative(text: string): Promise<void> {
+  if (!text.trim()) return;
+  const seq = ++nginxRequestSeq;
+  const started = performance.now();
+  nativeNginxActive = false;
+  clearNginxAnalysis();
+  setNginxParsing(true);
+  setNginxProgress({ stage: "parsing", processed: 0, total: 100, percent: 0 });
+  let unlisten: (() => void) | null = null;
+  try {
+    unlisten = await listen<NativeProgressPayload>("native-progress", ({ payload }) => {
+      if (seq !== nginxRequestSeq) return;
+      setNginxProgress({ ...payload, stage: "parsing" });
+    });
+    if (seq !== nginxRequestSeq) return;
+    const response = await invoke<NginxNativeResult>("ingest_nginx_text", {
+      text,
+      options: useNginxStore.getState().filters,
+    });
+    if (seq !== nginxRequestSeq) return;
+    const result = await readPayload<NginxResult>(response.payload);
+    if (seq !== nginxRequestSeq) return;
+    nativeNginxActive = true;
+    setNginxResult(result);
+    setNginxSourcePaste();
+    setNginxParsing(false);
+    setNginxProgress({ stage: "complete", processed: 100, total: 100, percent: 100 });
+    useAppModeStore.getState().setMode("nginx");
+    await waitForFirstPaint('[data-testid="nginx-kpi-row"]');
+    if (seq !== nginxRequestSeq) return;
+    const readyMs = performance.now() - started;
+    window.__NGINX_BENCH__ = {
+      at: new Date().toISOString(),
+      source: "native-paste",
+      fileName: "Pasted Nginx logs",
+      fileBytes: new TextEncoder().encode(text).byteLength,
+      parseWallMs: response.parse_wall_ms,
+      requestCount: result?.summary.count ?? 0,
+      endpointCount: result?.endpointCount ?? 0,
+      reaggTimes: [],
+    };
+    showNginxToast(
+      `UI ready in ${sec(readyMs)} · ${(result?.summary.count ?? 0).toLocaleString()} Nginx requests`,
+    );
+  } catch (error) {
+    if (seq !== nginxRequestSeq) return;
+    setNginxParsing(false);
+    setNginxError(error instanceof Error ? error.message : String(error));
+    throw error;
+  } finally {
+    unlisten?.();
+  }
+}
+
+export async function reaggregateNginxNative(): Promise<void> {
+  const seq = ++nginxRequestSeq;
+  try {
+    const result = await invoke<Pm2ReaggNativeResult>("reaggregate_nginx", {
+      options: useNginxStore.getState().filters,
+    });
+    if (seq !== nginxRequestSeq) return;
+    const payload = await readPayload<NginxResult>(result.payload);
+    if (seq !== nginxRequestSeq) return;
+    setNginxResult(payload);
+  } catch (err) {
+    if (seq !== nginxRequestSeq) return;
+    setNginxError(err instanceof Error ? err.message : String(err));
+    throw err;
+  }
+}
+
+export async function clearNginxNative(): Promise<void> {
+  ++nginxRequestSeq;
+  nativeNginxActive = false;
+  if (isTauri()) await invoke("clear_nginx");
+}
+
+export async function cancelNginxNative(): Promise<void> {
+  const hadNativeData = nativeNginxActive;
+  const seq = ++nginxRequestSeq;
+  setNginxParsing(false);
+  setNginxProgress(null);
+  if (isTauri()) {
+    const active = await invoke<boolean>("cancel_nginx");
+    if (seq !== nginxRequestSeq) return;
+    nativeNginxActive = active;
+    if (hadNativeData && !active) setNginxResult(null);
+  }
 }
 
 export async function pickNativeFiles(): Promise<string[] | null> {
@@ -250,12 +368,16 @@ export async function handleNativePathsUpload(
 
   const pm2Seq = ++pm2RequestSeq;
   const mongoSeq = ++mongoRequestSeq;
+  const nginxSeq = ++nginxRequestSeq;
 
   // Set visual progress on active store
   setPm2Parsing(true);
   setPm2Progress({ stage: "reading", processed: 0, total: 100, percent: 0 });
   setMongoParsing(true);
   setMongoProgress({ stage: "reading", processed: 0, total: 100, percent: 0 });
+  setNginxParsing(true);
+  setNginxError(null);
+  setNginxProgress({ stage: "reading", processed: 0, total: 100, percent: 0 });
 
   let unlisten: (() => void) | null = null;
   try {
@@ -274,13 +396,20 @@ export async function handleNativePathsUpload(
       };
       setPm2Progress(payload);
       setMongoProgress(payload);
+      if (nginxSeq === nginxRequestSeq) setNginxProgress(payload);
     });
+    if (nginxSeq !== nginxRequestSeq) {
+      setPm2Parsing(false);
+      setMongoParsing(false);
+      return;
+    }
 
     const t0 = performance.now();
     const res = await invoke<NativeIngestResult>("ingest_native_files", {
       paths,
       pm2Options,
       mongoOptions,
+      nginxOptions: useNginxStore.getState().filters,
       uploadMode,
     });
     const invokeMs = performance.now() - t0;
@@ -294,22 +423,47 @@ export async function handleNativePathsUpload(
 
     const pm2Files: File[] = [];
     const mongoFiles: File[] = [];
+    const nginxFiles: File[] = [];
 
     for (const f of res.files) {
       const fileObj = new File([], f.name);
       Object.defineProperty(fileObj, "size", { value: f.size, writable: false });
       if (f.category === "mongo") {
         mongoFiles.push(fileObj);
-      } else {
+      } else if (f.category === "nginx") {
+        nginxFiles.push(fileObj);
+      } else if (f.category === "pm2") {
         pm2Files.push(fileObj);
       }
     }
 
     // Both payloads travel over the loopback server, so fetch them together.
-    const [pm2Result, mongoResult] = await Promise.all([
+    const [pm2Result, mongoResult, nginxResult] = await Promise.all([
       readPayload<AggregatedResult>(res.pm2?.payload),
       readPayload<MongoAggregationResult>(res.mongo?.payload),
+      readPayload<NginxResult>(res.nginx?.payload),
     ]);
+
+    if (nginxSeq === nginxRequestSeq) {
+      if (res.nginx && nginxResult) {
+        nativeNginxActive = true;
+        setNginxResult(nginxResult);
+        if (uploadMode === "append") appendNginxFiles(nginxFiles);
+        else setNginxFiles(nginxFiles);
+        setNginxProgress({ stage: "complete", processed: 100, total: 100, percent: 100 });
+        window.__NGINX_BENCH__ = {
+          at: new Date().toISOString(),
+          source: "native",
+          fileName: nginxFiles.map((file) => file.name).join(", "),
+          fileBytes: nginxFiles.reduce((sum, file) => sum + file.size, 0),
+          parseWallMs: res.nginx.parse_wall_ms,
+          requestCount: nginxResult.summary.count,
+          endpointCount: nginxResult.endpointCount,
+          reaggTimes: [],
+        };
+      }
+      setNginxParsing(false);
+    }
 
     if (res.pm2 && pm2Result) {
       nativePm2Active = true;
@@ -369,8 +523,17 @@ export async function handleNativePathsUpload(
     const assembleMs = performance.now() - t1;
 
     // Tab switching
-    if (res.pm2 && res.mongo) {
-      // Both tabs populated; keep the current tab
+    const populatedModes = [
+      res.pm2 ? "pm2" : null,
+      res.mongo ? "mongo" : null,
+      res.nginx ? "nginx" : null,
+    ].filter(Boolean);
+    if (populatedModes.length > 1) {
+      if (!populatedModes.includes(useAppModeStore.getState().mode)) {
+        setMode(res.nginx ? "nginx" : res.mongo ? "mongo" : "pm2");
+      }
+    } else if (res.nginx && nginxSeq === nginxRequestSeq) {
+      setMode("nginx");
     } else if (res.mongo) {
       setMode("mongo");
     } else if (res.pm2) {
@@ -379,10 +542,19 @@ export async function handleNativePathsUpload(
 
     const mode = useAppModeStore.getState().mode;
     await waitForFirstPaint(
-      mode === "mongo" ? '[data-testid="mongo-kpi-row"]' : '[data-testid="kpi-row"]',
+      mode === "nginx"
+        ? '[data-testid="nginx-kpi-row"]'
+        : mode === "mongo"
+          ? '[data-testid="mongo-kpi-row"]'
+          : '[data-testid="kpi-row"]',
     );
     const readyMs = performance.now() - startedAt;
     const nativeMs = res.parse_wall_ms;
+    if (res.nginx && nginxResult && nginxSeq === nginxRequestSeq) {
+      showNginxToast(
+        `UI ready in ${sec(readyMs)} · ${nginxResult.summary.count.toLocaleString()} Nginx requests (native ${sec(res.nginx.parse_wall_ms)})`,
+      );
+    }
 
     console.info(
       `[native] ui ready in ${readyMs.toFixed(0)}ms (invoke ${invokeMs.toFixed(0)}ms, assemble ${assembleMs.toFixed(0)}ms, native ${nativeMs.toFixed(0)}ms)`,
@@ -404,9 +576,18 @@ export async function handleNativePathsUpload(
   } catch (err) {
     setPm2Parsing(false);
     setMongoParsing(false);
+    if (nginxSeq !== nginxRequestSeq) return;
+    if (nginxSeq === nginxRequestSeq) setNginxParsing(false);
     const message = err instanceof Error ? err.message : String(err);
+    if (uploadMode === "replace") {
+      const active = await invoke<boolean>("nginx_engine_active");
+      if (nginxSeq !== nginxRequestSeq) return;
+      nativeNginxActive = active;
+      if (!active) setNginxResult(null);
+    }
     setPm2Error(message);
     setMongoError(message);
+    if (nginxSeq === nginxRequestSeq) setNginxError(message);
     showPm2Toast(message);
     throw err;
   } finally {

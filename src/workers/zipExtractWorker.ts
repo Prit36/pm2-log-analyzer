@@ -4,7 +4,7 @@ import init, { classify_log_name_or_content, FastDecompressor } from "../wasm/pk
 
 export type ExtractedFileItem = {
   name: string;
-  category: "pm2" | "mongo" | "archive";
+  category: "pm2" | "mongo" | "nginx" | "archive";
   buffer: ArrayBuffer;
   size: number;
 };
@@ -22,7 +22,7 @@ export type EntryExtractJob = {
   id: number;
   name: string;
   cleanName: string;
-  category: "pm2" | "mongo" | "unknown" | "archive";
+  category: "pm2" | "mongo" | "nginx" | "unknown" | "archive";
   entryBlob: Blob;
   compressedSize: number;
   uncompressedSize: number;
@@ -32,7 +32,7 @@ export type EntryExtractJob = {
 export type ExtractedEntryResponse = {
   id: number;
   name: string;
-  category: "pm2" | "mongo" | "archive";
+  category: "pm2" | "mongo" | "nginx" | "archive";
   buffer: ArrayBuffer;
   size: number;
 };
@@ -129,14 +129,20 @@ async function handleExtractEntry(job: EntryExtractJob): Promise<void> {
   const suffix = archiveSuffix(view);
   if (suffix || isArchiveName(job.cleanName)) {
     category = "archive";
-  } else if (category === "unknown" || category === "archive") {
+  } else {
     const sample = view.subarray(0, Math.min(view.byteLength, 4096));
     const sniffed = classify_log_name_or_content(job.name, sample);
-    category = sniffed === "mongo" ? "mongo" : "pm2";
+    category = sniffed === "mongo" ? "mongo" : sniffed === "nginx" ? "nginx" : "pm2";
   }
 
-  const finalCategory: "pm2" | "mongo" | "archive" =
-    category === "archive" ? "archive" : category === "mongo" ? "mongo" : "pm2";
+  const finalCategory: "pm2" | "mongo" | "nginx" | "archive" =
+    category === "archive"
+      ? "archive"
+      : category === "mongo"
+        ? "mongo"
+        : category === "nginx"
+          ? "nginx"
+          : "pm2";
 
   // SAFETY: view points to the decompressed output in wasmMemory.
   const standaloneBuf = view.slice().buffer;
@@ -186,8 +192,8 @@ async function handleDecompressGz(
       : classify_log_name_or_content(cleanName, view.subarray(0, Math.min(view.byteLength, 4096)));
 
   const durationMs = Math.round(performance.now() - t0);
-  const finalCategory: "pm2" | "mongo" | "archive" =
-    cat === "archive" ? "archive" : cat === "mongo" ? "mongo" : "pm2";
+  const finalCategory: "pm2" | "mongo" | "nginx" | "archive" =
+    cat === "archive" ? "archive" : cat === "mongo" ? "mongo" : cat === "nginx" ? "nginx" : "pm2";
   const result: ExtractedArchiveResult = {
     id,
     fileName,

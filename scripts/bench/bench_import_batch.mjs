@@ -47,8 +47,8 @@ const targets = options.target === "both" ? ["browser", "native"] : [options.tar
 if (targets.some((target) => !["browser", "native"].includes(target))) {
   throw new Error("--target must be browser, native, or both");
 }
-if (!["pm2", "mongo", "both"].includes(options.expect)) {
-  throw new Error("--expect must be pm2, mongo, or both");
+if (!["pm2", "mongo", "nginx", "both", "all"].includes(options.expect)) {
+  throw new Error("--expect must be pm2, mongo, nginx, both (PM2 + Mongo), or all");
 }
 const inputPaths = paths.length > 0 ? paths : DEFAULT_FILES;
 const inputs = inputPaths.map((path) => {
@@ -323,6 +323,7 @@ async function runBrowser() {
     await page.evaluate(() => {
       delete window.__PM2_BENCH__;
       delete window.__MONGO_BENCH__;
+      delete window.__NGINX_BENCH__;
       delete window.__ZIP_BENCH__;
     });
     rssSampler = startRssSampler("browser");
@@ -345,6 +346,9 @@ async function runBrowser() {
       (expect) => {
         const pm2 = (window.__PM2_BENCH__?.parseWallMs ?? 0) > 0;
         const mongo = (window.__MONGO_BENCH__?.parseWallMs ?? 0) > 0;
+        const nginx = (window.__NGINX_BENCH__?.parseWallMs ?? 0) > 0;
+        if (expect === "nginx") return nginx;
+        if (expect === "all") return pm2 && mongo && nginx;
         return (expect === "mongo" || pm2) && (expect === "pm2" || mongo);
       },
       options.expect,
@@ -352,7 +356,11 @@ async function runBrowser() {
     );
     await page.waitForFunction(
       () =>
-        Boolean(document.querySelector('[data-testid="kpi-row"], [data-testid="mongo-kpi-row"]')),
+        Boolean(
+          document.querySelector(
+            '[data-testid="kpi-row"], [data-testid="mongo-kpi-row"], [data-testid="nginx-kpi-row"]',
+          ),
+        ),
       undefined,
       { timeout: 30_000 },
     );
@@ -366,6 +374,7 @@ async function runBrowser() {
     const parserStats = await page.evaluate(() => ({
       pm2: window.__PM2_BENCH__ ?? null,
       mongo: window.__MONGO_BENCH__ ?? null,
+      nginx: window.__NGINX_BENCH__ ?? null,
       archive: window.__ZIP_BENCH__ ?? null,
     }));
     const activeText = await page.locator("body").innerText();
@@ -408,6 +417,7 @@ async function runBrowser() {
             patterns: parserStats.mongo.patternsCount ?? 0,
           }
         : null,
+      nginx: parserStats.nginx,
       uiSummary: activeText.match(/Parsed[^\n]*/)?.[0] ?? null,
     };
   } finally {

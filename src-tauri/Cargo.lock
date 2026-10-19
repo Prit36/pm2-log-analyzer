@@ -76,6 +76,7 @@ dependencies = [
  "log",
  "memmap2",
  "mongo-core",
+ "nginx-core",
  "pbz2",
  "pm2-core",
  "rayon",
@@ -2226,6 +2227,19 @@ name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
+
+[[package]]
+name = "nginx-core"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.17.1",
+ "memchr",
+ "pm2-core",
+ "rapidhash",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+]
 
 [[package]]
 name = "num-conv"

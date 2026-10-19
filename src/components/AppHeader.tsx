@@ -1,14 +1,18 @@
-import { Database, Download, Eraser, FileText, Moon, Sun } from "lucide-react";
+import { Database, Download, Eraser, FileText, Moon, Network, Sun } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useAnalysisStore } from "../store/analysisStore";
 import { useAppModeStore, type AppMode } from "../store/appModeStore";
 import { useMongoStore } from "../store/mongoStore";
+import { useNginxStore } from "../store/nginxStore";
 import { clear as clearPm2 } from "../hooks/useParserWorker";
 import { clearMongo } from "../hooks/useMongoParserWorker";
+import { clearNginx } from "../hooks/useNginxParserWorker";
 import { exportSpreadsheetData } from "../utils/exportSpreadsheet";
 import { exportMongoSpreadsheet } from "../mongo/mongoExport";
+import { exportNginxSpreadsheet } from "../nginx/exportNginx";
 import { formatBytes, formatDate } from "../utils/format";
 import { MongoHeaderInfo } from "./mongo/MongoHeaderInfo";
+import { NginxHeaderInfo } from "./nginx/NginxHeaderInfo";
 import { cn } from "../utils/cn";
 
 const { toggleTheme } = useAnalysisStore.getState();
@@ -71,12 +75,23 @@ export function AppHeader() {
     })),
   );
 
+  const { hasNginxData, canNginxExport, canNginxClear } = useNginxStore(
+    useShallow((s) => ({
+      hasNginxData: s.hasData,
+      canNginxExport: s.hasData && !s.isParsing,
+      canNginxClear: s.hasData || s.sourceKind !== "none" || s.isParsing,
+    })),
+  );
   const isMongo = appMode === "mongo";
-  const canExport = isMongo ? canMongoExport : canPm2Export;
-  const canClear = isMongo ? canMongoClear : canPm2Clear;
+  const isNginx = appMode === "nginx";
+  const isPm2 = appMode === "pm2";
+  const canExport = isNginx ? canNginxExport : isMongo ? canMongoExport : canPm2Export;
+  const canClear = isNginx ? canNginxClear : isMongo ? canMongoClear : canPm2Clear;
 
   const handleExport = () => {
-    if (isMongo) {
+    if (isNginx) {
+      void exportNginxSpreadsheet();
+    } else if (isMongo) {
       const result = useMongoStore.getState().result;
       if (result) void exportMongoSpreadsheet(result);
     } else {
@@ -85,7 +100,8 @@ export function AppHeader() {
   };
 
   const handleClear = () => {
-    if (isMongo) clearMongo();
+    if (isNginx) clearNginx();
+    else if (isMongo) clearMongo();
     else clearPm2();
   };
 
@@ -95,10 +111,12 @@ export function AppHeader() {
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/95">
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-2.5">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-2.5 lg:flex-nowrap">
         {/* Left Side: App Branding & File Info */}
-        <div className="min-w-0">
-          {isMongo ? (
+        <div className="min-w-0 flex-1">
+          {isNginx ? (
+            <NginxHeaderInfo />
+          ) : isMongo ? (
             <MongoHeaderInfo />
           ) : (
             <div>
@@ -133,21 +151,21 @@ export function AppHeader() {
         </div>
 
         {/* Center: Segmented App Switcher */}
-        <div className="flex shrink-0 items-center rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+        <div className="order-3 flex w-full shrink-0 items-center justify-center rounded-xl bg-slate-100 p-1 lg:order-none lg:w-auto dark:bg-slate-800">
           <button
             type="button"
             data-testid="app-switcher-pm2"
             onClick={() => handleSwitchMode("pm2")}
             className={cn(
               "relative flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
-              !isMongo
+              isPm2
                 ? "bg-white text-blue-600 shadow-xs dark:bg-slate-900 dark:text-blue-400"
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200",
             )}
           >
             <FileText className="size-3.5" />
             <span>PM2 Logs</span>
-            {hasPm2Data && isMongo && (
+            {hasPm2Data && !isPm2 && (
               <span
                 className="size-1.5 rounded-full bg-blue-500 animate-pulse"
                 title="PM2 logs loaded"
@@ -171,6 +189,26 @@ export function AppHeader() {
               <span
                 className="size-1.5 rounded-full bg-emerald-500 animate-pulse"
                 title="MongoDB logs loaded"
+              />
+            )}
+          </button>
+          <button
+            type="button"
+            data-testid="app-switcher-nginx"
+            onClick={() => handleSwitchMode("nginx")}
+            className={cn(
+              "relative flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
+              isNginx
+                ? "bg-white text-violet-600 shadow-xs dark:bg-slate-900 dark:text-violet-400"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200",
+            )}
+          >
+            <Network className="size-3.5" />
+            <span>Nginx Logs</span>
+            {hasNginxData && !isNginx && (
+              <span
+                className="size-1.5 rounded-full bg-violet-500 animate-pulse"
+                title="Nginx logs loaded"
               />
             )}
           </button>

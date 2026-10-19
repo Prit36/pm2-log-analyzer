@@ -1,6 +1,6 @@
-# PM2 & MongoDB Log Analyzer
+# PM2, MongoDB & Nginx Log Analyzer
 
-High-performance, client-side ops console and native desktop application for massive PM2 HTTP access logs, cron jobs, and MongoDB query logs. Ingest raw log files, gzip logs, ZIP, RAR, 7z, TAR, and compressed TAR archives, or entire directories—get real-time KPI metrics, filterable API and query tables, percentile charts, execution diagnostics, and formatted Excel workbooks.
+High-performance, client-side ops console and native desktop application for massive PM2 HTTP logs, cron jobs, MongoDB query logs, and Nginx access logs. Ingest raw log files, gzip logs, ZIP, RAR, 7z, TAR, and compressed TAR archives, or entire directories—get real-time KPI metrics, filterable API and query tables, percentile charts, execution diagnostics, and formatted Excel workbooks.
 
 Runs 100% locally with zero backend dependencies. Logs never leave your machine.
 
@@ -28,7 +28,7 @@ The analyzer supports two first-class runtime targets sharing a unified React 19
 
 ### Ingestion & Archive Pipeline
 - **Flexible Sources**: Single log files (`.log`, `.txt`), compressed logs (`.gz`), ZIP, RAR4/RAR5, 7z, TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ/TBZ2, TAR.XZ/TXZ archives, nested folders/directories, and pasted text.
-- **Smart Auto-Classification**: Automatically detects and categorizes PM2 vs. MongoDB entries, skips irrelevant assets/system files, and dispatches them to their respective engines.
+- **Smart Auto-Classification**: Automatically detects PM2, MongoDB, and Nginx entries, skips irrelevant assets/system files, and dispatches them to their respective engines. Nginx structure is recognized before generic HTTP-method matching, including ambiguously named raw files.
 - **Batch Multi-Archive Import**: Parallel decompression and direct shard partitioning for multi-archive or multi-file drops.
 - **Browser Archive Decoders**: Rust Wasm replaces `libarchive-wasm` and `node-unrar-js`, with no npm decoder fallback. ZIP/Gzip workers are prewarmed; general archive workers load on demand. Plain TAR validates metadata in Rust and reads entry Blob slices directly. Gzip streams into final transferable buffers; Bzip2 and independent XZ blocks use up to four workers. Independent 7z LZMA2 reset ranges decode in parallel; other layouts use the Rust sequential decoder.
 - **Browser RAR**: A separate Rust Wasm asset loads and compiles on the first RAR import. The decoder uses an 8 MiB input reader and copies decoded spans into final transferable buffers, preserving solid archive dictionaries. The vendored `unrar-rs` fixes browser timestamp compilation and truncated-header handling; [patch provenance](wasm/vendor/unrar-rs/PATCH.md) records the exact changes.
@@ -37,7 +37,7 @@ The analyzer supports two first-class runtime targets sharing a unified React 19
 - **Archive Performance**: See the [browser optimization measurements](docs/browser-archive-optimization.md), [subsequent Rust RAR migration](docs/browser-rar-rust-migration.md), and [earlier browser/desktop comparisons](docs/archive-performance.md). Reports include raw results, memory measurements, corpus limits, and reproduction commands.
 - **Session Control**: Append additional logs to an active session or replace existing analysis.
 - **Privacy First**: All parsing and aggregation executes locally. No log data or telemetry is ever transmitted over the network.
-- **Excel Export**: Generate formatted multi-sheet Excel workbooks (`.xlsx`) for PM2 endpoints, cron jobs, MongoDB slow queries, and query patterns.
+- **Excel Export**: Generate formatted multi-sheet Excel workbooks (`.xlsx`) for PM2 endpoints, cron jobs, MongoDB slow queries, query patterns, and the current Nginx report.
 
 ### PM2 HTTP & Cron Analysis
 - **Noise Filtering**: Automatically drops `OPTIONS` preflight requests (typically ~25.9% of corpus) and Socket.IO/websocket tracking frames (~10.8%) at parse time.
@@ -47,6 +47,15 @@ The analyzer supports two first-class runtime targets sharing a unified React 19
 - **Virtualized API Table**: Sort by hits, avg duration, p50, p90, p95, p99, error count, and error rate. One-click copy for endpoint paths and status code breakdowns.
 - **Latency Distribution Chart**: Logarithmic histogram powered by `RelHist` sketches with interactive bucket inspection and wide/side-by-side layout toggles.
 - **Cron Job Monitor**: Tracks schedules, execution counts, completions, failures, run durations, and copy-as-TSV export.
+
+### Nginx Access Analysis
+- **Combined Access Logs**: Supports the standard Nginx combined layout and optional `rt=$request_time urt=$upstream_response_time` suffixes. Custom layouts and error logs are not supported.
+- **Independent Tab**: Endpoint traffic/errors, request and upstream latency, hourly/daily traffic, body bytes, client IPs, referrers, and user agents. All HTTP methods, including `OPTIONS`, are counted.
+- **Timing Accuracy**: Seconds become milliseconds. Missing or invalid timings remain unavailable; valid zero timings count in averages and percentiles. Upstream values sum recorded numeric attempts. Measurement coverage is shown alongside latency.
+- **Filtering**: Path search, method, status family, logged date, normalization, timing metric, minimum duration, sort order, and Top N. Days and hours use log-local time rather than the computer timezone.
+- **Bounded Reports**: Endpoint results respect Top N; client/referrer/user-agent tables show the exact top 100 with distinct totals. Excel exports the current report with filter metadata and unavailable timings as blank cells.
+- **Shared Rust Core**: Compact retained rows, interned strings, sparse quantile buckets, and binary partial merging. Browser parsing uses up to four persistent shard workers and reusable 32 MiB ingest windows; native parsing uses mmap/Rayon shards. Append parses incoming sources only and commits after successful aggregation.
+- See [Nginx formats, architecture, and benchmarks](docs/nginx-analysis.md) for examples and reproduction commands.
 
 ### MongoDB Slow Query & Performance Diagnostics
 - **Structured JSON Ingestion**: Supports MongoDB 4.4, 5.0, 6.0, and 7.0+ structured JSON logs (`mongod.log`).
@@ -72,6 +81,7 @@ The analyzer supports two first-class runtime targets sharing a unified React 19
 | **Tooling** | oxlint, oxfmt, Playwright | High-speed linting, formatting, and automated browser/CDP benchmarks |
 | **PM2 Engine** | Rust → Wasm / Native (`wasm/pm2-core`) | 16-byte `PackedEntry` columnar vectors, SIMD `memchr_iter`, `RelHist` logarithmic histograms, `rapidhash` |
 | **MongoDB Engine** | Rust → Wasm / Native (`wasm/mongo-core`) | Zero-alloc JSON scanners, cascading forward metric cursors, string intern arenas, query shape normalizer |
+| **Nginx Engine** | Rust → Wasm / Native (`wasm/nginx-core`) | Byte scanner, interned fields, compact retained rows, sparse quantile buckets, binary shard reports |
 | **ZIP Engine** | Rust → Wasm / Native (`wasm/zip-core`) | Pure-Rust SIMD `zlib-rs` (browser) and `libdeflater` (native), zero-copy slice extraction |
 | **Browser TAR / 7z / Bzip2 / XZ** | Rust → Wasm (`wasm/zip-core`) | `tar`, `sevenz-rust2`, `pbz2-core`, `lzma-rust2`; bounded streaming and block parallelism |
 | **Browser RAR** | Rust → Wasm (`wasm/rar-core`) | Patched `unrar-rs` 0.11.0; separate lazy Wasm asset, bounded 8 MiB reader |
@@ -246,7 +256,7 @@ npm run fmt:check
 
 ### 4. Rebuild WebAssembly Modules (Optional)
 
-Recompiles all four Rust cores and regenerates checked-in artifacts. PM2, MongoDB, and ZIP/archive cores embed optimized bytes in `src/wasm/*Bytes.ts`; RAR emits a separate `.wasm` asset under `src/wasm/pkg_rar/` for on-demand loading. Normal web builds use these checked-in artifacts without requiring Rust.
+Recompiles all five Rust cores and regenerates checked-in artifacts. PM2, MongoDB, Nginx, and ZIP/archive cores embed optimized bytes in `src/wasm/*Bytes.ts`; RAR emits a separate `.wasm` asset under `src/wasm/pkg_rar/` for on-demand loading. Normal web builds use these checked-in artifacts without requiring Rust.
 
 - Requires `wasm32-unknown-unknown` target.
 - Requires `wasm-bindgen-cli` (v0.2.126 matching `Cargo.toml`).
@@ -270,6 +280,12 @@ npm run bench -- --runs 5 --note "pm2-browser"
 
 # Benchmark MongoDB parser in browser
 npm run bench:mongo -- --runs 3
+
+# Benchmark Nginx in browser (provide a representative access log)
+npm run bench:nginx -- /path/to/access.log --runs 3
+
+# Benchmark Nginx native desktop pipeline
+npm run bench:native:nginx -- /path/to/access.log --runs 3
 
 # Benchmark ZIP extraction and parsing in browser
 npm run bench:zip
@@ -299,6 +315,7 @@ Benchmark histories and stage breakdowns are appended to `scripts/bench/*_histor
 │   │   └── mongo/         # Mongo views (Patterns, SlowQueries, Diagnostics, UserActivity)
 │   ├── hooks/             # Worker and store bridge hooks
 │   ├── mongo/             # MongoDB domain types, formatting, and Excel export
+│   ├── nginx/             # Nginx report types, filters, and Excel export
 │   ├── services/          # Native Tauri IPC bridge (nativeBridge.ts)
 │   ├── store/             # Zustand state stores (analysisStore, mongoStore, appModeStore)
 │   ├── utils/             # Formatters, RelHist sketches, ZIP extractor (zipExtractor.ts)
@@ -314,6 +331,7 @@ Benchmark histories and stage breakdowns are appended to `scripts/bench/*_histor
 ├── wasm/
 │   ├── pm2-core/          # Rust crate: PM2 parsing, normalization, RelHist
 │   ├── mongo-core/        # Rust crate: MongoDB JSON parsing, query fingerprinting
+│   ├── nginx-core/        # Rust crate: Nginx combined parsing and aggregation
 │   ├── zip-core/          # Rust crate: ZIP, Gzip, TAR, 7z, Bzip2, XZ decoding
 │   ├── rar-core/          # Rust crate: bounded browser RAR extraction
 │   └── vendor/unrar-rs/   # Pinned decoder source with documented browser patches

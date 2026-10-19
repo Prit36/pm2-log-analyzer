@@ -109,7 +109,16 @@ buildCrate({
   exportConst: "MONGO_CORE_WASM_BASE64",
 });
 
-// 3. Zip Core
+// 3. Nginx Core
+buildCrate({
+  crateDir: "wasm/nginx-core",
+  wasmName: "nginx_core",
+  pkgDir: path.join(root, "src", "wasm", "pkg_nginx"),
+  bytesTs: path.join(root, "src", "wasm", "nginxCoreBytes.ts"),
+  exportConst: "NGINX_CORE_WASM_BASE64",
+});
+
+// 4. Zip Core
 buildCrate({
   crateDir: "wasm/zip-core",
   wasmName: "zip_core",
@@ -118,7 +127,7 @@ buildCrate({
   exportConst: "ZIP_CORE_WASM_BASE64",
 });
 
-// 4. RAR Core (loaded only for RAR archives)
+// 5. RAR Core (loaded only for RAR archives)
 buildCrate({
   crateDir: "wasm/rar-core",
   wasmName: "rar_core",

@@ -1,5 +1,5 @@
 import type { ArchiveEntryInfo, ArchiveWorkerResponse } from "../workers/archiveExtractWorker";
-import { isArchiveName, isMultiFormatArchive } from "./archiveFormats";
+import { archiveSuffix, isArchiveName, isMultiFormatArchive } from "./archiveFormats";
 import ZipWorkerCtor from "../workers/zipExtractWorker.ts?worker&inline";
 import type {
   ExtractedArchiveResult,
@@ -9,6 +9,12 @@ import type {
 } from "../workers/zipExtractWorker";
 import { useAnalysisStore } from "../store/analysisStore";
 import { useMongoStore } from "../store/mongoStore";
+import { useNginxStore } from "../store/nginxStore";
+import {
+  getNginxUploadGeneration,
+  parseNginxFiles,
+  parseNginxBuffers,
+} from "../hooks/useNginxParserWorker";
 import { useAppModeStore } from "../store/appModeStore";
 import { parseFiles, parsePm2Buffer, parsePm2Shards } from "../hooks/useParserWorker";
 import type { ShardBufferDescriptor } from "../workers/logParserWorker";
@@ -30,16 +36,26 @@ const {
   showToast: showMongoToast,
 } = useMongoStore.getState();
 
+const {
+  setParsing: setNginxParsing,
+  setProgress: setNginxProgress,
+  showToast: showNginxToast,
+} = useNginxStore.getState();
+
 const { setMode } = useAppModeStore.getState();
+let uploadSequence = 0;
 
 function notify(message: string): void {
   showPm2Toast(message);
   showMongoToast(message);
+  showNginxToast(message);
 }
 
 export type ExtractedLogSet = {
   pm2Files: File[];
   mongoFiles: File[];
+  nginxFiles: File[];
+  nginxBuffers: NginxBufferInput[];
   skipped: string[];
   totalBytes: number;
   durationMs: number;
@@ -53,6 +69,7 @@ export type ZipBench = {
   totalFiles: number;
   pm2FilesCount: number;
   mongoFilesCount: number;
+  nginxFilesCount: number;
   skippedFilesCount: number;
   extractWallMs: number;
   uploadToReadyMs?: number;
@@ -107,7 +124,7 @@ interface ZipCentralEntry {
   uncompressedSize: number;
   isDeflated: boolean;
   isDir: boolean;
-  category: "pm2" | "mongo" | "unknown" | "skip" | "archive";
+  category: "pm2" | "mongo" | "nginx" | "unknown" | "skip" | "archive";
 }
 
 function stripPath(name: string): string {
@@ -132,12 +149,15 @@ export function filterValidFiles(
   );
 }
 
-export function classifyByName(name: string): "pm2" | "mongo" | "unknown" | "skip" {
+export function classifyByName(name: string): "pm2" | "mongo" | "nginx" | "unknown" | "skip" {
   const lower = name.toLowerCase().replace(/\\/g, "/");
   const fileName = lower.split("/").pop() || lower;
 
   if (fileName.startsWith(".") || fileName.startsWith("__macosx") || fileName.includes("error")) {
     return "skip";
+  }
+  if (/(?:^|[._-])(?:nginx|access)(?:[._-]|\d|$)/i.test(fileName)) {
+    return "nginx";
   }
   if (/(?:^|[._-])mongo(?:[._-]|\d|$)|mongod/i.test(fileName)) {
     return "mongo";
@@ -145,6 +165,14 @@ export function classifyByName(name: string): "pm2" | "mongo" | "unknown" | "ski
   if (/(?:^|[._-])(?:api[._-]out|pm2)|out\.log/i.test(fileName) || /^api[.-]/.test(fileName)) {
     return "pm2";
   }
+  return "unknown";
+}
+
+function classifyPrefix(bytes: Uint8Array): "pm2" | "mongo" | "nginx" | "unknown" {
+  const text = new TextDecoder().decode(bytes);
+  if (/\[\d{2}\/[A-Za-z]{3}\/\d{4}:\d{2}:\d{2}:\d{2} [+-]\d{4}\] "/.test(text)) return "nginx";
+  if (/"(?:\$date|msg|ctx)"|\[initandlisten\]|\[conn/.test(text)) return "mongo";
+  if (/\b(?:GET|POST|PUT|HEAD|DELETE|OPTIONS|PATCH)\s+|\[cron\]|\[PM2\]/.test(text)) return "pm2";
   return "unknown";
 }
 
@@ -250,12 +278,21 @@ function extractSingleGz(
         const result: ExtractedLogSet = {
           pm2Files: [],
           mongoFiles: [],
+          nginxFiles: [],
+          nginxBuffers: [],
           skipped: payload.skipped,
           totalBytes: payload.totalBytes,
           durationMs: payload.durationMs,
         };
         const nestedArchives: File[] = [];
         for (const item of payload.files) {
+          if (item.category === "nginx") {
+            const metadata = new File([], item.name, { type: "text/plain" });
+            Object.defineProperty(metadata, "size", { value: item.size });
+            result.nginxFiles.push(metadata);
+            result.nginxBuffers.push({ buffer: item.buffer, name: item.name, size: item.size });
+            continue;
+          }
           const extractedFile = new File([item.buffer], item.name, {
             type: "text/plain",
             lastModified: file.lastModified,
@@ -318,15 +355,21 @@ export type MongoReadyPayload = {
   directBuffer?: { buffer: ArrayBuffer; fileName: string; size: number } | undefined;
 };
 
+export type NginxBufferInput = { buffer: ArrayBuffer; name: string; size: number };
+export type NginxReadyPayload = { files: File[]; directBuffers: NginxBufferInput[] };
+
 export type ExtractArchiveCallbacks = {
   onProgress?: (p: { stage: string; percent: number }) => void;
   onPm2Ready?: (payload: Pm2ReadyPayload) => void;
   onMongoReady?: (payload: MongoReadyPayload) => void;
+  onNginxReady?: (payload: NginxReadyPayload) => void;
 };
 
 function mergeLogSets(target: ExtractedLogSet, source: ExtractedLogSet): void {
   target.pm2Files.push(...source.pm2Files);
   target.mongoFiles.push(...source.mongoFiles);
+  target.nginxFiles.push(...source.nginxFiles);
+  target.nginxBuffers.push(...source.nginxBuffers);
   target.skipped.push(...source.skipped);
   target.totalBytes += source.totalBytes;
 }
@@ -376,6 +419,8 @@ export async function extractArchive(
     return {
       pm2Files: [],
       mongoFiles: [],
+      nginxFiles: [],
+      nginxBuffers: [],
       skipped: [file.name],
       totalBytes: 0,
       durationMs: 0,
@@ -388,8 +433,9 @@ export async function extractArchive(
   ) {
     let eagerPm2Files: File[] | undefined;
     let eagerMongoFiles: File[] | undefined;
+    let nginxDispatched = false;
     let canDispatch = false;
-    const expected = { pm2: 0, mongo: 0 };
+    const expected = { pm2: 0, mongo: 0, nginx: 0 };
     const extracted = await extractMultiFormat(
       file,
       cbOptions.onProgress,
@@ -401,9 +447,34 @@ export async function extractArchive(
         expected.mongo = entries.filter(
           (entry) => entry.category === "mongo" && entry.size > 0,
         ).length;
+        expected.nginx = entries.filter(
+          (entry) => entry.category === "nginx" && entry.size > 0,
+        ).length;
       },
       (entries) => {
         if (!canDispatch) return;
+        const nginx = entries.filter((entry) => entry.category === "nginx");
+        if (
+          !nginxDispatched &&
+          cbOptions.onNginxReady &&
+          expected.nginx > 0 &&
+          nginx.length === expected.nginx
+        ) {
+          nginxDispatched = true;
+          const files = nginx.map((item) => {
+            const output = new File([], item.name, { type: "text/plain" });
+            Object.defineProperty(output, "size", { value: item.size });
+            return output;
+          });
+          cbOptions.onNginxReady({
+            files,
+            directBuffers: nginx.map((item) => ({
+              buffer: item.buffer,
+              name: item.name,
+              size: item.size,
+            })),
+          });
+        }
         for (const category of ["pm2", "mongo"] as const) {
           const callback = category === "pm2" ? cbOptions.onPm2Ready : cbOptions.onMongoReady;
           const dispatched = category === "pm2" ? eagerPm2Files : eagerMongoFiles;
@@ -431,11 +502,22 @@ export async function extractArchive(
     const result: ExtractedLogSet = {
       pm2Files: [],
       mongoFiles: [],
+      nginxFiles: [],
+      nginxBuffers: [],
       skipped: extracted.skipped,
       totalBytes: extracted.totalBytes,
       durationMs: 0,
     };
     const nested = extracted.files.filter((item) => item.category === "archive");
+    for (const item of extracted.files.filter((entry) => entry.category === "nginx")) {
+      const output = new File([], item.name, { type: "text/plain" });
+      Object.defineProperty(output, "size", { value: item.size });
+      result.nginxFiles.push(output);
+      result.nginxBuffers.push({ buffer: item.buffer, name: item.name, size: item.size });
+    }
+    if (!nginxDispatched && result.nginxFiles.length && !nested.length) {
+      cbOptions.onNginxReady?.({ files: result.nginxFiles, directBuffers: result.nginxBuffers });
+    }
     for (const category of ["pm2", "mongo"] as const) {
       const eagerFiles = category === "pm2" ? eagerPm2Files : eagerMongoFiles;
       if (eagerFiles) {
@@ -488,8 +570,9 @@ export async function extractArchive(
   }
 
   const skipped: string[] = [];
-  const validEntries: (ZipCentralEntry & { category: "pm2" | "mongo" | "unknown" | "archive" })[] =
-    [];
+  const validEntries: (ZipCentralEntry & {
+    category: "pm2" | "mongo" | "nginx" | "unknown" | "archive";
+  })[] = [];
 
   for (const e of entries) {
     if (
@@ -504,7 +587,7 @@ export async function extractArchive(
       // SAFETY: e.category is guaranteed not to be "skip" by the preceding branch
       validEntries.push(
         e as ZipCentralEntry & {
-          category: "pm2" | "mongo" | "unknown" | "archive";
+          category: "pm2" | "mongo" | "nginx" | "unknown" | "archive";
         },
       );
     }
@@ -512,14 +595,24 @@ export async function extractArchive(
 
   if (validEntries.length === 0) {
     const durationMs = Math.round(performance.now() - t0);
-    return { pm2Files: [], mongoFiles: [], skipped, totalBytes: 0, durationMs };
+    return {
+      pm2Files: [],
+      mongoFiles: [],
+      nginxFiles: [],
+      nginxBuffers: [],
+      skipped,
+      totalBytes: 0,
+      durationMs,
+    };
   }
 
   const expectedPm2 = validEntries.filter((e) => e.category === "pm2").length;
   const expectedMongo = validEntries.filter((e) => e.category === "mongo").length;
+  const expectedNginx = validEntries.filter((e) => e.category === "nginx").length;
   const hasUnknown = validEntries.some((e) => e.category === "unknown" || e.category === "archive");
   let pm2Dispatched = false;
   let mongoDispatched = false;
+  let nginxDispatched = false;
 
   validEntries.sort((a, b) => b.compressedSize - a.compressedSize);
 
@@ -537,6 +630,8 @@ export async function extractArchive(
   let completedCount = 0;
   const pm2Files: File[] = [];
   const mongoFiles: File[] = [];
+  const nginxFiles: File[] = [];
+  const nginxBuffers: NginxBufferInput[] = [];
   const nestedArchives: File[] = [];
   const canUsePm2DirectBuffer = Boolean(cbOptions.onPm2Ready) && !hasUnknown;
   const canUseMongoDirectBuffer = Boolean(cbOptions.onMongoReady) && !hasUnknown;
@@ -567,6 +662,11 @@ export async function extractArchive(
 
           if (item.category === "archive") {
             nestedArchives.push(new File([item.buffer], item.name));
+          } else if (item.category === "nginx") {
+            const extractedFile = new File([], item.name, { type: "text/plain" });
+            Object.defineProperty(extractedFile, "size", { value: item.size });
+            nginxFiles.push(extractedFile);
+            nginxBuffers.push({ buffer: item.buffer, name: item.name, size: item.size });
           } else if (item.category === "mongo") {
             const useDirectBuffer = expectedMongo === 1 && canUseMongoDirectBuffer;
             const extractedFile = useDirectBuffer
@@ -609,6 +709,10 @@ export async function extractArchive(
                 files: [...mongoFiles],
                 directBuffer: expectedMongo === 1 ? mongoDirectBuffer : undefined,
               });
+            }
+            if (!nginxDispatched && nginxFiles.length === expectedNginx && expectedNginx > 0) {
+              nginxDispatched = true;
+              cbOptions.onNginxReady?.({ files: [...nginxFiles], directBuffers: nginxBuffers });
             }
           }
           resolve();
@@ -667,6 +771,8 @@ export async function extractArchive(
   const result: ExtractedLogSet = {
     pm2Files,
     mongoFiles,
+    nginxFiles,
+    nginxBuffers,
     skipped,
     totalBytes,
     durationMs: 0,
@@ -692,15 +798,33 @@ export async function extractArchive(
 export async function handleArchiveUpload(
   file: File,
   uploadMode: "replace" | "append" = "replace",
+  generation = getNginxUploadGeneration(),
+  token = ++uploadSequence,
 ): Promise<void> {
+  const nginxActive = () => token === uploadSequence && generation === getNginxUploadGeneration();
   // Set visual progress on active store
   setPm2Parsing(true);
   setPm2Progress({ stage: "reading", processed: 10, total: 100, percent: 10 });
   setMongoParsing(true);
   setMongoProgress({ stage: "reading", processed: 10, total: 100, percent: 10 });
+  if (nginxActive()) {
+    setNginxParsing(true);
+    setNginxProgress({ stage: "reading", processed: 10, total: 100, percent: 10 });
+  }
 
   let pm2Started = false;
   let mongoStarted = false;
+  let nginxStarted = false;
+  const nginxTasks: Promise<void>[] = [];
+
+  const startNginx = (payload: NginxReadyPayload) => {
+    if (nginxStarted || payload.files.length === 0 || !nginxActive()) return;
+    nginxStarted = true;
+    const task = parseNginxBuffers(payload.directBuffers, uploadMode);
+    nginxTasks.push(task);
+    // Parsing reports its own error; keep extraction callbacks free of unhandled rejections.
+    void task.catch(() => {});
+  };
 
   const startPm2 = (payload: Pm2ReadyPayload) => {
     if (pm2Started || payload.files.length === 0) return;
@@ -750,30 +874,41 @@ export async function handleArchiveUpload(
           total: 100,
           percent: p.percent,
         });
+        if (nginxActive() && !nginxStarted)
+          setNginxProgress({
+            stage: "reading",
+            processed: p.percent,
+            total: 100,
+            percent: p.percent,
+          });
       },
       onPm2Ready: startPm2,
       onMongoReady: startMongo,
+      onNginxReady: startNginx,
     });
 
     const hasPm2 = logSet.pm2Files.length > 0;
     const hasMongo = logSet.mongoFiles.length > 0;
+    const hasNginx = logSet.nginxFiles.length > 0;
 
     window.__ZIP_BENCH__ = {
       at: new Date().toISOString(),
       fileName: file.name,
       zipBytes: file.size,
       totalDecompressedBytes: logSet.totalBytes,
-      totalFiles: logSet.pm2Files.length + logSet.mongoFiles.length,
+      totalFiles: logSet.pm2Files.length + logSet.mongoFiles.length + logSet.nginxFiles.length,
       pm2FilesCount: logSet.pm2Files.length,
       mongoFilesCount: logSet.mongoFiles.length,
+      nginxFilesCount: logSet.nginxFiles.length,
       skippedFilesCount: logSet.skipped.length,
       extractWallMs: logSet.durationMs,
     };
 
-    if (!hasPm2 && !hasMongo) {
+    if (!hasPm2 && !hasMongo && !hasNginx) {
       setPm2Parsing(false);
       setMongoParsing(false);
-      showPm2Toast(`No valid API or MongoDB logs found in ${file.name}`);
+      if (nginxActive()) setNginxParsing(false);
+      notify(`No valid API, MongoDB or Nginx logs found in ${file.name}`);
       return;
     }
 
@@ -789,9 +924,19 @@ export async function handleArchiveUpload(
     } else if (!hasMongo) {
       setMongoParsing(false);
     }
+    if (hasNginx && !nginxStarted)
+      startNginx({ files: logSet.nginxFiles, directBuffers: logSet.nginxBuffers });
+    else if (!hasNginx && nginxActive()) setNginxParsing(false);
 
     // Tab switching and toast notification
-    if (hasPm2 && hasMongo) {
+    if (hasNginx) {
+      if (!nginxActive()) return;
+      if (!hasPm2 && !hasMongo) setMode("nginx");
+      notify(
+        `Extracted ${logSet.pm2Files.length} API, ${logSet.mongoFiles.length} MongoDB and ${logSet.nginxFiles.length} Nginx log(s) in ${logSet.durationMs}ms`,
+      );
+      await Promise.all(nginxTasks.map((task) => task.catch(() => {})));
+    } else if (hasPm2 && hasMongo) {
       notify(
         `Extracted ${logSet.pm2Files.length} API log(s) and ${logSet.mongoFiles.length} MongoDB log(s) in ${logSet.durationMs}ms! Both tabs populated.`,
       );
@@ -809,6 +954,7 @@ export async function handleArchiveUpload(
   } catch (err) {
     setPm2Parsing(false);
     setMongoParsing(false);
+    if (nginxActive()) setNginxParsing(false);
     const errMessage = err instanceof Error ? err.message : String(err);
     notify(`Extraction failed: ${errMessage}`);
   }
@@ -828,7 +974,7 @@ function createTextFile(
 
 interface ExtractedBatchItem {
   name: string;
-  category: "pm2" | "mongo" | "archive" | "skip" | "unknown";
+  category: "pm2" | "mongo" | "nginx" | "archive" | "skip" | "unknown";
   buffer: ArrayBuffer;
   size: number;
   archiveIndex: number;
@@ -846,7 +992,7 @@ interface BatchExtractTask {
   entry?: ZipCentralEntry | undefined;
   name: string;
   cleanName: string;
-  category: "pm2" | "mongo" | "archive" | "skip" | "unknown";
+  category: "pm2" | "mongo" | "nginx" | "archive" | "skip" | "unknown";
   compressedSize: number;
   uncompressedSize: number;
   isDeflated?: boolean | undefined;
@@ -859,25 +1005,55 @@ export async function handleLogFilesUpload(
   files: File[],
   uploadMode: "replace" | "append" = "replace",
 ): Promise<void> {
-  const archives = files.filter(isArchiveFile);
+  const token = ++uploadSequence;
+  const generation = getNginxUploadGeneration();
+  const nginxActive = () => token === uploadSequence && generation === getNginxUploadGeneration();
+  const probes = await Promise.all(
+    files.map(async (file) => {
+      const prefix = new Uint8Array(await file.slice(0, 4096).arrayBuffer());
+      const suffix = archiveSuffix(prefix);
+      const named = classifyByName(file.name);
+      const sniffed = classifyPrefix(prefix);
+      const category =
+        named === "skip"
+          ? "skip"
+          : sniffed === "nginx"
+            ? "nginx"
+            : named !== "unknown"
+              ? named
+              : sniffed;
+      let input = file;
+      if (suffix && !file.name.toLowerCase().endsWith(suffix)) {
+        const extension = suffix === ".bz2" || suffix === ".xz" ? ".tar" + suffix : suffix;
+        input = new File([file], file.name + extension, { lastModified: file.lastModified });
+      }
+      return { file: input, category, archive: suffix !== null || isArchiveFile(file) };
+    }),
+  );
+  const archives = probes.filter((probe) => probe.archive).map((probe) => probe.file);
   if (archives.length === 1 && files.length === 1) {
-    return handleArchiveUpload(archives[0]!, uploadMode);
+    return handleArchiveUpload(archives[0]!, uploadMode, generation, token);
   }
 
-  const rawFiles = files.filter((f) => !isArchiveFile(f));
+  const rawFiles = probes.filter((probe) => !probe.archive).map((probe) => probe.file);
+  const categories = new Map(probes.map((probe) => [probe.file, probe.category]));
   const activeMode = useAppModeStore.getState().mode;
 
   if (archives.length === 0) {
     const pm2Files: File[] = [];
     const mongoFiles: File[] = [];
+    const nginxFiles: File[] = [];
     for (const file of rawFiles) {
-      const cat = classifyByName(file.name);
+      const cat = categories.get(file) ?? "unknown";
       if (cat === "mongo") {
         mongoFiles.push(file);
       } else if (cat === "pm2") {
         pm2Files.push(file);
+      } else if (cat === "nginx") {
+        nginxFiles.push(file);
       } else if (cat === "unknown") {
         if (activeMode === "mongo") mongoFiles.push(file);
+        else if (activeMode === "nginx") nginxFiles.push(file);
         else pm2Files.push(file);
       }
     }
@@ -891,13 +1067,19 @@ export async function handleLogFilesUpload(
         uploadMode === "append" ? appendMongoFiles(mongoFiles) : setMongoFiles(mongoFiles);
       if (result.length > 0) void parseMongoFiles(result);
     }
+    if (nginxFiles.length > 0 && nginxActive()) {
+      if (!pm2Files.length && !mongoFiles.length) setMode("nginx");
+      await parseNginxFiles(nginxFiles, uploadMode).catch(() => {});
+    }
     return;
   }
 
   setPm2Parsing(true);
   setMongoParsing(true);
+  if (nginxActive()) setNginxParsing(true);
   setPm2Progress({ stage: "reading", processed: 0, total: 100, percent: 0 });
   setMongoProgress({ stage: "reading", processed: 0, total: 100, percent: 0 });
+  if (nginxActive()) setNginxProgress({ stage: "reading", processed: 0, total: 100, percent: 0 });
 
   let nextTaskId = 0;
   const initialTasks: BatchExtractTask[] = [];
@@ -935,7 +1117,7 @@ export async function handleLogFilesUpload(
           file: archiveFile,
           name: archiveFile.name,
           cleanName: clean,
-          category: cat === "skip" ? "skip" : cat === "mongo" ? "mongo" : "pm2",
+          category: cat,
           compressedSize: archiveFile.size,
           uncompressedSize: archiveFile.size * 3,
           archiveIndex,
@@ -987,17 +1169,23 @@ export async function handleLogFilesUpload(
 
   const rawPm2Items: ExtractedBatchItem[] = [];
   const rawMongoItems: ExtractedBatchItem[] = [];
+  const rawNginxItems: ExtractedBatchItem[] = [];
   await Promise.all(
     rawFiles.map(async (rawFile, rawIndex) => {
-      const cat = classifyByName(rawFile.name);
+      const cat = categories.get(rawFile) ?? "unknown";
+      if (cat === "skip") return;
       const targetCat =
         cat === "mongo"
           ? "mongo"
-          : cat === "pm2"
-            ? "pm2"
-            : activeMode === "mongo"
-              ? "mongo"
-              : "pm2";
+          : cat === "nginx"
+            ? "nginx"
+            : cat === "pm2"
+              ? "pm2"
+              : activeMode === "nginx"
+                ? "nginx"
+                : activeMode === "mongo"
+                  ? "mongo"
+                  : "pm2";
       const buffer = await rawFile.arrayBuffer();
       const item: ExtractedBatchItem = {
         name: rawFile.name,
@@ -1009,6 +1197,7 @@ export async function handleLogFilesUpload(
         lastModified: rawFile.lastModified,
       };
       if (targetCat === "mongo") rawMongoItems.push(item);
+      else if (targetCat === "nginx") rawNginxItems.push(item);
       else rawPm2Items.push(item);
     }),
   );
@@ -1031,12 +1220,30 @@ export async function handleLogFilesUpload(
 
   const pm2Results: ExtractedBatchItem[] = [...rawPm2Items];
   const mongoResults: ExtractedBatchItem[] = [...rawMongoItems];
+  const nginxResults: ExtractedBatchItem[] = [...rawNginxItems];
   const pm2BySize = new Map<number, number>();
   for (const [index, item] of pm2Results.entries()) {
     if (!pm2BySize.has(item.size)) pm2BySize.set(item.size, index);
   }
   const mongoSizes = new Set(mongoResults.map((item) => item.size));
   let mongoDispatched = false;
+  let nginxDispatched = false;
+  const nginxTasks: Promise<void>[] = [];
+
+  const checkEagerNginx = () => {
+    if (nginxDispatched || !nginxResults.length || !nginxActive()) return;
+    const pendingNginx = (task: BatchExtractTask) =>
+      task.category === "nginx" || task.category === "unknown" || task.category === "archive";
+    if (queue.some(pendingNginx) || Array.from(runningTasks.values()).some(pendingNginx)) return;
+    nginxDispatched = true;
+    nginxResults.sort((a, b) => a.archiveIndex - b.archiveIndex || a.entryIndex - b.entryIndex);
+    const task = parseNginxBuffers(
+      nginxResults.map((item) => ({ buffer: item.buffer, name: item.name, size: item.size })),
+      uploadMode,
+    );
+    nginxTasks.push(task);
+    void task.catch(() => {});
+  };
 
   const checkEagerMongo = () => {
     if (mongoDispatched || uploadMode !== "replace") return;
@@ -1094,7 +1301,7 @@ export async function handleLogFilesUpload(
           buffer: item.buffer,
           name: item.name,
           cleanName: clean,
-          category: cat === "skip" ? "skip" : cat === "mongo" ? "mongo" : "pm2",
+          category: cat,
           compressedSize: item.size,
           uncompressedSize: item.size * 3,
           depth,
@@ -1150,7 +1357,10 @@ export async function handleLogFilesUpload(
       }
     }
 
-    if (item.category === "mongo") {
+    if (item.category === "nginx") {
+      nginxResults.push(item);
+      checkEagerNginx();
+    } else if (item.category === "mongo") {
       if (mongoSizes.has(item.size)) item.buffer = new ArrayBuffer(0);
       else {
         mongoSizes.add(item.size);
@@ -1343,7 +1553,10 @@ export async function handleLogFilesUpload(
           );
           setPm2Progress({ stage: "reading", processed: percent, total: 100, percent });
           setMongoProgress({ stage: "reading", processed: percent, total: 100, percent });
+          if (nginxActive() && !nginxDispatched)
+            setNginxProgress({ stage: "reading", processed: percent, total: 100, percent });
           checkEagerMongo();
+          checkEagerNginx();
           idleWorkers.push(worker);
           pump();
         });
@@ -1358,6 +1571,12 @@ export async function handleLogFilesUpload(
     w.terminate();
   }
   workerPool.length = 0;
+
+  checkEagerNginx();
+  if (!nginxResults.length && nginxActive()) setNginxParsing(false);
+  const pm2Count = pm2Results.length;
+  const mongoCount = mongoResults.length;
+  const nginxCount = nginxResults.length;
 
   // Finalize Mongo parsing if not already dispatched eagerly
   if (!mongoDispatched) {
@@ -1492,24 +1711,28 @@ export async function handleLogFilesUpload(
     }
   }
 
-  if (pm2Results.length === 0 && mongoResults.length === 0) {
+  if (pm2Count === 0 && mongoCount === 0 && nginxCount === 0) {
     setPm2Parsing(false);
     setMongoParsing(false);
     const skippedMessage =
       failedArchives.length > 0 ? ` (${failedArchives.length} unreadable archive(s) skipped)` : "";
-    notify(`No valid API or MongoDB logs found in the selected files${skippedMessage}`);
-  } else if (pm2Results.length > 0 && mongoResults.length > 0) {
+    notify(`No valid API, MongoDB or Nginx logs found in the selected files${skippedMessage}`);
+  } else if (nginxCount > 0 && nginxActive()) {
+    if (!pm2Count && !mongoCount) setMode("nginx");
+    notify(`Imported ${pm2Count} API, ${mongoCount} MongoDB and ${nginxCount} Nginx log(s).`);
+    await Promise.all(nginxTasks.map((task) => task.catch(() => {})));
+  } else if (pm2Count > 0 && mongoCount > 0) {
     const skippedMessage =
       failedArchives.length > 0 ? ` ${failedArchives.length} unreadable archive(s) skipped.` : "";
     notify(
-      `Imported ${pm2Results.length} API log(s) and ${mongoResults.length} MongoDB log(s). Both tabs populated.${skippedMessage}`,
+      `Imported ${pm2Count} API log(s) and ${mongoCount} MongoDB log(s). Both tabs populated.${skippedMessage}`,
     );
-  } else if (mongoResults.length > 0) {
+  } else if (mongoCount > 0) {
     setMode("mongo");
     if (failedArchives.length > 0) {
       notify(`Imported MongoDB logs; ${failedArchives.length} unreadable archive(s) skipped.`);
     }
-  } else if (pm2Results.length > 0) {
+  } else if (pm2Count > 0) {
     setMode("pm2");
     if (failedArchives.length > 0) {
       notify(`Imported API logs; ${failedArchives.length} unreadable archive(s) skipped.`);

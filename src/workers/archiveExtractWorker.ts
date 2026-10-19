@@ -9,7 +9,7 @@ import type { ZipWorkerResponse } from "./zipExtractWorker";
 
 export type ArchiveEntryInfo = {
   name: string;
-  category: "pm2" | "mongo" | "unknown" | "archive" | "skip";
+  category: "pm2" | "mongo" | "nginx" | "unknown" | "archive" | "skip";
   size: number;
 };
 
@@ -45,7 +45,13 @@ function sendEntry(path: string, data: Uint8Array): void {
       payload: {
         id: 0,
         name: cleanName,
-        category: nested ? "archive" : sniffed === "mongo" ? "mongo" : "pm2",
+        category: nested
+          ? "archive"
+          : sniffed === "mongo"
+            ? "mongo"
+            : sniffed === "nginx"
+              ? "nginx"
+              : "pm2",
         size: buffer.byteLength,
         buffer,
       },
@@ -68,9 +74,11 @@ function entryInfo(path: string, size: number, isFile = true): ArchiveEntryInfo 
           ? "archive"
           : category === "mongo"
             ? "mongo"
-            : category === "pm2"
-              ? "pm2"
-              : "unknown",
+            : category === "nginx"
+              ? "nginx"
+              : category === "pm2"
+                ? "pm2"
+                : "unknown",
   };
 }
 

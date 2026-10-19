@@ -9,6 +9,7 @@ const SNIFF_SIZE: usize = 4096;
 
 enum Job {
     Pm2(Vec<u8>),
+    Nginx(Vec<u8>),
     Mongo(Receiver<Vec<u8>>, Option<u64>),
     Nested(String, String, Vec<u8>),
 }
@@ -70,6 +71,21 @@ pub(super) fn pipeline(
             .into_iter()
             .par_bridge()
             .map(|job| match job {
+                Job::Nginx(mut bytes) => {
+                    let mut outcome = IngestPipelineOutcome::default();
+                    if !bytes.is_empty() && !progress.nginx.is_some_and(|context| !context.current()) {
+                        let mut engine = nginx_core::Engine::new();
+                        engine.feed_slice(&bytes);
+                        engine.end_source();
+                        outcome.nginx_shards.push(engine);
+                    }
+                    bytes.clear();
+                    if bytes.capacity() > CHUNK_SIZE {
+                        bytes = Vec::with_capacity(CHUNK_SIZE);
+                    }
+                    let _ = free_tx.send(bytes);
+                    outcome
+                }
                 Job::Pm2(mut bytes) => {
                     let mut outcome = IngestPipelineOutcome::default();
                     if bytes.is_empty() {
@@ -250,7 +266,10 @@ impl<'a, 'p> EntrySink<'a, 'p> {
     fn classify(&mut self) -> io::Result<()> {
         let category = classifier::classify_file_or_entry(self.name, &self.bytes);
         self.category = Some(category);
-        if matches!(category, LogCategory::Pm2 | LogCategory::Mongo) {
+        if matches!(category, LogCategory::Pm2 | LogCategory::Mongo | LogCategory::Nginx) {
+            if category == LogCategory::Nginx && self.progress.nginx.is_some_and(|context| !context.prepare()) {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "Nginx import cancelled"));
+            }
             if category == LogCategory::Mongo {
                 let (sender, receiver) = sync_channel(BUFFER_COUNT);
                 self.jobs
@@ -292,7 +311,7 @@ impl<'a, 'p> EntrySink<'a, 'p> {
             mongo.send(bytes).map_err(io::Error::other)
         } else {
             self.jobs
-                .send(Job::Pm2(bytes))
+                .send(if self.category == Some(LogCategory::Nginx) { Job::Nginx(bytes) } else { Job::Pm2(bytes) })
                 .map_err(|error| io::Error::other(error.to_string()))
         }
     }
@@ -303,7 +322,7 @@ impl<'a, 'p> EntrySink<'a, 'p> {
             self.classify().map_err(|error| error.to_string())?;
         }
         match self.category.unwrap() {
-            category @ (LogCategory::Pm2 | LogCategory::Mongo) => {
+            category @ (LogCategory::Pm2 | LogCategory::Mongo | LogCategory::Nginx) => {
                 let bytes = std::mem::take(&mut self.bytes);
                 self.send_buffer(bytes).map_err(|error| error.to_string())?;
                 Ok(Some(NativeFileInfo {
@@ -317,8 +336,10 @@ impl<'a, 'p> EntrySink<'a, 'p> {
                     size: self.written,
                     category: if category == LogCategory::Pm2 {
                         "pm2"
-                    } else {
+                    } else if category == LogCategory::Mongo {
                         "mongo"
+                    } else {
+                        "nginx"
                     }
                     .into(),
                 }))
@@ -353,7 +374,7 @@ impl Write for EntrySink<'_, '_> {
             self.classify()?;
         }
         match self.category.unwrap() {
-            LogCategory::Pm2 | LogCategory::Mongo => {
+            LogCategory::Pm2 | LogCategory::Mongo | LogCategory::Nginx => {
                 while !data.is_empty() {
                     let take = (self.target - self.bytes.len()).min(data.len());
                     self.bytes.extend_from_slice(&data[..take]);

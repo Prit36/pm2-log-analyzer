@@ -1,6 +1,8 @@
 //! PM2 log analyzer Wasm core: parse bytes → columnar store → filter reagg.
 
 pub use relhist::RelHist;
+pub use normalize::{NormalizeMode, normalize_into};
+pub use relhist::relhist_key;
 pub use store::{
     decode_pm2_partial, encode_cron_vec, encode_daily_vec, encode_dates_vec, encode_hourly_vec,
     encode_unmatched_vec, merge_decoded_partials, merge_pm2_partials, merge_two_decoded, CronEv,
@@ -12,14 +14,17 @@ mod parse;
 mod relhist;
 mod store;
 
+#[cfg(feature = "wasm-bindings")]
 use wasm_bindgen::prelude::*;
 
 /// Opaque engine handle for JS.
+#[cfg(feature = "wasm-bindings")]
 #[wasm_bindgen]
 pub struct Pm2Engine {
     inner: Engine,
 }
 
+#[cfg(feature = "wasm-bindings")]
 impl Pm2Engine {
     pub fn inner(&self) -> &Engine {
         &self.inner
@@ -38,6 +43,7 @@ impl Pm2Engine {
     }
 }
 
+#[cfg(feature = "wasm-bindings")]
 #[wasm_bindgen]
 impl Pm2Engine {
     #[wasm_bindgen(constructor)]
@@ -154,6 +160,7 @@ impl Pm2Engine {
     }
 }
 
+#[cfg(feature = "wasm-bindings")]
 impl Default for Pm2Engine {
     fn default() -> Self {
         Self::new()

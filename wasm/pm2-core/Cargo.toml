@@ -8,6 +8,10 @@ license = "MIT"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["wasm-bindings"]
+wasm-bindings = []
+
 [dependencies]
 # CLI must match crate version exactly (`cargo install -f wasm-bindgen-cli --version 0.2.126`).
 wasm-bindgen = "=0.2.126"

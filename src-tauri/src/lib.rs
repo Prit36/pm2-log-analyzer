@@ -5,6 +5,7 @@ mod extended_archive;
 mod archive_stream;
 mod finalize;
 mod payload;
+mod nginx;
 
 use classifier::LogCategory;
 use memmap2::MmapOptions;
@@ -130,6 +131,7 @@ pub struct NativeFileInfo {
 pub struct NativeIngestResult {
     pub pm2: Option<Pm2ParseResult>,
     pub mongo: Option<MongoParseResult>,
+    pub nginx: Option<nginx::ParseResult>,
     pub files: Vec<NativeFileInfo>,
     pub total_bytes: u64,
     pub parse_wall_ms: u64,
@@ -138,6 +140,9 @@ pub struct NativeIngestResult {
 pub struct AppState {
     pub pm2_shards: Mutex<Vec<pm2_core::Pm2Engine>>,
     pub mongo: Mutex<Option<mongo_core::MongoEngine>>,
+    pub nginx: Mutex<nginx::NginxState>,
+    pub nginx_generation: AtomicU64,
+    pub nginx_active: std::sync::atomic::AtomicBool,
 }
 
 pub(crate) fn mode_code(mode: Option<&str>) -> u8 {
@@ -253,6 +258,7 @@ struct SharedProgress<'a> {
     app: Option<&'a tauri::AppHandle>,
     done: AtomicU64,
     total: u64,
+    nginx: Option<&'a nginx::Ingest<'a>>,
 }
 
 impl<'a> SharedProgress<'a> {
@@ -262,6 +268,7 @@ impl<'a> SharedProgress<'a> {
             done: AtomicU64::new(0),
             archive_count: 1,
             total,
+            nginx: None,
         }
     }
 
@@ -429,10 +436,7 @@ fn expand_archive_bytes(
         return expand_archive_bytes(clean_name, path, Cow::Owned(output), depth + 1);
     }
 
-    let mut category = classifier::classify_name(name);
-    if category == LogCategory::Unknown {
-        category = classifier::classify_content(&data);
-    }
+    let category = classifier::classify_file_or_entry(name, &data);
     if matches!(
         category,
         LogCategory::Skip | LogCategory::Zip | LogCategory::Gzip | LogCategory::Archive
@@ -1069,11 +1073,12 @@ fn ingest_single_zip(
     app_handle: Option<&tauri::AppHandle>,
     state: &AppState,
     t0: Instant,
+    nginx_context: &nginx::Ingest<'_>,
 ) -> Result<NativeIngestResult, String> {
-    let ZipEntryGroups { pm2, mongo, unknown } = classify_zip_entries(archive::parse_zip_entries(mmap)?);
-    let progress_bytes = zip_progress_bytes(&pm2, &mongo);
-    let (extra_pm2, extra_mongo) = classify_unknown_zip_entries(mmap, zip_path, unknown);
-    if pm2.is_empty() && mongo.is_empty() && extra_pm2.is_empty() && extra_mongo.is_empty() {
+    let ZipEntryGroups { pm2, mongo, nginx, unknown } = classify_zip_entries(archive::parse_zip_entries(mmap)?);
+    let progress_bytes = zip_progress_bytes(&pm2, &mongo) + nginx.iter().map(|entry| entry.uncompressed_size as u64 * 2).sum::<u64>();
+    let (extra_pm2, extra_mongo, extra_nginx) = classify_unknown_zip_entries(mmap, zip_path, unknown);
+    if pm2.is_empty() && mongo.is_empty() && nginx.is_empty() && extra_pm2.is_empty() && extra_mongo.is_empty() && extra_nginx.is_empty() {
         return Err("No valid log files found in ZIP archive".into());
     }
 
@@ -1082,11 +1087,13 @@ fn ingest_single_zip(
     let classified_bytes: u64 = extra_pm2
         .iter()
         .chain(&extra_mongo)
+        .chain(&extra_nginx)
         .map(|item| item.size as u64)
         .sum();
-    let progress = SharedProgress::new(app_handle, progress_bytes + classified_bytes);
+    let mut progress = SharedProgress::new(app_handle, progress_bytes + classified_bytes);
+    progress.nginx = Some(nginx_context);
 
-    let (pm2_outcome, mongo_outcome) = rayon::join(
+    let ((pm2_outcome, mongo_outcome), nginx_outcome) = rayon::join(|| rayon::join(
         || {
             ingest_zip_pm2(
                 mmap,
@@ -1111,9 +1118,36 @@ fn ingest_single_zip(
                 state,
             )
         },
-    );
+    ), || {
+        if !nginx.is_empty() || !extra_nginx.is_empty() {
+            if !nginx_context.prepare() {
+                return Err("Nginx import cancelled".to_string());
+            }
+        }
+        let entries = nginx.into_par_iter().map(|entry| {
+            let content = archive::extract_zip_entry(mmap, &entry)?;
+            progress.add(entry.uncompressed_size as u64);
+            Ok(zip_entry_item(content, &entry.name, zip_path, LogCategory::Nginx))
+        }).chain(extra_nginx.into_par_iter().map(Ok));
+        let outcomes = entries.map(|item: Result<LogSourceItem, String>| {
+            let item = item?;
+            let file = NativeFileInfo { name: item.name.clone(), path: item.path.clone(), size: item.size as u64, category: "nginx".into() };
+            let shards = nginx::parse_slice(&item.data, &progress, available_parallelism());
+            Ok((shards, file))
+        }).collect::<Result<Vec<_>, String>>()?;
+        let mut shards = Vec::new();
+        let mut files = Vec::with_capacity(outcomes.len());
+        for (mut parsed, file) in outcomes {
+            shards.append(&mut parsed);
+            files.push(file);
+        }
+        Ok((shards, files))
+    });
 
-    finish_zip_ingest(
+    let (nginx_shards, mut nginx_files) = nginx_outcome?;
+    let nginx_result = nginx_context.finish(nginx_shards, t0)?;
+
+    let mut result = finish_zip_ingest(
         state,
         pm2_outcome?,
         mongo_outcome?,
@@ -1121,7 +1155,11 @@ fn ingest_single_zip(
         upload_mode,
         app_handle,
         t0,
-    )
+    )?;
+    result.total_bytes += sum_file_sizes(&nginx_files);
+    result.files.append(&mut nginx_files);
+    result.nginx = nginx_result;
+    Ok(result)
 }
 
 /// Store both halves of a ZIP ingest and assemble the result.
@@ -1157,6 +1195,7 @@ fn finish_zip_ingest(
     Ok(NativeIngestResult {
         pm2,
         mongo,
+        nginx: None,
         files,
         total_bytes,
         parse_wall_ms: t0.elapsed().as_millis() as u64,
@@ -1167,6 +1206,7 @@ fn finish_zip_ingest(
 struct ZipEntryGroups {
     pm2: Vec<archive::ZipEntryMeta>,
     mongo: Vec<archive::ZipEntryMeta>,
+    nginx: Vec<archive::ZipEntryMeta>,
     unknown: Vec<archive::ZipEntryMeta>,
 }
 
@@ -1175,15 +1215,21 @@ fn classify_zip_entries(entries: Vec<archive::ZipEntryMeta>) -> ZipEntryGroups {
     let mut groups = ZipEntryGroups {
         pm2: Vec::new(),
         mongo: Vec::new(),
+        nginx: Vec::new(),
         unknown: Vec::new(),
     };
     for entry in entries {
         if !is_extractable_entry(&entry) {
             continue;
         }
+        if entry.name.to_ascii_lowercase().ends_with(".gz") {
+            groups.unknown.push(entry);
+            continue;
+        }
         match classifier::classify_name(&entry.name) {
             LogCategory::Pm2 => groups.pm2.push(entry),
             LogCategory::Mongo => groups.mongo.push(entry),
+            LogCategory::Nginx => groups.nginx.push(entry),
             LogCategory::Skip => {}
             _ => groups.unknown.push(entry),
         }
@@ -1195,6 +1241,7 @@ fn classify_zip_entries(entries: Vec<archive::ZipEntryMeta>) -> ZipEntryGroups {
     groups
         .mongo
         .sort_by_key(|entry| std::cmp::Reverse(entry.compressed_size));
+    groups.nginx.sort_by_key(|entry| std::cmp::Reverse(entry.compressed_size));
     groups
 }
 
@@ -1203,9 +1250,10 @@ fn classify_unknown_zip_entries(
     mmap: &memmap2::Mmap,
     zip_path: &str,
     entries: Vec<archive::ZipEntryMeta>,
-) -> (Vec<LogSourceItem>, Vec<LogSourceItem>) {
+) -> (Vec<LogSourceItem>, Vec<LogSourceItem>, Vec<LogSourceItem>) {
     let mut pm2 = Vec::new();
     let mut mongo = Vec::new();
+    let mut nginx = Vec::new();
     for entry in entries {
         let Ok(cow) = archive::extract_zip_entry(mmap, &entry) else {
             continue;
@@ -1215,11 +1263,12 @@ fn classify_unknown_zip_entries(
             match item.category {
                 LogCategory::Pm2 => pm2.push(item),
                 LogCategory::Mongo => mongo.push(item),
+                LogCategory::Nginx => nginx.push(item),
                 _ => {}
             }
         }
     }
-    (pm2, mongo)
+    (pm2, mongo, nginx)
 }
 
 /// One already-inflated ZIP entry as a log item.
@@ -1400,6 +1449,7 @@ struct IngestPipelineOutcome {
     pm2_shards: Vec<pm2_core::Pm2Engine>,
     pm2_partials: Vec<pm2_core::DecodedPartial>,
     mongo_shards: Vec<mongo_core::MongoEngine>,
+    nginx_shards: Vec<nginx_core::Engine>,
     files: Vec<NativeFileInfo>,
     archive_errors: Vec<String>,
 }
@@ -1409,6 +1459,7 @@ impl IngestPipelineOutcome {
         self.pm2_shards.append(&mut other.pm2_shards);
         self.pm2_partials.append(&mut other.pm2_partials);
         self.mongo_shards.append(&mut other.mongo_shards);
+        self.nginx_shards.append(&mut other.nginx_shards);
         self.files.append(&mut other.files);
         self.archive_errors.append(&mut other.archive_errors);
     }
@@ -1501,6 +1552,15 @@ fn pipeline_log_slice(
             });
             outcome.mongo_shards = parse_mongo_slice(data, progress, cpus);
         }
+        LogCategory::Nginx => {
+            outcome.files.push(NativeFileInfo {
+                name: name.to_string(),
+                path: path.to_string(),
+                size: size as u64,
+                category: "nginx".to_string(),
+            });
+            outcome.nginx_shards = nginx::parse_slice(data, progress, cpus);
+        }
         _ => {}
     }
     outcome
@@ -1542,16 +1602,16 @@ fn pipeline_archive_bytes(
         let mut output = Vec::new();
         if let Err(error) = archive::decompress_gzip(&data, &mut output) {
             log::warn!("Failed to decompress GZIP '{path}': {error}");
-            return IngestPipelineOutcome::default();
+            return IngestPipelineOutcome {
+                archive_errors: vec![format!("Failed to decompress GZIP '{path}': {error}")],
+                ..IngestPipelineOutcome::default()
+            };
         }
         let clean_name = name.strip_suffix(".gz").unwrap_or(name);
         return pipeline_archive_bytes(clean_name, path, Cow::Owned(output), depth + 1, shard_options, progress, cpus);
     }
 
-    let mut category = classifier::classify_name(name);
-    if category == LogCategory::Unknown {
-        category = classifier::classify_content(&data);
-    }
+    let category = classifier::classify_file_or_entry(name, &data);
     if matches!(category, LogCategory::Skip | LogCategory::Zip | LogCategory::Gzip | LogCategory::Archive) {
         return IngestPipelineOutcome::default();
     }
@@ -1623,8 +1683,12 @@ fn pipeline_zip_bytes(
         .map(|entry| {
             let name = entry.name.rsplit('/').next().unwrap_or(&entry.name);
             let path = format!("{archive_path}/{}", entry.name);
-            let Ok(content) = archive::extract_zip_entry(zip_bytes, &entry) else {
-                return IngestPipelineOutcome::default();
+            let content = match archive::extract_zip_entry(zip_bytes, &entry) {
+                Ok(content) => content,
+                Err(error) => return IngestPipelineOutcome {
+                    archive_errors: vec![format!("Failed to extract ZIP entry '{path}': {error}")],
+                    ..IngestPipelineOutcome::default()
+                },
             };
             pipeline_archive_bytes(name, &path, content, depth + 1, shard_options, progress, cpus)
         })
@@ -1682,11 +1746,14 @@ pub fn ingest_native_internal(
     paths: &[String],
     pm2_options: &Pm2ParseOptions,
     mongo_options: &MongoFilterOptions,
+    nginx_options: &nginx_core::Filters,
+    nginx_generation: u64,
     upload_mode: Option<&str>,
     app_handle: Option<&tauri::AppHandle>,
     state: &AppState,
 ) -> Result<NativeIngestResult, String> {
     let t0 = Instant::now();
+    let nginx_context = nginx::Ingest::new(nginx_options, state, nginx_generation, upload_mode != Some("append"));
     if let Some(result) = ingest_single_file(
         paths,
         pm2_options,
@@ -1695,6 +1762,7 @@ pub fn ingest_native_internal(
         app_handle,
         state,
         t0,
+        &nginx_context,
     )? {
         return Ok(result);
     }
@@ -1735,6 +1803,7 @@ pub fn ingest_native_internal(
     let cpus = available_parallelism();
     let shard_options = Pm2ShardOptions::new(pm2_options);
     let mut progress = SharedProgress::new(app_handle, total_bytes);
+    progress.nginx = Some(&nginx_context);
     progress.archive_count = candidates.iter().filter(|candidate| candidate.category == LogCategory::Archive).count().max(1);
 
     let t_pipeline = Instant::now();
@@ -1748,8 +1817,11 @@ pub fn ingest_native_internal(
     for outcome in candidate_outcomes {
         total_outcome.merge(outcome);
     }
+    if !total_outcome.nginx_shards.is_empty() && !total_outcome.archive_errors.is_empty() {
+        return Err(total_outcome.archive_errors.join("\n"));
+    }
 
-    if total_outcome.pm2_shards.is_empty() && total_outcome.mongo_shards.is_empty() {
+    if total_outcome.pm2_shards.is_empty() && total_outcome.mongo_shards.is_empty() && total_outcome.nginx_shards.is_empty() {
         if !total_outcome.archive_errors.is_empty() {
             return Err(total_outcome.archive_errors.join("\n"));
         }
@@ -1765,6 +1837,7 @@ pub fn ingest_native_internal(
     let mut pm2_shards = total_outcome.pm2_shards;
     let pm2_partials = total_outcome.pm2_partials;
     let mongo_shards = total_outcome.mongo_shards;
+    let nginx_shards = total_outcome.nginx_shards;
 
     let t_final = Instant::now();
     let (pm2_outcome, mongo_outcome) = rayon::join(
@@ -1803,6 +1876,8 @@ pub fn ingest_native_internal(
         pm2_options,
         upload_mode,
         t0,
+        &nginx_context,
+        nginx_shards,
     );
     eprintln!("[timing] pipeline: {pipeline_ms}ms, finalize: {final_ms}ms, total: {}ms", t0.elapsed().as_millis());
     res
@@ -1823,7 +1898,10 @@ fn finish_native_ingest(
     pm2_options: &Pm2ParseOptions,
     upload_mode: Option<&str>,
     t0: Instant,
+    nginx_context: &nginx::Ingest<'_>,
+    nginx_shards: Vec<nginx_core::Engine>,
 ) -> Result<NativeIngestResult, String> {
+    let nginx = nginx_context.finish(nginx_shards, t0)?;
     let pm2 = match pm2_outcome {
         Some((shards, result)) => {
             Some(store_pm2_shards(state, shards, result, pm2_options, upload_mode)?)
@@ -1840,6 +1918,7 @@ fn finish_native_ingest(
     Ok(NativeIngestResult {
         pm2,
         mongo,
+        nginx,
         files,
         total_bytes,
         parse_wall_ms: t0.elapsed().as_millis() as u64,
@@ -1856,6 +1935,7 @@ fn ingest_single_file(
     app_handle: Option<&tauri::AppHandle>,
     state: &AppState,
     t0: Instant,
+    nginx_context: &nginx::Ingest<'_>,
 ) -> Result<Option<NativeIngestResult>, String> {
     if paths.len() != 1 {
         return Ok(None);
@@ -1880,6 +1960,7 @@ fn ingest_single_file(
             app_handle,
             state,
             t0,
+            nginx_context,
         )
         .map(Some);
     }
@@ -1896,6 +1977,7 @@ fn ingest_single_file(
         app_handle,
         state,
         t0,
+        nginx_context,
     )
 }
 
@@ -1925,6 +2007,7 @@ fn ingest_raw_file(
     app_handle: Option<&tauri::AppHandle>,
     state: &AppState,
     t0: Instant,
+    nginx_context: &nginx::Ingest<'_>,
 ) -> Result<Option<NativeIngestResult>, String> {
     let file_name = file_path
         .file_name()
@@ -1934,6 +2017,21 @@ fn ingest_raw_file(
     let category = classifier::classify_file_or_entry(&file_name, &mmap);
     let size = mmap.len() as u64;
     match category {
+        LogCategory::Nginx => {
+            let mut progress = SharedProgress::new(app_handle, size);
+            progress.nginx = Some(nginx_context);
+            let shards = nginx::parse_slice(&mmap, &progress, available_parallelism());
+            drop_in_background(mmap);
+            let nginx = nginx_context.finish(shards, t0)?;
+            Ok(Some(NativeIngestResult {
+                pm2: None,
+                mongo: None,
+                nginx,
+                files: vec![NativeFileInfo { name: file_name, path: path.to_string(), size, category: "nginx".into() }],
+                total_bytes: size,
+                parse_wall_ms: t0.elapsed().as_millis() as u64,
+            }))
+        }
         LogCategory::Mongo => ingest_single_mongo_file(
             path.to_string(),
             file_name,
@@ -2043,6 +2141,7 @@ fn single_file_result(
     NativeIngestResult {
         pm2,
         mongo,
+        nginx: None,
         files: vec![NativeFileInfo {
             name: file_name,
             path,
@@ -2200,16 +2299,23 @@ async fn ingest_native_files(
     paths: Vec<String>,
     pm2_options: Pm2ParseOptions,
     mongo_options: MongoFilterOptions,
+    nginx_options: Option<nginx_core::Filters>,
     upload_mode: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<NativeIngestResult, String> {
     let handle = app.clone();
+    let generation = {
+        let state = app.state::<AppState>();
+        state.nginx_generation.fetch_add(1, Ordering::AcqRel).wrapping_add(1)
+    };
     tauri::async_runtime::spawn_blocking(move || -> Result<NativeIngestResult, String> {
         let state = handle.state::<AppState>();
         ingest_native_internal(
             &paths,
             &pm2_options,
             &mongo_options,
+            &nginx_options.unwrap_or_default(),
+            generation,
             upload_mode.as_deref(),
             Some(&handle),
             &state,
@@ -2228,6 +2334,9 @@ pub fn run() {
         .manage(AppState {
             pm2_shards: Mutex::new(Vec::new()),
             mongo: Mutex::new(None),
+            nginx: Mutex::new(nginx::NginxState::default()),
+            nginx_generation: AtomicU64::new(0),
+            nginx_active: std::sync::atomic::AtomicBool::new(false),
         })
         .invoke_handler(tauri::generate_handler![
             parse_pm2_files,
@@ -2236,6 +2345,11 @@ pub fn run() {
             reaggregate_mongo,
             ingest_native_files,
             clear_engine,
+            nginx::reaggregate_nginx,
+            nginx::ingest_nginx_text,
+            nginx::clear_nginx,
+            nginx::cancel_nginx,
+            nginx::nginx_engine_active,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

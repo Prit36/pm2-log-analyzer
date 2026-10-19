@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type AppMode = "pm2" | "mongo";
+export type AppMode = "pm2" | "mongo" | "nginx";
 
 type AppModeState = {
   mode: AppMode;
@@ -14,7 +14,8 @@ export const useAppModeStore = create<AppModeState>()(
     (set, get) => ({
       mode: "pm2",
       setMode: (mode: AppMode) => set({ mode }),
-      toggleMode: () => set({ mode: get().mode === "pm2" ? "mongo" : "pm2" }),
+      toggleMode: () =>
+        set({ mode: get().mode === "pm2" ? "mongo" : get().mode === "mongo" ? "nginx" : "pm2" }),
     }),
     {
       name: "app-analyzer-mode",

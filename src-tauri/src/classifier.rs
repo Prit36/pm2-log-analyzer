@@ -3,6 +3,7 @@
 pub enum LogCategory {
     Pm2,
     Mongo,
+    Nginx,
     Zip,
     Gzip,
     Archive,
@@ -51,6 +52,16 @@ pub fn classify_name(name: &str) -> LogCategory {
         return LogCategory::Mongo;
     }
 
+    if clean_name.contains("nginx")
+        || clean_name.starts_with("access.log")
+        || clean_name.starts_with("access-")
+        || clean_name.starts_with("access_")
+        || clean_name.ends_with("-access.log")
+        || clean_name.ends_with("_access.log")
+    {
+        return LogCategory::Nginx;
+    }
+
     // API / PM2 patterns: api-out.log*, pm2*, out.log, etc.
     if clean_name.contains("api-out")
         || clean_name.contains("api_out")
@@ -82,6 +93,10 @@ pub fn classify_content(data: &[u8]) -> LogCategory {
 
     let sample_len = data.len().min(4096);
     let sample = &data[..sample_len];
+
+    if sample.split(|byte| *byte == b'\n').any(nginx_core::is_access_line) {
+        return LogCategory::Nginx;
+    }
 
     // Check for Mongo JSON or legacy formats
     if sample.windows(8).any(|window| window == b"\"$date\"")
@@ -115,6 +130,9 @@ pub fn classify_file_or_entry(name: &str, sample: &[u8]) -> LogCategory {
     }
     let content_cat = classify_content(sample);
     if matches!(content_cat, LogCategory::Zip | LogCategory::Gzip | LogCategory::Archive) {
+        return content_cat;
+    }
+    if content_cat == LogCategory::Nginx {
         return content_cat;
     }
     if name_cat != LogCategory::Unknown {

@@ -30,6 +30,17 @@ fn classify_by_name(name: &str) -> Option<&'static str> {
         return Some("skip");
     }
 
+    if file_name.contains("nginx")
+        || file_name == "access"
+        || file_name.starts_with("access.")
+        || file_name.starts_with("access-")
+        || file_name.starts_with("access_")
+        || file_name.ends_with("-access.log")
+        || file_name.ends_with("_access.log")
+    {
+        return Some("nginx");
+    }
+
     // Mongo patterns: mongod.log*, mongodb.log*, mongo*.log*
     if file_name.starts_with("mongod")
         || file_name.starts_with("mongodb")
@@ -59,6 +70,26 @@ fn classify_by_name(name: &str) -> Option<&'static str> {
 fn classify_by_content(data: &[u8]) -> &'static str {
     let sample_len = data.len().min(4096);
     let sample = &data[..sample_len];
+
+    // Combined access logs quote the request immediately after a CLF timestamp.
+    // This check precedes generic HTTP detection because both contain GET/POST.
+    for line in sample.split(|byte| *byte == b'\n') {
+        if let Some(open) = line.iter().position(|byte| *byte == b'[') {
+            let stamp = &line[open + 1..];
+            if stamp.len() >= 30
+                && stamp[2] == b'/'
+                && stamp[6] == b'/'
+                && stamp[11] == b':'
+                && stamp[14] == b':'
+                && stamp[17] == b':'
+                && stamp[20] == b' '
+                && matches!(stamp[21], b'+' | b'-')
+                && stamp[26..29] == *b"] \""
+            {
+                return "nginx";
+            }
+        }
+    }
 
     // Check for Mongo JSON or legacy formats
     if sample.windows(8).any(|window| window == b"\"$date\"")
@@ -248,10 +279,18 @@ impl FastDecompressor {
 /// Fast classifier for standalone files or buffers
 #[wasm_bindgen]
 pub fn classify_log_name_or_content(name: &str, sample: &[u8]) -> String {
-    if let Some(cat) = classify_by_name(name) {
+    let named = classify_by_name(name);
+    if named == Some("skip") {
+        return "skip".to_string();
+    }
+    let content = classify_by_content(sample);
+    if content == "nginx" {
+        return content.to_string();
+    }
+    if let Some(cat) = named {
         if cat != "unknown" {
             return cat.to_string();
         }
     }
-    classify_by_content(sample).to_string()
+    content.to_string()
 }
