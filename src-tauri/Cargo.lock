@@ -2235,7 +2235,6 @@ dependencies = [
  "hashbrown 0.17.1",
  "memchr",
  "pm2-core",
- "rapidhash",
  "serde",
  "serde_json",
  "wasm-bindgen",

@@ -22,7 +22,12 @@ declare const self: {
   postMessage: (message: NginxShardResponse, transfer?: Transferable[]) => void;
 };
 
-const WINDOW = 32 * 1024 * 1024;
+// Small windows keep the Wasm ingest buffer and in-flight Blob reads cheap per worker;
+// several reads in flight hide Blob read latency behind parsing.
+const WINDOW = 8 * 1024 * 1024;
+const READ_AHEAD = 3;
+// Buffer sources yield to the event loop at this cadence (nested timers clamp to 4 ms).
+const YIELD_BYTES = 32 * 1024 * 1024;
 let memory: WebAssembly.Memory;
 let committed: NginxEngine[] = [];
 let pending: NginxEngine | null = null;
@@ -50,32 +55,44 @@ async function parseSources(message: Extract<NginxShardRequest, { type: "PARSE" 
   checkCancelled(message.epoch);
   pending = new NginxEngine();
   let processed = 0;
+  let unyielded = 0;
   try {
     for (const source of message.sources) {
       const start = source.kind === "file" ? source.start : 0;
       const end = source.kind === "file" ? source.end : source.buffer.byteLength;
       const buffer = source.kind === "buffer" ? new Uint8Array(source.buffer) : null;
-      let read: Promise<ArrayBuffer> | null =
-        source.kind === "file" && start < end
-          ? source.file.slice(start, Math.min(end, start + WINDOW)).arrayBuffer()
-          : null;
+      const reads: Promise<ArrayBuffer>[] = [];
+      let nextRead = start;
+      const readAhead = () => {
+        while (source.kind === "file" && reads.length < READ_AHEAD && nextRead < end) {
+          reads.push(source.file.slice(nextRead, Math.min(end, nextRead + WINDOW)).arrayBuffer());
+          nextRead += WINDOW;
+        }
+      };
+      readAhead();
       for (let offset = start; offset < end; offset += WINDOW) {
         checkCancelled(message.epoch);
         const take = Math.min(WINDOW, end - offset);
-        const bytes = buffer ? buffer.subarray(offset, offset + take) : new Uint8Array(await read!);
-        if (source.kind === "file" && offset + take < end) {
-          read = source.file
-            .slice(offset + take, Math.min(end, offset + take + WINDOW))
-            .arrayBuffer();
-        }
+        const bytes = buffer
+          ? buffer.subarray(offset, offset + take)
+          : new Uint8Array(await reads.shift()!);
+        readAhead();
         checkCancelled(message.epoch);
         const pointer = pending.ingest_ptr(take);
         new Uint8Array(memory.buffer, pointer, take).set(bytes);
         pending.feed(take);
+        // The runtime only switches a function to optimized code on a later call. One
+        // throwaway aggregate while more input remains lets that compile finish in the
+        // background, so the real first aggregate does not run in the baseline tier.
+        if (processed === 0 && offset + take < end) pending.partial("{}");
         processed += take;
+        unyielded += take;
         self.postMessage({ type: "PROGRESS", epoch: message.epoch, processed });
         // Let cancellation and new requests reach the worker between bounded windows.
-        if (buffer) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        if (buffer && unyielded >= YIELD_BYTES) {
+          unyielded = 0;
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        }
       }
       checkCancelled(message.epoch);
       pending.end_source();
