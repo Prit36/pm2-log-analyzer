@@ -4,7 +4,7 @@ import type {
   NginxWorkerMessage,
   NginxWorkerResponse,
 } from "../workers/nginxParserWorker";
-import type { NginxResult } from "../nginx/types";
+import type { NginxFilters, NginxResult } from "../nginx/types";
 import type { NginxSource } from "../store/nginxStore";
 import { useNginxStore } from "../store/nginxStore";
 import { isTauri } from "../utils/platform";
@@ -14,6 +14,7 @@ import {
   isNativeNginxActive,
   parseNginxTextNative,
   reaggregateNginxNative,
+  getNginxExportNative,
 } from "../services/nativeBridge";
 
 export type NginxBench = {
@@ -53,6 +54,7 @@ const pending = new Map<
 let worker: Worker | null = null;
 let sequence = 0;
 let uploadGeneration = 0;
+let exportSequence = 0;
 
 export function getNginxUploadGeneration(): number {
   return uploadGeneration;
@@ -67,6 +69,12 @@ function getWorker(): Worker {
       return;
     }
     const operation = pending.get(data.id);
+    if (data.id < 0) {
+      if (data.type === "ERROR") operation?.reject(new Error(data.message));
+      else operation?.resolve(data.type === "RESULT" ? data.payload : null);
+      pending.delete(data.id);
+      return;
+    }
     if (data.id !== sequence) {
       if (data.type !== "PROGRESS") {
         operation?.resolve(null);
@@ -214,6 +222,12 @@ export async function reaggregateNginx(): Promise<void> {
     bench.lastReaggMs = ms;
     bench.reaggTimes.push(ms);
   }
+}
+
+export async function getNginxExportResult(filters: NginxFilters): Promise<NginxResult | null> {
+  const options = { ...filters, topN: 0 };
+  if (isTauri() && isNativeNginxActive()) return getNginxExportNative(options);
+  return run({ type: "EXPORT", id: --exportSequence, filters: options });
 }
 
 export function cancelNginx(): void {

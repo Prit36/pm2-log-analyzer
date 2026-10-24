@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import type { ReactNode } from "react";
 import type { NginxHotspot, NginxLatency, NginxMetric, NginxResult } from "../../nginx/types";
 import { formatBytes, formatNum } from "../../utils/format";
 import { cn } from "../../utils/cn";
@@ -200,10 +201,10 @@ function HotspotRow({
   );
 }
 
-function PanelHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+function PanelHeader({ title, subtitle }: { title: ReactNode; subtitle?: string }) {
   return (
-    <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800">
-      <h2 className={panelTitleClass}>{title}</h2>
+    <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+      {String(title) === title ? <h2 className={panelTitleClass}>{title}</h2> : title}
       {subtitle && (
         <span className="text-[11px] text-slate-400 dark:text-slate-500">{subtitle}</span>
       )}
@@ -218,16 +219,18 @@ function Empty({ children }: { children: string }) {
 export function NginxSlowestPanel({
   result,
   metric,
+  title = "Slowest endpoints",
 }: {
   result: NginxResult;
   metric: NginxMetric;
+  title?: ReactNode;
 }) {
   const rows = result.slowestEndpoints;
   const max = rows[0]?.p95Ms ?? 0;
   return (
     <section className={panelClass}>
       <PanelHeader
-        title="Slowest endpoints"
+        title={title}
         subtitle={`p95 ${metric === "request" ? "request" : "upstream"}`}
       />
       {rows.length === 0 ? (
@@ -251,12 +254,18 @@ export function NginxSlowestPanel({
   );
 }
 
-export function NginxFailingPanel({ result }: { result: NginxResult }) {
+export function NginxFailingPanel({
+  result,
+  title = "Most errors",
+}: {
+  result: NginxResult;
+  title?: ReactNode;
+}) {
   const rows = result.failingEndpoints;
   const max = rows[0]?.errorCount ?? 0;
   return (
     <section className={panelClass}>
-      <PanelHeader title="Most errors" subtitle="4xx + 5xx" />
+      <PanelHeader title={title} subtitle="4xx + 5xx" />
       {rows.length === 0 ? (
         <Empty>No error responses in this selection.</Empty>
       ) : (

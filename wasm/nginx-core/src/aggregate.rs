@@ -1,10 +1,11 @@
 use std::cmp::Ordering;
+use std::hash::{BuildHasherDefault, Hasher};
 
 use hashbrown::{HashMap, HashSet};
 use pm2_core::{NormalizeMode, normalize_into};
 use serde::{Deserialize, Serialize};
 
-use crate::{Engine, Normalized, Row};
+use crate::{Chunk, Engine, HourSlot, Intern, LARGE_BYTES, Normalized, Timing};
 
 #[derive(Clone, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -152,13 +153,115 @@ pub struct Report {
     pub diagnostics: Diagnostics,
 }
 
+/// Hashes a histogram bucket key with one 64-bit multiply. The default hasher's
+/// 128-bit folded multiply is a `__multi3` call on Wasm.
+#[derive(Default)]
+pub(crate) struct KeyHasher(u64);
+
+impl Hasher for KeyHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.write_u8(byte);
+        }
+    }
+    fn write_u8(&mut self, value: u8) {
+        self.write_u16(u16::from(value));
+    }
+    fn write_u16(&mut self, value: u16) {
+        // The multiply moves key bits into the top byte hashbrown uses for matching.
+        self.0 = (self.0 ^ u64::from(value)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+    fn write_i16(&mut self, value: i16) {
+        self.write_u16(value as u16);
+    }
+}
+
+type KeyMap = HashMap<i16, u64, BuildHasherDefault<KeyHasher>>;
+
 /// Most endpoint groups have only one observed bucket; they allocate no hash map.
+/// Busy histograms switch to a dense key range, which every row of the summary and
+/// time buckets reaches without hashing.
 #[derive(Default)]
 pub(crate) enum Histogram {
     #[default]
     Empty,
     Single(i16, u64),
-    Multiple(HashMap<i16, u64>),
+    Multiple(KeyMap),
+    Dense(Box<Dense>),
+}
+
+/// The bucket compact timing keys use for an exact 0 ms.
+const ZERO_KEY: i16 = i16::MIN + 1;
+/// Distinct keys before a map becomes dense.
+const DENSE_AFTER: usize = 32;
+/// The dense range spans at most this many slots per populated key, so it never
+/// outgrows the map it replaces by more than a constant factor.
+const DENSE_SPREAD: usize = 8;
+/// Extra slots added on the side a range grows, so neighbouring keys do not reallocate.
+const DENSE_PAD: usize = 16;
+
+pub(crate) struct Dense {
+    low: i32,
+    counts: Vec<u64>,
+    populated: usize,
+    /// Keys the range cannot cover within its budget (for example exact zeros).
+    rest: KeyMap,
+}
+
+impl Dense {
+    /// Covers every key but the exact-zero bucket, if that range is dense enough.
+    fn from_map(map: &mut KeyMap) -> Option<Self> {
+        let keys = map.keys().copied().filter(|&key| key != ZERO_KEY);
+        let low = i32::from(keys.clone().min()?);
+        let high = i32::from(keys.max()?);
+        if (high - low + 1) as usize > DENSE_SPREAD * map.len() {
+            return None;
+        }
+        let mut dense = Self {
+            low,
+            counts: vec![0; (high - low + 1) as usize],
+            populated: 0,
+            rest: KeyMap::default(),
+        };
+        for (key, count) in map.drain() {
+            dense.add(key, count);
+        }
+        Some(dense)
+    }
+
+    fn add(&mut self, key: i16, count: u64) {
+        let wide = i32::from(key);
+        let offset = wide - self.low;
+        if offset >= 0 && (offset as usize) < self.counts.len() {
+            let slot = &mut self.counts[offset as usize];
+            self.populated += usize::from(*slot == 0);
+            *slot += count;
+            return;
+        }
+        let budget = DENSE_SPREAD * (self.populated + 1);
+        let high = self.low + self.counts.len() as i32 - 1;
+        let (mut low, mut new_high) = (self.low.min(wide), high.max(wide));
+        if (new_high - low + 1) as usize > budget {
+            *self.rest.entry(key).or_default() += count;
+            return;
+        }
+        let pad = DENSE_PAD.min(budget - (new_high - low + 1) as usize) as i32;
+        if wide < self.low {
+            low = (low - pad).max(i32::from(i16::MIN));
+        } else {
+            new_high = (new_high + pad).min(i32::from(i16::MAX));
+        }
+        let mut counts = vec![0; (new_high - low + 1) as usize];
+        let shift = (self.low - low) as usize;
+        counts[shift..shift + self.counts.len()].copy_from_slice(&self.counts);
+        counts[(wide - low) as usize] = count;
+        self.counts = counts;
+        self.low = low;
+        self.populated += 1;
+    }
 }
 
 impl Histogram {
@@ -167,12 +270,22 @@ impl Histogram {
             Self::Empty => *self = Self::Single(key, count),
             Self::Single(old_key, old_count) if *old_key == key => *old_count += count,
             Self::Single(old_key, old_count) => {
-                let mut map = HashMap::with_capacity(2);
+                let mut map = KeyMap::with_capacity_and_hasher(2, Default::default());
                 map.insert(*old_key, *old_count);
                 map.insert(key, count);
                 *self = Self::Multiple(map);
             }
-            Self::Multiple(map) => *map.entry(key).or_default() += count,
+            Self::Multiple(map) => {
+                *map.entry(key).or_default() += count;
+                // Retry at each power of two while the keys are too sparse for a range.
+                if map.len() >= DENSE_AFTER
+                    && map.len().is_power_of_two()
+                    && let Some(dense) = Dense::from_map(map)
+                {
+                    *self = Self::Dense(Box::new(dense));
+                }
+            }
+            Self::Dense(dense) => dense.add(key, count),
         }
     }
 
@@ -181,18 +294,18 @@ impl Histogram {
             Self::Empty => Vec::new(),
             Self::Single(key, count) => vec![(*key, *count)],
             Self::Multiple(map) => map.iter().map(|(&key, &count)| (key, count)).collect(),
+            Self::Dense(dense) => (dense.low..)
+                .zip(&dense.counts)
+                .filter(|&(_, &count)| count > 0)
+                .map(|(key, &count)| (key as i16, count))
+                .chain(dense.rest.iter().map(|(&key, &count)| (key, count)))
+                .collect(),
         }
     }
 
     fn merge(&mut self, other: Self) {
-        match other {
-            Self::Empty => {}
-            Self::Single(key, count) => self.add(key, count),
-            Self::Multiple(map) => {
-                for (key, count) in map {
-                    self.add(key, count);
-                }
-            }
+        for (key, count) in other.buckets() {
+            self.add(key, count);
         }
     }
 }
@@ -315,12 +428,15 @@ pub(crate) struct Counts {
 }
 
 impl Counts {
-    fn add(&mut self, row: &Row) {
+    fn add(&mut self, status: u16, bytes: u64) {
         self.count += 1;
-        self.errors += u64::from(row.status >= 400);
-        self.bytes += row.bytes;
+        self.errors += u64::from(status >= 400);
+        self.bytes += bytes;
     }
     fn merge(&mut self, other: Self) {
+        self.add_counts(&other);
+    }
+    fn add_counts(&mut self, other: &Self) {
         self.count += other.count;
         self.errors += other.errors;
         self.bytes += other.bytes;
@@ -335,10 +451,12 @@ pub(crate) struct Metrics {
 }
 
 impl Metrics {
-    fn add(&mut self, row: &Row) {
-        self.counts.add(row);
-        self.request.add(row.request_ms, row.request_key);
-        self.upstream.add(row.upstream_ms, row.upstream_key);
+    fn add(&mut self, status: u16, bytes: u64, timing: Option<&Timing>) {
+        self.counts.add(status, bytes);
+        if let Some(timing) = timing {
+            self.request.add(timing.request_ms, timing.request_key);
+            self.upstream.add(timing.upstream_ms, timing.upstream_key);
+        }
     }
     fn merge(&mut self, other: Self) {
         self.counts.merge(other.counts);
@@ -362,30 +480,159 @@ pub struct Partial {
     pub(crate) diagnostics: Diagnostics,
 }
 
+/// Splits a canonical `METHOD path` endpoint key at the space after the method.
+fn split_endpoint(endpoint: &str) -> (&str, &str) {
+    endpoint.split_once(' ').unwrap_or((endpoint, ""))
+}
+
+/// Dense per-id counts become the shard's string-keyed map. Distinct raw values can
+/// share one canonical text, so entries merge rather than overwrite.
+fn counts_map(intern: &Intern, counts: Vec<Counts>) -> HashMap<String, Counts> {
+    let mut map = HashMap::new();
+    for (id, counts) in counts.into_iter().enumerate() {
+        if counts.count > 0 {
+            map.entry(intern.text(id as u32).into_owned())
+                .or_insert_with(Counts::default)
+                .merge(counts);
+        }
+    }
+    map
+}
+
+fn dense<T: Default>(len: usize) -> Vec<T> {
+    let mut values = Vec::with_capacity(len);
+    values.resize_with(len, T::default);
+    values
+}
+
+const PATH_OK: u8 = 1;
+const METHOD_OK: u8 = 2;
+
+/// Row selection resolved once per aggregate into per-id tables.
+struct RowFilter<'a> {
+    group_ids: Option<&'a [u32]>,
+    group_flags: Option<Vec<u8>>,
+    /// (text query matches, exact client queries match) per visitor.
+    visitor_allowed: Option<Vec<(bool, bool)>>,
+    time_allowed: Option<Vec<bool>>,
+    family: u16,
+    status_code: u16,
+    min_ms: f64,
+    upstream: bool,
+}
+
+/// Dense accumulators indexed by engine ids.
+struct Totals {
+    summary: Metrics,
+    endpoints: Vec<Metrics>,
+    hourly: Vec<Metrics>,
+    daily: Vec<Metrics>,
+    visitors: Vec<Counts>,
+    // Parsed statuses are always 100..=599.
+    statuses: [u64; 600],
+}
+
+impl Totals {
+    /// One call per chunk lets the Wasm runtime switch to optimized code between
+    /// chunks; a single call over every row stays in the baseline tier throughout.
+    #[inline(never)]
+    fn add_chunk(
+        &mut self,
+        chunk: &Chunk,
+        first_row: usize,
+        filter: &RowFilter,
+        times: &[HourSlot],
+        large_bytes: &HashMap<usize, u64>,
+    ) {
+        let mut timings = chunk.timings.iter();
+        for (offset, row) in chunk.rows.iter().enumerate() {
+            // Advance the sparse timing cursor before any filter skips the row.
+            let timing = if row.timed { timings.next() } else { None };
+            let group = filter
+                .group_ids
+                .map_or(row.endpoint, |ids| ids[row.endpoint as usize]);
+            let flags = filter
+                .group_flags
+                .as_ref()
+                .map_or(PATH_OK | METHOD_OK, |flags| flags[group as usize]);
+            let (client_matches, exact_client_matches) = filter
+                .visitor_allowed
+                .as_ref()
+                .map_or((true, true), |allowed| allowed[row.visitor as usize]);
+            let family = filter.family;
+            if (flags & PATH_OK == 0 && !client_matches)
+                || !exact_client_matches
+                || flags & METHOD_OK == 0
+                || filter
+                    .time_allowed
+                    .as_ref()
+                    .is_some_and(|allowed| !allowed[row.time as usize])
+                || (family == 9 && row.status < 400)
+                || (family != 0 && family != 9 && row.status / 100 != family)
+                || (filter.status_code != 0 && row.status != filter.status_code)
+            {
+                continue;
+            }
+            if filter.min_ms > 0.0 {
+                let millis = timing.map_or(f32::NAN, |timing| {
+                    if filter.upstream {
+                        timing.upstream_ms
+                    } else {
+                        timing.request_ms
+                    }
+                });
+                if !millis.is_finite() || f64::from(millis) < filter.min_ms {
+                    continue;
+                }
+            }
+            let bytes = if row.bytes == LARGE_BYTES {
+                large_bytes[&(first_row + offset)]
+            } else {
+                u64::from(row.bytes)
+            };
+            let status = row.status;
+            self.summary.add(status, bytes, timing);
+            self.endpoints[group as usize].add(status, bytes, timing);
+            self.hourly[row.time as usize].add(status, bytes, timing);
+            self.daily[times[row.time as usize].date as usize].add(status, bytes, timing);
+            self.visitors[row.visitor as usize].add(status, bytes);
+            self.statuses[status as usize] += 1;
+        }
+    }
+}
+
 impl Engine {
+    /// Groups every endpoint not yet seen by `mode`'s cache.
+    pub(crate) fn normalize_pending(&mut self, mode: NormalizeMode) {
+        let cache = self.normalized[mode as usize - 1].get_or_insert_with(Normalized::default);
+        for id in cache.ids.len()..self.endpoints.len() {
+            let endpoint = self.endpoints.text(id as u32);
+            let (method, path) = split_endpoint(&endpoint);
+            cache.key.clear();
+            cache.key.extend_from_slice(method.as_bytes());
+            cache.key.push(b' ');
+            cache
+                .key
+                .extend_from_slice(normalize_into(path.as_bytes(), mode, &mut cache.scratch));
+            cache.ids.push(cache.groups.intern(&cache.key).0);
+        }
+    }
+
     pub fn aggregate(&mut self, filters: &Filters) -> Partial {
         let mode = match filters.normalize_mode.as_str() {
             "stripQuery" => NormalizeMode::StripQuery,
             "collapseIds" => NormalizeMode::CollapseIds,
             _ => NormalizeMode::Exact,
         };
-        let normalized = if mode == NormalizeMode::Exact {
-            None
-        } else {
-            let index = mode as usize - 1;
-            let cache = self.normalized[index].get_or_insert_with(Normalized::default);
-            let mut scratch = Vec::new();
-            for path in &self.paths.values[cache.ids.len()..] {
-                let id = cache
-                    .paths
-                    .intern(normalize_into(path.as_bytes(), mode, &mut scratch));
-                cache.ids.push(id);
+        if mode != NormalizeMode::Exact {
+            self.normalize_pending(mode);
+        }
+        let (groups, group_ids) = match (mode, &self.normalized) {
+            (NormalizeMode::StripQuery, [Some(cache), _])
+            | (NormalizeMode::CollapseIds, [_, Some(cache)]) => {
+                (&cache.groups, Some(cache.ids.as_slice()))
             }
-            Some(cache)
-        };
-        let (path_values, path_ids) = match normalized {
-            Some(cache) => (&cache.paths.values, Some(&cache.ids)),
-            None => (&self.paths.values, None),
+            _ => (&self.endpoints, None),
         };
         let query = filters.query.to_lowercase();
         let parts: Vec<&str> = query.split_whitespace().collect();
@@ -401,38 +648,44 @@ impl Engine {
             }
         }
         let text_query = text_parts.join(" ");
-        let path_allowed: Vec<bool> = path_values
-            .iter()
-            .map(|path| text_query.is_empty() || path.to_lowercase().contains(&text_query))
-            .collect();
-        let client_allowed: Vec<(bool, bool)> = self
-            .clients
-            .values
-            .iter()
-            .map(|client| {
-                let client = client.to_lowercase();
-                (
-                    text_query.is_empty() || client.contains(&text_query),
-                    client_queries.iter().all(|query| client == *query),
-                )
-            })
-            .collect();
-        let method_allowed: Vec<bool> = self
-            .methods
-            .values
-            .iter()
-            .map(|method| filters.methods.is_empty() || filters.methods.contains(method))
-            .collect();
-        let date_allowed: Vec<bool> = self
-            .dates
-            .values
-            .iter()
-            .map(|date| {
-                filters.date_filter == "all"
-                    || filters.date_filter.is_empty()
-                    || filters.date_filter == *date
-            })
-            .collect();
+        // Per-id filter tables are only built when a filter can reject something.
+        let group_flags: Option<Vec<u8>> = (!text_query.is_empty() || !filters.methods.is_empty())
+            .then(|| {
+                (0..groups.len() as u32)
+                    .map(|id| {
+                        let endpoint = groups.text(id);
+                        let (method, path) = split_endpoint(&endpoint);
+                        let path_ok =
+                            text_query.is_empty() || path.to_lowercase().contains(&text_query);
+                        let method_ok = filters.methods.is_empty()
+                            || filters.methods.iter().any(|allowed| allowed == method);
+                        (u8::from(path_ok) * PATH_OK) | (u8::from(method_ok) * METHOD_OK)
+                    })
+                    .collect()
+            });
+        let visitor_allowed: Option<Vec<(bool, bool)>> =
+            (!text_query.is_empty() || !client_queries.is_empty()).then(|| {
+                let clients: Vec<(bool, bool)> = (0..self.clients.len() as u32)
+                    .map(|id| {
+                        let client = self.clients.text(id).to_lowercase();
+                        (
+                            text_query.is_empty() || client.contains(&text_query),
+                            client_queries.iter().all(|query| client == *query),
+                        )
+                    })
+                    .collect();
+                self.visitor_fields
+                    .iter()
+                    .map(|fields| clients[fields[0] as usize])
+                    .collect()
+            });
+        let time_allowed: Option<Vec<bool>> =
+            (filters.date_filter != "all" && !filters.date_filter.is_empty()).then(|| {
+                self.times
+                    .iter()
+                    .map(|time| filters.date_filter.as_bytes() == self.dates[time.date as usize])
+                    .collect()
+            });
         let family = match filters.status_family.as_str() {
             "2xx" => 2,
             "3xx" => 3,
@@ -442,86 +695,94 @@ impl Engine {
             "errors" => 9,
             _ => 0,
         };
-        let mut summary = Metrics::default();
-        let mut endpoints: HashMap<(u32, u32), Metrics> = HashMap::new();
-        let mut hourly: HashMap<(u32, u8), Metrics> = HashMap::new();
-        let mut daily: HashMap<u32, Metrics> = HashMap::new();
-        let mut clients: HashMap<u32, Counts> = HashMap::new();
-        let mut referrers: HashMap<u32, Counts> = HashMap::new();
-        let mut agents: HashMap<u32, Counts> = HashMap::new();
-        let mut statuses = HashMap::new();
-        for row in &self.rows {
-            let path = path_ids.map_or(row.path, |ids| ids[row.path as usize]);
-            let (client_matches, exact_client_matches) = client_allowed[row.client as usize];
-            if (!path_allowed[path as usize] && !client_matches)
-                || !exact_client_matches
-                || !method_allowed[row.method as usize]
-                || !date_allowed[row.date as usize]
-                || (family == 9 && row.status < 400)
-                || (family != 0 && family != 9 && row.status / 100 != family)
-                || (filters.status_code != 0 && row.status != filters.status_code)
-            {
-                continue;
-            }
-            let millis = if filters.metric == "upstream" {
-                row.upstream_ms
-            } else {
-                row.request_ms
-            };
-            if filters.min_ms > 0.0 && (!millis.is_finite() || f64::from(millis) < filters.min_ms) {
-                continue;
-            }
-            summary.add(row);
-            endpoints.entry((row.method, path)).or_default().add(row);
-            hourly.entry((row.date, row.hour)).or_default().add(row);
-            daily.entry(row.date).or_default().add(row);
-            clients.entry(row.client).or_default().add(row);
-            referrers.entry(row.referrer).or_default().add(row);
-            agents.entry(row.agent).or_default().add(row);
-            *statuses.entry(row.status).or_default() += 1;
+        let upstream = filters.metric == "upstream";
+        let filter = RowFilter {
+            group_ids,
+            group_flags,
+            visitor_allowed,
+            time_allowed,
+            family,
+            status_code: filters.status_code,
+            min_ms: filters.min_ms,
+            upstream,
+        };
+        let mut totals = Totals {
+            summary: Metrics::default(),
+            endpoints: dense(groups.len()),
+            hourly: dense(self.times.len()),
+            daily: dense(self.dates.len()),
+            visitors: dense(self.visitors.len()),
+            statuses: [0; 600],
+        };
+        let mut first_row = 0;
+        for chunk in &self.chunks {
+            totals.add_chunk(chunk, first_row, &filter, &self.times, &self.large_bytes);
+            first_row += chunk.rows.len();
         }
+        let Totals {
+            summary,
+            endpoints,
+            hourly,
+            daily,
+            visitors,
+            statuses,
+        } = totals;
+        let mut clients: Vec<Counts> = dense(self.clients.len());
+        let mut referrers: Vec<Counts> = dense(self.referrers.len());
+        let mut agents: Vec<Counts> = dense(self.agents.len());
+        for (counts, &[client, referrer, agent]) in visitors.iter().zip(&self.visitor_fields) {
+            if counts.count > 0 {
+                clients[client as usize].add_counts(counts);
+                referrers[referrer as usize].add_counts(counts);
+                agents[agent as usize].add_counts(counts);
+            }
+        }
+        let mut endpoint_map = HashMap::new();
+        for (id, metrics) in endpoints.into_iter().enumerate() {
+            if metrics.counts.count > 0 {
+                let endpoint = groups.text(id as u32);
+                let (method, path) = split_endpoint(&endpoint);
+                endpoint_map
+                    .entry((method.to_owned(), path.to_owned()))
+                    .or_insert_with(Metrics::default)
+                    .merge(metrics);
+            }
+        }
+        // Dates are formatted from validated ASCII digits.
+        let date_text =
+            |date: u32| String::from_utf8_lossy(&self.dates[date as usize]).into_owned();
         Partial {
             summary,
-            endpoints: endpoints
-                .into_iter()
-                .map(|((method, path), value)| {
-                    (
-                        (
-                            self.methods.values[method as usize].clone(),
-                            path_values[path as usize].clone(),
-                        ),
-                        value,
-                    )
-                })
-                .collect(),
+            endpoints: endpoint_map,
             hourly: hourly
                 .into_iter()
-                .map(|((date, hour), value)| {
+                .enumerate()
+                .filter(|(_, metrics)| metrics.counts.count > 0)
+                .map(|(id, metrics)| {
+                    let time = &self.times[id];
                     (
-                        format!("{} {hour:02}:00", self.dates.values[date as usize]),
-                        value,
+                        format!("{} {:02}:00", date_text(time.date), time.hour),
+                        metrics,
                     )
                 })
                 .collect(),
             daily: daily
                 .into_iter()
-                .map(|(date, value)| (self.dates.values[date as usize].clone(), value))
+                .enumerate()
+                .filter(|(_, metrics)| metrics.counts.count > 0)
+                .map(|(id, metrics)| (date_text(id as u32), metrics))
                 .collect(),
-            clients: clients
-                .into_iter()
-                .map(|(id, value)| (self.clients.values[id as usize].clone(), value))
+            clients: counts_map(&self.clients, clients),
+            referrers: counts_map(&self.referrers, referrers),
+            agents: counts_map(&self.agents, agents),
+            statuses: (0u16..)
+                .zip(statuses)
+                .filter(|&(_, count)| count > 0)
                 .collect(),
-            referrers: referrers
-                .into_iter()
-                .map(|(id, value)| (self.referrers.values[id as usize].clone(), value))
+            dates: (0..self.dates.len() as u32).map(date_text).collect(),
+            methods: (0..self.methods.len() as u32)
+                .map(|id| self.methods.text(id).into_owned())
                 .collect(),
-            agents: agents
-                .into_iter()
-                .map(|(id, value)| (self.agents.values[id as usize].clone(), value))
-                .collect(),
-            statuses,
-            dates: self.dates.values.iter().cloned().collect(),
-            methods: self.methods.values.iter().cloned().collect(),
             diagnostics: self.diagnostics.clone(),
         }
     }

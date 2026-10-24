@@ -29,7 +29,7 @@ function endpointGrid(timed: boolean): string {
   return cn(
     "grid items-center gap-2 px-3",
     timed
-      ? "grid-cols-[minmax(280px,1fr)_110px_110px_72px_72px_72px_72px_84px_64px]"
+      ? "grid-cols-[minmax(200px,1fr)_100px_80px_56px_56px_56px_56px_64px]"
       : "grid-cols-[minmax(280px,1fr)_110px_110px_100px]",
   );
 }
@@ -42,7 +42,6 @@ const columns: { label: string; key: NginxSortKey | null; title?: string }[] = [
   { label: "p99", key: "p99Ms" },
   { label: "Max", key: "maxMs" },
   { label: "Body", key: "bodyBytes", title: "body_bytes_sent" },
-  { label: "Timed", key: null, title: "Share of requests with the selected timing logged" },
 ];
 const presets: { label: string; key: NginxSortKey }[] = [
   { label: "Most requests", key: "count" },
@@ -95,6 +94,7 @@ function EndpointRow({
   const row = rows[index];
   if (!row) return null;
   const time = metric === "request" ? row.requestTime : row.upstreamTime;
+  const timedTitle = `${formatNum(time.count)} / ${formatNum(row.count)} requests timed (${percent(time.count, row.count)})`;
   return (
     <div
       role="row"
@@ -162,19 +162,20 @@ function EndpointRow({
       </div>
       {timed && (
         <>
-          <div role="cell" className="text-right">
+          <div role="cell" className="text-right" title={timedTitle}>
             {latency(time.avgMs)}
           </div>
           <div
             role="cell"
             className="text-right font-semibold text-violet-700 dark:text-violet-300"
+            title={timedTitle}
           >
             {latency(time.p95Ms)}
           </div>
-          <div role="cell" className="text-right">
+          <div role="cell" className="text-right" title={timedTitle}>
             {latency(time.p99Ms)}
           </div>
-          <div role="cell" className="text-right">
+          <div role="cell" className="text-right" title={timedTitle}>
             {latency(time.maxMs)}
           </div>
         </>
@@ -182,15 +183,6 @@ function EndpointRow({
       <div role="cell" className="text-right text-slate-500 dark:text-slate-400">
         {formatBytes(row.bodyBytes)}
       </div>
-      {timed && (
-        <div
-          role="cell"
-          className="text-right text-slate-400 dark:text-slate-500"
-          title={`${formatNum(time.count)} / ${formatNum(row.count)} timed`}
-        >
-          {time.count === row.count ? "100%" : percent(time.count, row.count)}
-        </div>
-      )}
     </div>
   );
 }
@@ -276,7 +268,7 @@ export function NginxEndpointTable({
         </fieldset>
       </div>
       <div className="overflow-x-auto" role="table" aria-label="Nginx endpoints">
-        <div className={timed ? "min-w-[1000px]" : "min-w-[640px]"}>
+        <div className={timed ? "min-w-[750px]" : "min-w-[640px]"}>
           <div
             role="row"
             className={`${endpointGrid(timed)} h-8 border-b border-slate-200 bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-400`}

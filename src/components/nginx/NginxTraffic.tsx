@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Area,
   AreaChart,
@@ -153,11 +154,13 @@ export function NginxTimelineChart({
   metric,
   height = 220,
   shared,
+  title,
 }: {
   result: NginxResult;
   metric: NginxMetric;
   height?: number;
   shared?: ReturnType<typeof useBuckets>;
+  title?: ReactNode;
 }) {
   const theme = useChartTheme();
   const own = useBuckets(result);
@@ -177,7 +180,7 @@ export function NginxTimelineChart({
   return (
     <section className={panelClass}>
       <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800">
-        <h2 className={panelTitleClass}>Requests over time</h2>
+        {title ?? <h2 className={panelTitleClass}>Requests over time</h2>}
         {toggle}
       </div>
       <div className="p-3" style={{ height }}>

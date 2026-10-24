@@ -31,7 +31,7 @@ declare const FileReaderSync: {
   new (): { readAsArrayBuffer: (file: Blob) => ArrayBuffer };
 };
 
-function sendEntry(path: string, data: Uint8Array): void {
+function sendEntry(path: string, data: Uint8Array, reportProgress = true): void {
   const name = path.replace(/\\/g, "/").split("/").pop() || path;
   // SAFETY: the Rust streaming adapter and parallel 7z decoder allocate standalone output arrays.
   const buffer = data.buffer as ArrayBuffer;
@@ -58,7 +58,8 @@ function sendEntry(path: string, data: Uint8Array): void {
     },
     [buffer],
   );
-  self.postMessage({ type: "PROGRESS", payload: { stage: `Extracted ${name}`, percent: 50 } });
+  if (reportProgress)
+    self.postMessage({ type: "PROGRESS", payload: { stage: `Extracted ${name}`, percent: 50 } });
 }
 
 function entryInfo(path: string, size: number, isFile = true): ArchiveEntryInfo {
@@ -119,11 +120,16 @@ self.onmessage = async ({ data: { file, decoderWorkers } }) => {
         const entries = JSON.parse(extractor.manifest()) as ManifestEntry[];
         onManifest(entries);
         totalBytes = 0;
+        const extractable = (entry: ManifestEntry) =>
+          entryInfo(entry.name, entry.size, !entry.directory).category !== "skip" && entry.size > 0;
+        const progressTotal = entries.reduce(
+          (sum, entry) => (extractable(entry) ? sum + entry.size : sum),
+          0,
+        );
+        let progressDone = 0;
+        let lastPercent = -1;
         for (const [index, entry] of entries.entries()) {
-          if (
-            entryInfo(entry.name, entry.size, !entry.directory).category === "skip" ||
-            entry.size === 0
-          ) {
+          if (!extractable(entry)) {
             skipped.push(entry.name);
             extractor.skip(index);
             continue;
@@ -135,9 +141,18 @@ self.onmessage = async ({ data: { file, decoderWorkers } }) => {
           extractor.extract(index, (pointer: number, length: number) => {
             output.set(new Uint8Array(rar.memory.buffer, pointer, length), written);
             written += length;
+            progressDone += length;
+            const percent = Math.floor((progressDone * 100) / progressTotal);
+            if (percent !== lastPercent) {
+              lastPercent = percent;
+              self.postMessage({
+                type: "PROGRESS",
+                payload: { stage: `Extracting ${entry.name}`, percent },
+              });
+            }
           });
           totalBytes += output.byteLength;
-          sendEntry(entry.name, output);
+          sendEntry(entry.name, output, false);
         }
       } finally {
         extractor.free();

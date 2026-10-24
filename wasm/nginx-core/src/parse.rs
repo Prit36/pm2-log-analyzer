@@ -1,15 +1,16 @@
 use std::borrow::Cow;
 
-use crate::{Engine, Row};
+use crate::{Engine, Row, Timing};
 
 struct Parsed<'a> {
     client: &'a [u8],
-    method: Cow<'a, [u8]>,
-    path: Cow<'a, [u8]>,
+    /// `METHOD path`: the request line without its protocol.
+    endpoint: Cow<'a, [u8]>,
     referrer: Cow<'a, [u8]>,
     agent: Cow<'a, [u8]>,
     date: [u8; 10],
     hour: u8,
+    time_key: u32,
     status: u16,
     bytes: u64,
     request_ms: f32,
@@ -17,8 +18,19 @@ struct Parsed<'a> {
     invalid_timings: u64,
 }
 
+/// `u8::is_ascii_whitespace` as one table load instead of five comparisons.
+static WHITESPACE: [bool; 256] = {
+    let mut table = [false; 256];
+    let mut byte = 0;
+    while byte < 256 {
+        table[byte] = (byte as u8).is_ascii_whitespace();
+        byte += 1;
+    }
+    table
+};
+
 fn spaces(line: &[u8], cursor: &mut usize) {
-    while *cursor < line.len() && line[*cursor].is_ascii_whitespace() {
+    while *cursor < line.len() && WHITESPACE[line[*cursor] as usize] {
         *cursor += 1;
     }
 }
@@ -26,7 +38,7 @@ fn spaces(line: &[u8], cursor: &mut usize) {
 fn token<'a>(line: &'a [u8], cursor: &mut usize) -> Option<&'a [u8]> {
     spaces(line, cursor);
     let start = *cursor;
-    while *cursor < line.len() && !line[*cursor].is_ascii_whitespace() {
+    while *cursor < line.len() && !WHITESPACE[line[*cursor] as usize] {
         *cursor += 1;
     }
     (*cursor > start).then_some(&line[start..*cursor])
@@ -49,7 +61,8 @@ fn quoted<'a>(line: &'a [u8], cursor: &mut usize) -> Option<Cow<'a, [u8]>> {
     *cursor += 1;
     let start = *cursor;
     let mut escaped = false;
-    while *cursor < line.len() {
+    while let Some(offset) = memchr::memchr2(b'"', b'\\', &line[*cursor..]) {
+        *cursor += offset;
         match line[*cursor] {
             b'"' => {
                 let raw = &line[start..*cursor];
@@ -76,13 +89,12 @@ fn quoted<'a>(line: &'a [u8], cursor: &mut usize) -> Option<Cow<'a, [u8]>> {
                 }
                 return Some(Cow::Owned(decoded));
             }
-            b'\\' => {
+            _ => {
+                // A backslash escapes the next byte, including a quote.
                 escaped = true;
-                *cursor += 1;
+                *cursor = (*cursor + 2).min(line.len());
             }
-            _ => {}
         }
-        *cursor += 1;
     }
     None
 }
@@ -90,6 +102,18 @@ fn quoted<'a>(line: &'a [u8], cursor: &mut usize) -> Option<Cow<'a, [u8]>> {
 fn integer(bytes: &[u8]) -> Option<u64> {
     if bytes.is_empty() {
         return None;
+    }
+    // Nineteen decimal digits always fit in u64, so short values skip overflow checks.
+    if bytes.len() <= 19 {
+        let mut value = 0u64;
+        for &byte in bytes {
+            let digit = byte.wrapping_sub(b'0');
+            if digit > 9 {
+                return None;
+            }
+            value = value * 10 + u64::from(digit);
+        }
+        return Some(value);
     }
     let mut value = 0u64;
     for &byte in bytes {
@@ -101,7 +125,8 @@ fn integer(bytes: &[u8]) -> Option<u64> {
     Some(value)
 }
 
-fn timestamp(bytes: &[u8]) -> Option<([u8; 10], u8)> {
+/// Returns the `YYYY-MM-DD` label, the hour, and a numeric key ordered by (date, hour).
+fn timestamp(bytes: &[u8]) -> Option<([u8; 10], u8, u32)> {
     if bytes.len() != 26
         || bytes[2] != b'/'
         || bytes[6] != b'/'
@@ -153,7 +178,8 @@ fn timestamp(bytes: &[u8]) -> Option<([u8; 10], u8)> {
     date[5] = b'0' + month / 10;
     date[6] = b'0' + month % 10;
     date[8..].copy_from_slice(&bytes[..2]);
-    Some((date, hour as u8))
+    let key = ((year as u32 * 12 + u32::from(month) - 1) * 31 + day as u32 - 1) * 24 + hour as u32;
+    Some((date, hour as u8, key))
 }
 
 fn seconds(bytes: &[u8]) -> Option<f64> {
@@ -220,14 +246,11 @@ fn parse(line: &[u8]) -> Option<Parsed<'_>> {
     }
     cursor += 1;
     let end = cursor + memchr::memchr(b']', &line[cursor..])?;
-    let (date, hour) = timestamp(&line[cursor..end])?;
+    let (date, hour, time_key) = timestamp(&line[cursor..end])?;
     cursor = end + 1;
     let request = quoted(line, &mut cursor)?;
-    let (method, path) = if request.as_ref() == b"-" {
-        (
-            Cow::Borrowed(b"-".as_slice()),
-            Cow::Borrowed(b"-".as_slice()),
-        )
+    let endpoint = if request.as_ref() == b"-" {
+        Cow::Borrowed(b"- -".as_slice())
     } else {
         let first = memchr::memchr(b' ', &request)?;
         let last = memchr::memrchr(b' ', &request)?;
@@ -239,14 +262,11 @@ fn parse(line: &[u8]) -> Option<Parsed<'_>> {
             return None;
         }
         match request {
-            Cow::Borrowed(bytes) => (
-                Cow::Borrowed(&bytes[..first]),
-                Cow::Borrowed(&bytes[first + 1..last]),
-            ),
-            Cow::Owned(bytes) => (
-                Cow::Owned(bytes[..first].to_vec()),
-                Cow::Owned(bytes[first + 1..last].to_vec()),
-            ),
+            Cow::Borrowed(bytes) => Cow::Borrowed(&bytes[..last]),
+            Cow::Owned(mut bytes) => {
+                bytes.truncate(last);
+                Cow::Owned(bytes)
+            }
         }
     };
     let status = integer(token(line, &mut cursor)?)?;
@@ -309,12 +329,12 @@ fn parse(line: &[u8]) -> Option<Parsed<'_>> {
     }
     Some(Parsed {
         client,
-        method,
-        path,
+        endpoint,
         referrer,
         agent,
         date,
         hour,
+        time_key,
         status: status as u16,
         bytes,
         request_ms,
@@ -354,20 +374,28 @@ impl Engine {
         };
         self.diagnostics.matched_lines += 1;
         self.diagnostics.invalid_timing_count += parsed.invalid_timings;
-        self.rows.push(Row {
-            bytes: parsed.bytes,
-            path: self.paths.intern(&parsed.path),
-            client: self.clients.intern(parsed.client),
-            referrer: self.referrers.intern(&parsed.referrer),
-            agent: self.agents.intern(&parsed.agent),
-            date: self.dates.intern(&parsed.date),
-            method: self.methods.intern(&parsed.method),
+        let (endpoint, new_endpoint) = self.endpoints.intern(&parsed.endpoint);
+        if new_endpoint {
+            // A method never contains a space, so the endpoint splits at the first one.
+            let space = memchr::memchr(b' ', &parsed.endpoint).unwrap_or(parsed.endpoint.len());
+            self.methods.intern(&parsed.endpoint[..space]);
+        }
+        let request_key = compact_key(parsed.request_ms);
+        let upstream_key = compact_key(parsed.upstream_ms);
+        let timing = (request_key != i16::MIN || upstream_key != i16::MIN).then_some(Timing {
             request_ms: parsed.request_ms,
             upstream_ms: parsed.upstream_ms,
-            request_key: compact_key(parsed.request_ms),
-            upstream_key: compact_key(parsed.upstream_ms),
-            status: parsed.status,
-            hour: parsed.hour,
+            request_key,
+            upstream_key,
         });
+        let row = Row {
+            endpoint,
+            visitor: self.visitor_id(parsed.client, &parsed.referrer, &parsed.agent),
+            time: self.time_id(parsed.time_key, parsed.date, parsed.hour),
+            bytes: 0,
+            status: parsed.status,
+            timed: false,
+        };
+        self.push_row(row, parsed.bytes, timing);
     }
 }

@@ -363,7 +363,18 @@ export type ExtractArchiveCallbacks = {
   onPm2Ready?: (payload: Pm2ReadyPayload) => void;
   onMongoReady?: (payload: MongoReadyPayload) => void;
   onNginxReady?: (payload: NginxReadyPayload) => void;
+  /** Called before extraction when every entry belongs to one analyzer. */
+  onTarget?: (mode: "pm2" | "mongo" | "nginx") => void;
 };
+
+function singleTarget(counts: {
+  pm2: number;
+  mongo: number;
+  nginx: number;
+}): "pm2" | "mongo" | "nginx" | undefined {
+  const modes = (["pm2", "mongo", "nginx"] as const).filter((mode) => counts[mode] > 0);
+  return modes.length === 1 ? modes[0] : undefined;
+}
 
 function mergeLogSets(target: ExtractedLogSet, source: ExtractedLogSet): void {
   target.pm2Files.push(...source.pm2Files);
@@ -450,6 +461,8 @@ export async function extractArchive(
         expected.nginx = entries.filter(
           (entry) => entry.category === "nginx" && entry.size > 0,
         ).length;
+        const target = canDispatch ? singleTarget(expected) : undefined;
+        if (target) cbOptions.onTarget?.(target);
       },
       (entries) => {
         if (!canDispatch) return;
@@ -610,6 +623,10 @@ export async function extractArchive(
   const expectedMongo = validEntries.filter((e) => e.category === "mongo").length;
   const expectedNginx = validEntries.filter((e) => e.category === "nginx").length;
   const hasUnknown = validEntries.some((e) => e.category === "unknown" || e.category === "archive");
+  const target = hasUnknown
+    ? undefined
+    : singleTarget({ pm2: expectedPm2, mongo: expectedMongo, nginx: expectedNginx });
+  if (target) cbOptions.onTarget?.(target);
   let pm2Dispatched = false;
   let mongoDispatched = false;
   let nginxDispatched = false;
@@ -885,6 +902,13 @@ export async function handleArchiveUpload(
       onPm2Ready: startPm2,
       onMongoReady: startMongo,
       onNginxReady: startNginx,
+      onTarget: (mode) => {
+        if (mode === "nginx" && !nginxActive()) return;
+        if (mode !== "pm2") setPm2Parsing(false);
+        if (mode !== "mongo") setMongoParsing(false);
+        if (mode !== "nginx" && nginxActive()) setNginxParsing(false);
+        setMode(mode);
+      },
     });
 
     const hasPm2 = logSet.pm2Files.length > 0;
@@ -932,9 +956,12 @@ export async function handleArchiveUpload(
     if (hasNginx) {
       if (!nginxActive()) return;
       if (!hasPm2 && !hasMongo) setMode("nginx");
-      notify(
-        `Extracted ${logSet.pm2Files.length} API, ${logSet.mongoFiles.length} MongoDB and ${logSet.nginxFiles.length} Nginx log(s) in ${logSet.durationMs}ms`,
-      );
+      const counts = [
+        hasPm2 && `${logSet.pm2Files.length} API`,
+        hasMongo && `${logSet.mongoFiles.length} MongoDB`,
+        `${logSet.nginxFiles.length} Nginx`,
+      ].filter(Boolean);
+      notify(`Extracted ${counts.join(", ")} log(s) in ${logSet.durationMs}ms`);
       await Promise.all(nginxTasks.map((task) => task.catch(() => {})));
     } else if (hasPm2 && hasMongo) {
       notify(

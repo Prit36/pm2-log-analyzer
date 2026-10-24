@@ -1,5 +1,5 @@
 import { AlertTriangle, Info } from "lucide-react";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useNginxStore } from "../../store/nginxStore";
 import type { NginxResult } from "../../nginx/types";
@@ -54,26 +54,57 @@ function Diagnostics({ result }: { result: NginxResult }) {
   );
 }
 
+type SideTab = "time" | "errors" | "slowest";
+
+function SidePanel({ result, metric }: { result: NginxResult; metric: "request" | "upstream" }) {
+  const [selected, setSelected] = useState<SideTab>("time");
+  const tabs: { key: SideTab; label: string }[] = [
+    { key: "time", label: "Over time" },
+    ...(result.failingEndpoints.length > 0
+      ? [{ key: "errors" as const, label: "Most errors" }]
+      : []),
+    ...(result.slowestEndpoints.length > 0 ? [{ key: "slowest" as const, label: "Slowest" }] : []),
+  ];
+  const tab = tabs.some((item) => item.key === selected) ? selected : "time";
+  const strip = (
+    <div
+      role="tablist"
+      aria-label="Overview panels"
+      className="flex items-center gap-1 rounded bg-slate-100 p-0.5 text-xs dark:bg-slate-950"
+    >
+      {tabs.map((item) => (
+        <button
+          key={item.key}
+          type="button"
+          role="tab"
+          aria-selected={tab === item.key}
+          onClick={() => setSelected(item.key)}
+          className={cn(
+            "whitespace-nowrap rounded px-2 py-1 font-medium transition-colors",
+            tab === item.key
+              ? "bg-white text-violet-700 shadow-xs dark:bg-violet-600 dark:text-white"
+              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200",
+          )}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+  if (tab === "errors") return <NginxFailingPanel result={result} title={strip} />;
+  if (tab === "slowest") return <NginxSlowestPanel result={result} metric={metric} title={strip} />;
+  return <NginxTimelineChart result={result} metric={metric} height={300} title={strip} />;
+}
+
 function Overview({ result, metric }: { result: NginxResult; metric: "request" | "upstream" }) {
   if (result.summary.count === 0) return <NginxEndpointTable result={result} metric={metric} />;
-  const hasSlowest = result.slowestEndpoints.length > 0;
-  const hasErrors = result.failingEndpoints.length > 0;
-  const timed =
-    (metric === "request" ? result.summary.requestTime : result.summary.upstreamTime).count > 0;
   return (
-    <div
-      className={cn(
-        "grid items-start gap-3",
-        !timed && "lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]",
-      )}
-    >
+    <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
       <div className="min-w-0">
         <NginxEndpointTable result={result} metric={metric} />
       </div>
-      <div className={cn("grid min-w-0 items-start gap-3", timed && "lg:grid-cols-2")}>
-        <NginxTimelineChart result={result} metric={metric} height={200} />
-        {hasErrors && <NginxFailingPanel result={result} />}
-        {hasSlowest && <NginxSlowestPanel result={result} metric={metric} />}
+      <div className="min-w-0">
+        <SidePanel result={result} metric={metric} />
       </div>
     </div>
   );
