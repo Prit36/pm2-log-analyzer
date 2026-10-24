@@ -9,7 +9,7 @@ import { useMongoStore } from "../store/mongoStore";
 import { useAppModeStore } from "../store/appModeStore";
 import type { MongoAggregationResult } from "../mongo/types";
 import { useNginxStore } from "../store/nginxStore";
-import type { NginxResult } from "../nginx/types";
+import type { NginxFilters, NginxResult } from "../nginx/types";
 
 /**
  * Large results travel through the Rust loopback payload server instead of the
@@ -221,6 +221,13 @@ export async function reaggregateNginxNative(): Promise<void> {
     setNginxError(err instanceof Error ? err.message : String(err));
     throw err;
   }
+}
+
+export async function getNginxExportNative(options: NginxFilters): Promise<NginxResult | null> {
+  const seq = nginxRequestSeq;
+  const result = await invoke<Pm2ReaggNativeResult>("reaggregate_nginx", { options });
+  const payload = await readPayload<NginxResult>(result.payload);
+  return seq === nginxRequestSeq ? payload : null;
 }
 
 export async function clearNginxNative(): Promise<void> {

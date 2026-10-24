@@ -12,6 +12,7 @@ export type NginxInput =
 export type NginxWorkerMessage =
   | { type: "PARSE"; id: number; inputs: NginxInput[]; filters: NginxFilters; append: boolean }
   | { type: "REAGGREGATE"; id: number; filters: NginxFilters }
+  | { type: "EXPORT"; id: number; filters: NginxFilters }
   | { type: "CANCEL"; id: number }
   | { type: "CLEAR"; id: number };
 
@@ -189,7 +190,7 @@ async function processMessage(message: NginxWorkerMessage, token: number): Promi
       return;
     }
     if (message.type === "CANCEL") return;
-    if (message.type === "REAGGREGATE") {
+    if (message.type === "REAGGREGATE" || message.type === "EXPORT") {
       const result = await aggregate(message.filters, false, token);
       checkEpoch(token);
       self.postMessage({ type: "RESULT", id: message.id, payload: result });
@@ -248,6 +249,11 @@ async function processMessage(message: NginxWorkerMessage, token: number): Promi
 }
 
 self.onmessage = ({ data }) => {
+  if (data.type === "EXPORT") {
+    const token = epoch;
+    queue = queue.then(() => processMessage(data, token));
+    return;
+  }
   const token = ++epoch;
   // Invalidate in-flight ingest immediately; queued commands run after rollback.
   for (const worker of pool)
