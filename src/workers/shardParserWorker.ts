@@ -30,6 +30,17 @@ export type ShardRequest =
       normalizeMode?: string;
     }
   | {
+      type: "PARSE_SHARD_PARTS";
+      epoch: number;
+      shardIndex: number;
+      buffers: ArrayBuffer[];
+      start: number;
+      end: number;
+      totalSize: number;
+      readStart: number;
+      normalizeMode?: string;
+    }
+  | {
       type: "PARSE_BYTES";
       epoch: number;
       buf: ArrayBuffer;
@@ -303,30 +314,33 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
       return;
     }
 
-    if (msg.type === "PARSE_SHARD_BUFFER") {
-      const { buf, start, end, totalSize, readStart, shardIndex, epoch, normalizeMode } = msg;
+    if (msg.type === "PARSE_SHARD_BUFFER" || msg.type === "PARSE_SHARD_PARTS") {
+      const { start, end, totalSize, readStart, shardIndex, epoch, normalizeMode } = msg;
+      const buffers = msg.type === "PARSE_SHARD_PARTS" ? msg.buffers : [msg.buf];
       engine.clear();
-      let bytes: Uint8Array | null = new Uint8Array(buf);
       let copyIngestMs = 0;
       let feedMs = 0;
 
       engine.begin_shard(start, end, totalSize);
       let off = readStart;
-      let bufOff = 0;
-      while (bufOff < bytes.length) {
-        const take = Math.min(CHUNK, bytes.length - bufOff);
-        const tCopy = performance.now();
-        const n = writeIngest(bytes.subarray(bufOff, bufOff + take));
-        copyIngestMs += performance.now() - tCopy;
+      for (let index = 0; index < buffers.length; index++) {
+        const bytes = new Uint8Array(buffers[index]!);
+        let bufOff = 0;
+        while (bufOff < bytes.length) {
+          const take = Math.min(CHUNK, bytes.length - bufOff);
+          const tCopy = performance.now();
+          const n = writeIngest(bytes.subarray(bufOff, bufOff + take));
+          copyIngestMs += performance.now() - tCopy;
 
-        const tFeed = performance.now();
-        engine.feed(n, off);
-        feedMs += performance.now() - tFeed;
+          const tFeed = performance.now();
+          engine.feed(n, off);
+          feedMs += performance.now() - tFeed;
 
-        bufOff += take;
-        off += take;
+          bufOff += take;
+          off += take;
+        }
+        buffers[index] = new ArrayBuffer(0);
       }
-      bytes = null;
 
       const tEnd = performance.now();
       engine.end_shard();

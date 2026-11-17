@@ -4,6 +4,8 @@ use std::borrow::Cow;
 pub struct ZipEntryMeta {
     pub name: String,
     pub compression_method: u16,
+    /// CRC-32 of the uncompressed bytes, as stored in the central directory.
+    pub crc32: u32,
     pub compressed_size: usize,
     pub uncompressed_size: usize,
     pub data_start: usize,
@@ -64,6 +66,7 @@ fn parse_central_entry(zip_bytes: &[u8], cursor: usize) -> Option<CentralEntry> 
     }
     let record = &zip_bytes[cursor..];
     let compression_method = little_endian_u16(record, 10);
+    let crc32 = little_endian_u32(record, 16);
     let compressed_size = little_endian_u32(record, 20) as usize;
     let uncompressed_size = little_endian_u32(record, 24) as usize;
     let name_len = little_endian_u16(record, 28) as usize;
@@ -82,6 +85,7 @@ fn parse_central_entry(zip_bytes: &[u8], cursor: usize) -> Option<CentralEntry> 
         |data_start| ZipEntryMeta {
             name,
             compression_method,
+            crc32,
             compressed_size,
             uncompressed_size,
             data_start,
@@ -185,6 +189,16 @@ pub fn extract_zip_entry<'a>(
     };
 
     Ok(decompressed)
+}
+
+/// The CRC-32 and size (mod 2^32) of a GZIP stream's decompressed bytes, read
+/// from its 8-byte trailer without inflating anything.
+pub fn gzip_trailer(gz_bytes: &[u8]) -> Option<(u32, u64)> {
+    if gz_bytes.len() < 18 || !gz_bytes.starts_with(&[0x1f, 0x8b]) {
+        return None;
+    }
+    let trailer = &gz_bytes[gz_bytes.len() - 8..];
+    Some((little_endian_u32(trailer, 0), u64::from(little_endian_u32(trailer, 4))))
 }
 
 /// Decompress GZIP byte stream into output buffer.

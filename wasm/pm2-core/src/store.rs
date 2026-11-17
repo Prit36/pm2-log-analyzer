@@ -466,10 +466,9 @@ impl Engine {
         let (norm_bytes, norm_off, norm_len) = self.norm_arena(mode);
         let summary =
             self.emit_summary(need_summary, filtered.used_cached_summary, &filtered.sketch);
-        let endpoints = filtered.slots.into_endpoints();
         let wire = PartialWire {
             mode: mode as u8,
-            endpoints: &endpoints,
+            endpoints: &filtered.slots,
             norm_bytes,
             norm_off,
             norm_len,

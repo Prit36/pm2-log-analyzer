@@ -217,7 +217,7 @@ export async function parsePm2Shards(
   const options = workerParseOptions(useAnalysisStore.getState().filters);
   createBenchForParse("buffer", fileName, fileBytes);
   const t0 = performance.now();
-  const transfer = shards.map((s) => s.buf);
+  const transfer = shards.flatMap((s) => s.buffers);
   await runParse(
     { type: "PARSE_SHARD_BUFFERS", payload: { shards, fileName, fileBytes, options } },
     transfer,

@@ -29,7 +29,7 @@ The analyzer supports two first-class runtime targets sharing a unified React 19
 ### Ingestion & Archive Pipeline
 - **Flexible Sources**: Single log files (`.log`, `.txt`), compressed logs (`.gz`), ZIP, RAR4/RAR5, 7z, TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ/TBZ2, TAR.XZ/TXZ archives, nested folders/directories, and pasted text.
 - **Smart Auto-Classification**: Automatically detects PM2, MongoDB, and Nginx entries, skips irrelevant assets/system files, and dispatches them to their respective engines. Nginx structure is recognized before generic HTTP-method matching, including ambiguously named raw files.
-- **Batch Multi-Archive Import**: Parallel decompression and direct shard partitioning for multi-archive or multi-file drops.
+- **Batch Multi-Archive Import**: Parallel decompression and direct shard partitioning for multi-archive or multi-file drops. Byte-identical logs (the same log in two archives, or a `.gz` next to its unpacked copy) are skipped before decompression using the CRC-32 and size stored in ZIP central directories and GZIP trailers; the first copy in upload order is kept. Browser PM2 shards receive owned entry buffers directly, copying only spans crossing shard boundaries, and large ZIP/Gzip decoder workers are retired after each entry to release their Wasm heaps. Native batch imports stream deflated ZIP entries of 32 MiB or more through the bounded chunk pipeline instead of inflating whole entries.
 - **Browser Archive Decoders**: Rust Wasm replaces `libarchive-wasm` and `node-unrar-js`, with no npm decoder fallback. ZIP/Gzip workers are prewarmed; general archive workers load on demand. Plain TAR validates metadata in Rust and reads entry Blob slices directly. Gzip streams into final transferable buffers; Bzip2 and independent XZ blocks use up to four workers. Independent 7z LZMA2 reset ranges decode in parallel; other layouts use the Rust sequential decoder.
 - **Browser RAR**: A separate Rust Wasm asset loads and compiles on the first RAR import. The decoder uses an 8 MiB input reader and copies decoded spans into final transferable buffers, preserving solid archive dictionaries. The vendored `unrar-rs` fixes browser timestamp compilation and truncated-header handling; [patch provenance](wasm/vendor/unrar-rs/PATCH.md) records the exact changes.
 - **Native Archive Decoders**: Native builds require Rust 1.93 or newer. Native imports stream logs through three recycled 16 MiB buffers while parsing concurrently; Bzip2, XZ, and supported 7z layouts use bounded decoder parallelism.
@@ -79,7 +79,7 @@ The analyzer supports two first-class runtime targets sharing a unified React 19
 | **App Shell** | TypeScript 7 (strict), Vite 8 | Fast build, scoped Tailwind styles, zero network dependencies |
 | **Desktop Shell** | Tauri v2, WebView2, Rayon | Native OS integration, background progress streaming, loopback payload server |
 | **Tooling** | oxlint, oxfmt, Playwright | High-speed linting, formatting, and automated browser/CDP benchmarks |
-| **PM2 Engine** | Rust → Wasm / Native (`wasm/pm2-core`) | 16-byte `PackedEntry` columnar vectors, SIMD `memchr_iter`, `RelHist` logarithmic histograms, `rapidhash` |
+| **PM2 Engine** | Rust → Wasm / Native (`wasm/pm2-core`) | 16-byte `PackedEntry` columnar vectors, SIMD `memchr_iter`, four inline endpoint histogram buckets promoted to dense `RelHist` when needed, direct slot-to-wire encoding, `rapidhash` |
 | **MongoDB Engine** | Rust → Wasm / Native (`wasm/mongo-core`) | Zero-alloc JSON scanners, cascading forward metric cursors, string intern arenas, query shape normalizer |
 | **Nginx Engine** | Rust → Wasm / Native (`wasm/nginx-core`) | Byte scanner, interned fields, compact retained rows, sparse quantile buckets, binary shard reports |
 | **ZIP Engine** | Rust → Wasm / Native (`wasm/zip-core`) | Pure-Rust SIMD `zlib-rs` (browser) and `libdeflater` (native), zero-copy slice extraction |
@@ -136,9 +136,13 @@ Corpus: 9 mixed archives and compressed files (`.zip`, `.gz`) yielding 3.72M PM2
 
 | Metric | Browser Wasm | Native Desktop (Tauri) |
 |---|---|---|
-| **Upload → UI Ready** | **2,818 ms** (2.82 s) | **812 ms** (1.71× faster) |
-| **Native Wall** | — | **586 ms** (2.01× faster) |
-| **Peak Working Set / RSS** | **4,155 MB** (4.15 GiB) | **2,549 MB** (2.55 GiB) |
+| **Upload → UI Ready** | **2,231 ms** (was 3,078 ms; −28%) | **852 ms** (was 1,022 ms) |
+| **Native Wall** | — | **612 ms** (was 769 ms) |
+| **Peak Working Set / RSS** | **2,702 MiB** (was 3,914 MiB; −31%) | **1,199 MiB** (was 2,922 MiB) |
+
+Means of three fresh-process runs on November 17, 2026; raw sessions and ranges are in [batch benchmark history](scripts/bench/import_batch_history.json). Browser before/after uses the same CRC-deduplicated corpus: compact endpoint histograms, direct slot encoding, multipart shard transfers, and decoder worker retirement reduce UI-ready latency and sampled process-tree peak RSS. The native "was" values are the same corpus on `0b15e26`, where native parsed `api-out.log.2.gz` and its identical copy in `21-09-api.zip` twice (4.68M requests instead of 3.72M).
+
+Both targets report 3,721,413 PM2 requests and 81,846 Mongo slow queries. The existing Mongo grouping difference remains (615 browser patterns versus 626 native); this optimization preserves those counts. Verification includes exact Wasm endpoint wires across 72 normalization/filter combinations, native decoded/wire parity across 36 combinations, full multipart reports and filtered reaggregations versus the combined-buffer path, and nested ZIP/7z reports versus raw inputs. PM2 histograms keep four buckets inline and promote on the fifth distinct bucket; the wire format and quantile buckets are unchanged.
 
 ### 5. Browser Archive Optimization (October 17–18, 2026)
 

@@ -14,8 +14,8 @@ enum Job {
     Nested(String, String, Vec<u8>),
 }
 
-/// Decode independently of Rayon: a candidate may already occupy a pool worker,
-/// and nested/batch imports must never wait for another Rayon decoder to start.
+type EntryVisitor<'v> = dyn FnMut(&str, Option<u64>, extended_archive::EntryData<'_>) -> Result<(), String> + 'v;
+
 pub(super) fn pipeline(
     name: &str,
     path: &str,
@@ -24,6 +24,43 @@ pub(super) fn pipeline(
     options: &Pm2ShardOptions,
     progress: &SharedProgress<'_>,
     cpus: usize,
+) -> IngestPipelineOutcome {
+    let threads = cpus.min(8).div_ceil(progress.archive_count).max(1);
+    run(path, depth, options, progress, cpus, move |visit| {
+        extended_archive::for_each_stream(name, source, threads, visit)
+    })
+}
+
+/// Stream one deflated ZIP entry into bounded chunk parsers instead of
+/// inflating it into a buffer the size of the whole entry.
+pub(super) fn pipeline_zip_entry(
+    archive_path: &str,
+    entry: &archive::ZipEntryMeta,
+    compressed: &[u8],
+    depth: usize,
+    options: &Pm2ShardOptions,
+    progress: &SharedProgress<'_>,
+    cpus: usize,
+) -> IngestPipelineOutcome {
+    run(archive_path, depth, options, progress, cpus, |visit| {
+        let mut decoder = flate2::read::DeflateDecoder::new(compressed);
+        visit(
+            &entry.name,
+            Some(entry.uncompressed_size as u64),
+            extended_archive::EntryData::Reader(&mut decoder),
+        )
+    })
+}
+
+/// Decode independently of Rayon: a candidate may already occupy a pool worker,
+/// and nested/batch imports must never wait for another Rayon decoder to start.
+fn run(
+    path: &str,
+    depth: usize,
+    options: &Pm2ShardOptions,
+    progress: &SharedProgress<'_>,
+    cpus: usize,
+    produce: impl FnOnce(&mut EntryVisitor<'_>) -> Result<(), String> + Send,
 ) -> IngestPipelineOutcome {
     std::thread::scope(|scope| {
         let (jobs_tx, jobs_rx) = sync_channel(BUFFER_COUNT);
@@ -36,11 +73,8 @@ pub(super) fn pipeline(
             .stack_size(16 * 1024 * 1024)
             .spawn_scoped(scope, move || {
                 let mut files = Vec::new();
-                extended_archive::for_each_stream(
-                    name,
-                    source,
-                    cpus.min(8).div_ceil(progress.archive_count).max(1),
-                    |entry_name, size, data| {
+                produce(
+                    &mut |entry_name, size, data| {
                         let entry_path = format!("{path}/{entry_name}");
                         let mut sink = EntrySink::new(
                             entry_name,
@@ -67,10 +101,13 @@ pub(super) fn pipeline(
             Err(error) => return failed(path, error.to_string()),
         };
 
-        let outcomes: Vec<_> = jobs_rx
+        // `par_bridge` finishes jobs out of order; the job index restores the
+        // decoder's order, which cron pairing and unmatched samples rely on.
+        let mut outcomes: Vec<_> = jobs_rx
             .into_iter()
+            .enumerate()
             .par_bridge()
-            .map(|job| match job {
+            .map(|(index, job)| (index, match job {
                 Job::Nginx(mut bytes) => {
                     let mut outcome = IngestPipelineOutcome::default();
                     if !bytes.is_empty() && !progress.nginx.is_some_and(|context| !context.current()) {
@@ -126,15 +163,16 @@ pub(super) fn pipeline(
                     mongo_shards: parse_mongo_stream(chunks, size, cpus, &free_tx),
                     ..IngestPipelineOutcome::default()
                 },
-            })
+            }))
             .collect();
+        outcomes.sort_unstable_by_key(|(index, _)| *index);
         let files = match producer.join() {
             Ok(Ok(files)) => files,
             Ok(Err(error)) => return failed(path, error),
             Err(_) => return failed(path, "Archive decoder thread failed".into()),
         };
         let mut outcome = IngestPipelineOutcome::default();
-        for parsed in outcomes {
+        for (_, parsed) in outcomes {
             outcome.merge(parsed);
         }
         outcome.files.extend(files);

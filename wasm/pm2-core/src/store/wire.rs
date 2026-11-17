@@ -1,6 +1,6 @@
 //! PM2P partial wire format: encoding and partial merging.
 
-use super::aggregate::EndpointAcc;
+use super::aggregate::Slots;
 use super::{CronEv, DailyAcc, HourlyAcc};
 use crate::relhist::RelHist;
 
@@ -99,7 +99,7 @@ pub(super) fn write_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
 /// The wire-level fields of one shard's filtered endpoint aggregation.
 pub(super) struct PartialWire<'a> {
     pub(super) mode: u8,
-    pub(super) endpoints: &'a [(u32, EndpointAcc)],
+    pub(super) endpoints: &'a Slots,
     pub(super) norm_bytes: &'a [u8],
     pub(super) norm_off: &'a [u32],
     pub(super) norm_len: &'a [u16],
@@ -115,12 +115,12 @@ pub(super) struct PartialWire<'a> {
 impl PartialWire<'_> {
     /// Encode this shard's filtered endpoints as a PM2P partial.
     pub(super) fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(64 + self.endpoints.len() * 64);
+        let mut out = Vec::with_capacity(64);
         out.extend_from_slice(&PARTIAL_MAGIC.to_le_bytes());
         out.extend_from_slice(&WIRE_VERSION.to_le_bytes());
         out.push(self.mode);
         out.push(if self.summary.is_some() { 1u8 } else { 0u8 });
-        out.extend_from_slice(&(self.endpoints.len() as u32).to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes()); // Patched after visiting slots.
         out.extend_from_slice(&self.matched.to_le_bytes());
         out.extend_from_slice(&self.unmatched.to_le_bytes());
 
@@ -132,7 +132,9 @@ impl PartialWire<'_> {
             write_bytes(&mut out, &sketch.to_wire());
         }
 
-        for (norm_id, endpoint) in self.endpoints {
+        let mut endpoint_count = 0u32;
+        self.endpoints.for_each(|norm_id, endpoint| {
+            endpoint_count += 1;
             out.push(endpoint.method);
             out.extend_from_slice(&[0, 0, 0]);
             out.extend_from_slice(&endpoint.count.to_le_bytes());
@@ -142,11 +144,12 @@ impl PartialWire<'_> {
             out.extend_from_slice(&min.to_le_bytes());
             out.extend_from_slice(&max.to_le_bytes());
             out.extend_from_slice(&endpoint.error_count.to_le_bytes());
-            let offset = self.norm_off[*norm_id as usize] as usize;
-            let length = self.norm_len[*norm_id as usize] as usize;
+            let offset = self.norm_off[norm_id as usize] as usize;
+            let length = self.norm_len[norm_id as usize] as usize;
             write_bytes(&mut out, &self.norm_bytes[offset..offset + length]);
-            write_bytes(&mut out, &endpoint.sketch.to_wire());
-        }
+            endpoint.sketch.write_wire(&mut out);
+        });
+        out[8..12].copy_from_slice(&endpoint_count.to_le_bytes());
         out
     }
 }

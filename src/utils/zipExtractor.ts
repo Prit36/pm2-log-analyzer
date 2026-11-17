@@ -120,6 +120,8 @@ interface ZipCentralEntry {
   localHeaderOffset: number;
   nameLen: number;
   extraLen: number;
+  /** CRC-32 of the uncompressed bytes, as stored in the central directory. */
+  crc32: number;
   compressedSize: number;
   uncompressedSize: number;
   isDeflated: boolean;
@@ -229,6 +231,7 @@ async function parseZipCentralDirectoryFromFile(file: File): Promise<ZipCentralE
     if (sig !== 0x02014b50) break;
 
     const method = cdView.getUint16(offset + 10, true);
+    const crc32 = cdView.getUint32(offset + 16, true);
     const compSize = cdView.getUint32(offset + 20, true);
     const uncompSize = cdView.getUint32(offset + 24, true);
     const nameLen = cdView.getUint16(offset + 28, true);
@@ -246,6 +249,7 @@ async function parseZipCentralDirectoryFromFile(file: File): Promise<ZipCentralE
       localHeaderOffset,
       nameLen,
       extraLen,
+      crc32,
       compressedSize: compSize,
       uncompressedSize: uncompSize,
       isDeflated: method === 8,
@@ -1026,6 +1030,15 @@ interface BatchExtractTask {
   archiveIndex: number;
   entryIndex: number;
   lastModified?: number | undefined;
+  /** CRC-32 and size of the decompressed payload, when the archive stores them. */
+  contentKey?: string | undefined;
+}
+
+/** CRC-32 and size (mod 2^32) of a GZIP file's payload, read from its trailer. */
+async function gzipContentKey(file: File): Promise<string | undefined> {
+  if (file.size < 18) return undefined;
+  const trailer = new DataView(await file.slice(file.size - 8).arrayBuffer());
+  return `${trailer.getUint32(0, true)}:${trailer.getUint32(4, true)}`;
 }
 
 export async function handleLogFilesUpload(
@@ -1150,6 +1163,7 @@ export async function handleLogFilesUpload(
           archiveIndex,
           entryIndex: 0,
           lastModified: archiveFile.lastModified,
+          contentKey: await gzipContentKey(archiveFile),
         });
         return;
       }
@@ -1185,6 +1199,7 @@ export async function handleLogFilesUpload(
               archiveIndex,
               entryIndex,
               lastModified: archiveFile.lastModified,
+              contentKey: `${entry.crc32}:${entry.uncompressedSize}`,
             });
           }
         }
@@ -1193,6 +1208,20 @@ export async function handleLogFilesUpload(
       }
     }),
   );
+
+  // Skip byte-identical payloads (the same log in two archives, or a .gz next to
+  // the archive holding its unpacked copy) before extracting them. The first one
+  // in upload order is kept, matching the size-based de-duplication below.
+  const seenContent = new Set<string>();
+  const uniqueTasks = initialTasks
+    .toSorted((a, b) => a.archiveIndex - b.archiveIndex || a.entryIndex - b.entryIndex)
+    .filter((task) => {
+      if (task.contentKey === undefined) return true;
+      if (seenContent.has(task.contentKey)) return false;
+      seenContent.add(task.contentKey);
+      return true;
+    });
+  initialTasks.splice(0, initialTasks.length, ...uniqueTasks);
 
   const rawPm2Items: ExtractedBatchItem[] = [];
   const rawMongoItems: ExtractedBatchItem[] = [];
@@ -1347,6 +1376,7 @@ export async function handleLogFilesUpload(
           if (entries) {
             for (let idx = 0; idx < entries.length; idx++) {
               const entry = entries[idx]!;
+              const contentKey = `${entry.crc32}:${entry.uncompressedSize}`;
               if (
                 entry.isDir ||
                 entry.uncompressedSize === 0 ||
@@ -1355,7 +1385,8 @@ export async function handleLogFilesUpload(
                 entry.name.endsWith(".DS_Store")
               ) {
                 skipped.push(entry.name);
-              } else {
+              } else if (!seenContent.has(contentKey)) {
+                seenContent.add(contentKey);
                 queue.push({
                   id: ++nextTaskId,
                   kind: "zip_entry",
@@ -1455,6 +1486,7 @@ export async function handleLogFilesUpload(
           cleanup();
           runningTasks.delete(task.id);
           const p = res.payload;
+          task.uncompressedSize = p.size;
           await handleExtractedResult({
             name: p.name,
             category: p.category,
@@ -1470,6 +1502,7 @@ export async function handleLogFilesUpload(
           cleanup();
           runningTasks.delete(task.id);
           const p = res.payload;
+          task.uncompressedSize = p.totalBytes;
           for (const f of p.files) {
             await handleExtractedResult({
               name: f.name,
@@ -1573,6 +1606,17 @@ export async function handleLogFilesUpload(
         const worker = idleWorkers.pop()!;
         const task = queue.shift()!;
         void executeTask(worker, task).then(() => {
+          // Wasm memory cannot shrink after clear(). Retire large decoder heaps
+          // before subsequent results and parser heaps overlap with them.
+          if (task.uncompressedSize >= 32 * 1024 * 1024) {
+            worker.terminate();
+            const index = workerPool.indexOf(worker);
+            const replacement = new ZipWorkerCtor();
+            workerPool[index] = replacement;
+            idleWorkers.push(replacement);
+          } else {
+            idleWorkers.push(worker);
+          }
           completedCount++;
           const percent = Math.min(
             99,
@@ -1584,7 +1628,6 @@ export async function handleLogFilesUpload(
             setNginxProgress({ stage: "reading", processed: percent, total: 100, percent });
           checkEagerMongo();
           checkEagerNginx();
-          idleWorkers.push(worker);
           pump();
         });
       }
@@ -1670,8 +1713,7 @@ export async function handleLogFilesUpload(
         totalSize: number;
         readStart: number;
         readEnd: number;
-        buf: ArrayBuffer;
-        u8: Uint8Array;
+        buffers: ArrayBuffer[];
       }[] = [];
       for (let i = 0; i < n; i++) {
         const start = i * chunk;
@@ -1679,7 +1721,6 @@ export async function handleLogFilesUpload(
         if (start >= total) break;
         const readStart = start > 0 ? start - 1 : start;
         const readEnd = Math.min(total, end + LINE_EXTEND);
-        const buf = new ArrayBuffer(readEnd - readStart);
         ranges.push({
           shardIndex: i,
           start,
@@ -1687,8 +1728,7 @@ export async function handleLogFilesUpload(
           totalSize: total,
           readStart,
           readEnd,
-          buf,
-          u8: new Uint8Array(buf),
+          buffers: [],
         });
       }
 
@@ -1697,16 +1737,19 @@ export async function handleLogFilesUpload(
         const itemStart = itemOffset;
         const itemEnd = itemOffset + item.size;
         itemOffset += item.size;
-        const itemU8 = new Uint8Array(item.buffer);
-
         for (const r of ranges) {
           const oStart = Math.max(itemStart, r.readStart);
           const oEnd = Math.min(itemEnd, r.readEnd);
           if (oEnd > oStart) {
             const srcStart = oStart - itemStart;
             const srcEnd = oEnd - itemStart;
-            const dstStart = oStart - r.readStart;
-            r.u8.set(itemU8.subarray(srcStart, srcEnd), dstStart);
+            // Transfer an owned file whole; only shard boundaries need copies.
+            // Keep the 1-byte lookbehind and lookahead identical to file sharding.
+            r.buffers.push(
+              itemStart >= r.start && itemEnd <= r.end
+                ? item.buffer
+                : item.buffer.slice(srcStart, srcEnd),
+            );
           }
         }
         item.buffer = new ArrayBuffer(0);
@@ -1718,7 +1761,7 @@ export async function handleLogFilesUpload(
         end: r.end,
         totalSize: r.totalSize,
         readStart: r.readStart,
-        buf: r.buf,
+        buffers: r.buffers,
       }));
 
       const displayName = uniquePm2.length === 1 ? uniquePm2[0]!.name : `${uniquePm2.length} files`;

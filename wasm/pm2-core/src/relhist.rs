@@ -44,10 +44,15 @@ impl RelHist {
 
     #[inline(always)]
     pub fn accept_key(&mut self, key: i32) {
-        self.count += 1;
+        self.accept_key_count(key, 1);
+    }
+
+    #[inline(always)]
+    pub(crate) fn accept_key_count(&mut self, key: i32, count: u32) {
+        self.count += count;
         if key >= 0 && (key as usize) < DENSE_LIMIT {
             let key_index = key as usize;
-            self.dense[key_index] += 1;
+            self.dense[key_index] += count;
             let key_u16 = key_index as u16;
             if key_u16 < self.min_key {
                 self.min_key = key_u16;
@@ -56,7 +61,7 @@ impl RelHist {
                 self.max_key = key_u16 + 1;
             }
         } else {
-            *self.sparse.entry(key).or_insert(0) += 1;
+            *self.sparse.entry(key).or_insert(0) += count;
         }
     }
 

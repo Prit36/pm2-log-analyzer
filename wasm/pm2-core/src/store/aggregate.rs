@@ -9,7 +9,7 @@ use hashbrown::HashMap;
 /// Per-endpoint accumulators for one filtered aggregation pass.
 pub(super) struct EndpointAcc {
     pub(super) method: u8,
-    pub(super) sketch: RelHist,
+    pub(super) sketch: EndpointHist,
     pub(super) count: u32,
     pub(super) sum: f64,
     pub(super) min: f32,
@@ -21,7 +21,10 @@ impl EndpointAcc {
     fn new(method: u8) -> Self {
         Self {
             method,
-            sketch: RelHist::new(),
+            sketch: EndpointHist::Small {
+                bins: [(0, 0); 4],
+                len: 0,
+            },
             count: 0,
             sum: 0.0,
             min: f32::INFINITY,
@@ -34,7 +37,7 @@ impl EndpointAcc {
     #[inline(always)]
     fn record(&mut self, duration: f32, status: u16, hist_key: i16) {
         if hist_key != INVALID_RELHIST_KEY {
-            self.sketch.accept_key(hist_key as i32);
+            self.sketch.accept_key(hist_key);
         }
         self.count += 1;
         self.sum += duration as f64;
@@ -46,6 +49,73 @@ impl EndpointAcc {
         }
         if status >= 400 {
             self.error_count += 1;
+        }
+    }
+}
+
+/// Most endpoints have only a few duration buckets. Allocate the dense
+/// histogram only once a fifth distinct bucket is needed.
+pub(super) enum EndpointHist {
+    Small { bins: [(i16, u32); 4], len: usize },
+    Full(Box<RelHist>),
+}
+
+impl EndpointHist {
+    #[inline]
+    fn accept_key(&mut self, key: i16) {
+        match self {
+            Self::Full(hist) => hist.accept_key(key as i32),
+            Self::Small { bins, len } => {
+                for (bucket, count) in &mut bins[..*len] {
+                    if *bucket == key {
+                        *count += 1;
+                        return;
+                    }
+                }
+                if *len < bins.len() {
+                    bins[*len] = (key, 1);
+                    *len += 1;
+                    return;
+                }
+                let mut hist = Box::new(RelHist::new());
+                for &(bucket, count) in bins.iter() {
+                    hist.accept_key_count(bucket as i32, count);
+                }
+                hist.accept_key(key as i32);
+                *self = Self::Full(hist);
+            }
+        }
+    }
+
+    /// Append a length-prefixed wire without allocating for inline buckets.
+    pub(super) fn write_wire(&self, out: &mut Vec<u8>) {
+        match self {
+            Self::Full(hist) => super::wire::write_bytes(out, &hist.to_wire()),
+            Self::Small { bins, len } => {
+                let mut bins = *bins;
+                bins[..*len].sort_unstable_by_key(|&(key, _)| key);
+                let count: u32 = bins[..*len].iter().map(|&(_, count)| count).sum();
+                out.extend_from_slice(&(8 + *len as u32 * 8).to_le_bytes());
+                out.extend_from_slice(&count.to_le_bytes());
+                out.extend_from_slice(&(*len as u32).to_le_bytes());
+                for &(key, count) in &bins[..*len] {
+                    out.extend_from_slice(&(key as i32).to_le_bytes());
+                    out.extend_from_slice(&count.to_le_bytes());
+                }
+            }
+        }
+    }
+
+    fn into_hist(self) -> Box<RelHist> {
+        match self {
+            Self::Full(hist) => hist,
+            Self::Small { bins, len } => {
+                let mut hist = Box::new(RelHist::new());
+                for &(key, count) in &bins[..len] {
+                    hist.accept_key_count(key as i32, count);
+                }
+                hist
+            }
         }
     }
 }
@@ -86,18 +156,21 @@ impl Slots {
         }
     }
 
-    /// The wire path: `(norm_id, accumulator)` pairs, in slot order.
-    pub(super) fn into_endpoints(self) -> Vec<(u32, EndpointAcc)> {
+    /// Visit accumulators in slot order without moving them into another vector.
+    pub(super) fn for_each(&self, mut visit: impl FnMut(u32, &EndpointAcc)) {
         match self {
-            Slots::Dense(dense) => dense
-                .into_iter()
-                .enumerate()
-                .filter_map(|(index, slot)| slot.map(|acc| ((index >> 3) as u32, *acc)))
-                .collect(),
-            Slots::Keyed(by_key) => by_key
-                .into_iter()
-                .map(|(key, acc)| ((key >> 3) as u32, acc))
-                .collect(),
+            Slots::Dense(dense) => {
+                for (index, slot) in dense.iter().enumerate() {
+                    if let Some(acc) = slot {
+                        visit((index >> 3) as u32, acc);
+                    }
+                }
+            }
+            Slots::Keyed(by_key) => {
+                for (&key, acc) in by_key {
+                    visit((key >> 3) as u32, acc);
+                }
+            }
         }
     }
 
@@ -114,13 +187,13 @@ impl Slots {
                 .into_iter()
                 .enumerate()
                 .filter_map(|(index, slot)| {
-                    slot.map(|acc| decoded_endpoint((index >> 3) as u32, &acc, norm_bytes, norm_off, norm_len))
+                    slot.map(|acc| decoded_endpoint((index >> 3) as u32, *acc, norm_bytes, norm_off, norm_len))
                 })
                 .collect(),
             Slots::Keyed(by_key) => by_key
                 .into_iter()
                 .map(|(key, acc)| {
-                    decoded_endpoint((key >> 3) as u32, &acc, norm_bytes, norm_off, norm_len)
+                    decoded_endpoint((key >> 3) as u32, acc, norm_bytes, norm_off, norm_len)
                 })
                 .collect(),
         }
@@ -323,7 +396,7 @@ impl Engine {
 /// One decoded endpoint with its normalized path bytes and hash.
 fn decoded_endpoint(
     norm_id: u32,
-    acc: &EndpointAcc,
+    acc: EndpointAcc,
     norm_bytes: &[u8],
     norm_off: &[u32],
     norm_len: &[u16],
@@ -341,7 +414,7 @@ fn decoded_endpoint(
         min: if acc.count > 0 { acc.min } else { 0.0 },
         max: if acc.count > 0 { acc.max } else { 0.0 },
         error_count: acc.error_count,
-        sketch: Box::new(acc.sketch.clone()),
+        sketch: acc.sketch.into_hist(),
     }
 }
 

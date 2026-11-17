@@ -82,7 +82,7 @@ export type ShardBufferDescriptor = {
   end: number;
   totalSize: number;
   readStart: number;
-  buf: ArrayBuffer;
+  buffers: ArrayBuffer[];
 };
 
 export type WorkerMessage =
@@ -237,7 +237,10 @@ const LINE_EXTEND = 256 * 1024;
 
 function runShardParsed(
   worker: Worker,
-  req: Extract<ShardRequest, { type: "PARSE_SHARD" | "PARSE_BYTES" | "PARSE_SHARD_BUFFER" }>,
+  req: Extract<
+    ShardRequest,
+    { type: "PARSE_SHARD" | "PARSE_BYTES" | "PARSE_SHARD_BUFFER" | "PARSE_SHARD_PARTS" }
+  >,
 ): Promise<ShardParsed> {
   return new Promise((resolve, reject) => {
     const onMsg = (e: MessageEvent<ShardParsed | ShardError>) => {
@@ -251,7 +254,9 @@ function runShardParsed(
       resolve(data);
     };
     worker.addEventListener("message", onMsg);
-    if (req.type === "PARSE_BYTES" || req.type === "PARSE_SHARD_BUFFER") {
+    if (req.type === "PARSE_SHARD_PARTS") {
+      worker.postMessage(req, req.buffers);
+    } else if (req.type === "PARSE_BYTES" || req.type === "PARSE_SHARD_BUFFER") {
       worker.postMessage(req, [req.buf]);
     } else {
       worker.postMessage(req);
@@ -727,7 +732,7 @@ async function parsePrepartitionedShards(
   const results = await Promise.all(
     shards.map(async (shard) => {
       const parsed = await runShardParsed(shardPool[shard.shardIndex]!, {
-        type: "PARSE_SHARD_BUFFER",
+        type: "PARSE_SHARD_PARTS",
         epoch: ep,
         shardIndex: shard.shardIndex,
         start: shard.start,
@@ -735,7 +740,7 @@ async function parsePrepartitionedShards(
         totalSize: shard.totalSize,
         readStart: shard.readStart,
         normalizeMode,
-        buf: shard.buf,
+        buffers: shard.buffers,
       });
       if (parsed.partialWire) {
         prekickedTasks[shard.shardIndex] = Promise.resolve({

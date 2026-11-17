@@ -20,6 +20,9 @@ use tauri::{Emitter, Manager, State};
 
 const LINE_EXTEND: usize = 256 * 1024;
 const MAX_ARCHIVE_DEPTH: usize = 8;
+/// Multi-source imports stream deflated ZIP entries at least this large through
+/// bounded chunk parsers, so several big entries never sit fully inflated at once.
+const STREAM_ENTRY_MIN_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct ProgressPayload {
@@ -259,6 +262,7 @@ struct SharedProgress<'a> {
     done: AtomicU64,
     total: u64,
     nginx: Option<&'a nginx::Ingest<'a>>,
+    duplicates: Option<&'a DuplicateFilter>,
 }
 
 impl<'a> SharedProgress<'a> {
@@ -269,7 +273,14 @@ impl<'a> SharedProgress<'a> {
             archive_count: 1,
             total,
             nginx: None,
+            duplicates: None,
         }
+    }
+
+    /// Whether the source at `path` with decompressed CRC-32/size `key` should
+    /// be parsed (always true when no duplicate filter is attached).
+    fn admit(&self, key: ContentKey, path: &str) -> bool {
+        self.duplicates.is_none_or(|filter| filter.admit(key, path))
     }
 
     /// Count `bytes` as processed and report the running percentage (capped at
@@ -286,6 +297,103 @@ impl<'a> SharedProgress<'a> {
             self.total as usize,
             ((done * 100) / self.total).min(99) as u32,
         );
+    }
+}
+
+/// CRC-32 and size of a log's decompressed bytes.
+type ContentKey = (u32, u64);
+
+/// Drops byte-identical logs (the same log inside two archives, or a `.gz` next
+/// to its unpacked copy) before they are inflated or parsed. ZIP central
+/// directories and GZIP trailers already store each payload's CRC-32 and size,
+/// so duplicates are found without decompressing anything; a plain file is
+/// hashed only when its size matches another source. Top-level sources keep
+/// their first occurrence in input order; nested ones keep whichever comes first.
+#[derive(Default)]
+struct DuplicateFilter {
+    owners: hashbrown::HashMap<ContentKey, String>,
+    raw_keys: hashbrown::HashMap<String, ContentKey>,
+    claimed: Mutex<hashbrown::HashSet<ContentKey>>,
+}
+
+/// One top-level log payload seen while planning duplicates.
+struct PlannedSource {
+    path: String,
+    key: Option<ContentKey>,
+    bytes: u64,
+    raw: Option<usize>,
+}
+
+impl DuplicateFilter {
+    /// Assign every top-level payload to its first occurrence and return the
+    /// filter with the byte total of the payloads that will be parsed.
+    fn plan(candidates: &[CandidateFile]) -> (Self, u64) {
+        let mut sources = Vec::new();
+        for (index, candidate) in candidates.iter().enumerate() {
+            let data = &candidate.mmap[..];
+            let whole = |key, raw| PlannedSource {
+                path: candidate.path.clone(),
+                key,
+                bytes: key.map_or(candidate.size, |(_, size)| size),
+                raw,
+            };
+            if candidate.category == LogCategory::Archive {
+                sources.push(whole(None, None));
+            } else if data.starts_with(b"PK\x03\x04") {
+                match archive::parse_zip_entries(data) {
+                    Ok(entries) => sources.extend(
+                        entries.iter().filter(|entry| is_extractable_entry(entry)).map(|entry| PlannedSource {
+                            path: format!("{}/{}", candidate.path, entry.name),
+                            key: Some((entry.crc32, entry.uncompressed_size as u64)),
+                            bytes: entry.uncompressed_size as u64,
+                            raw: None,
+                        }),
+                    ),
+                    Err(_) => sources.push(whole(None, None)),
+                }
+            } else if let Some(key) = archive::gzip_trailer(data) {
+                sources.push(whole(Some(key), None));
+            } else {
+                sources.push(whole(None, Some(index)));
+            }
+        }
+
+        // Hash a plain file only when another payload has the same size.
+        let mut sizes: hashbrown::HashMap<u64, usize> = hashbrown::HashMap::new();
+        for source in sources.iter().filter(|source| source.key.is_some() || source.raw.is_some()) {
+            *sizes.entry(source.bytes).or_default() += 1;
+        }
+        sources.par_iter_mut().for_each(|source| {
+            if let Some(index) = source.raw.filter(|_| sizes[&source.bytes] > 1) {
+                source.key = Some((libdeflater::crc32(&candidates[index].mmap), source.bytes));
+            }
+        });
+
+        let mut filter = Self::default();
+        let mut total = 0;
+        for source in sources {
+            let Some(key) = source.key else {
+                total += source.bytes;
+                continue;
+            };
+            if source.raw.is_some() {
+                filter.raw_keys.insert(source.path.clone(), key);
+            }
+            if filter.owners.contains_key(&key) {
+                continue;
+            }
+            total += source.bytes;
+            filter.owners.insert(key, source.path);
+        }
+        (filter, total)
+    }
+
+    /// Claim `key` for the source at `path`; false when another copy owns it.
+    fn admit(&self, key: ContentKey, path: &str) -> bool {
+        if self.owners.get(&key).is_some_and(|owner| owner != path) {
+            return false;
+        }
+        self.claimed.lock().unwrap().insert(key)
     }
 }
 
@@ -1599,6 +1707,9 @@ fn pipeline_archive_bytes(
             log::warn!("Skipping archive nested deeper than {MAX_ARCHIVE_DEPTH}: '{path}'");
             return IngestPipelineOutcome::default();
         }
+        if archive::gzip_trailer(&data).is_some_and(|key| !progress.admit(key, path)) {
+            return IngestPipelineOutcome::default();
+        }
         let mut output = Vec::new();
         if let Err(error) = archive::decompress_gzip(&data, &mut output) {
             log::warn!("Failed to decompress GZIP '{path}': {error}");
@@ -1683,6 +1794,15 @@ fn pipeline_zip_bytes(
         .map(|entry| {
             let name = entry.name.rsplit('/').next().unwrap_or(&entry.name);
             let path = format!("{archive_path}/{}", entry.name);
+            if !progress.admit((entry.crc32, entry.uncompressed_size as u64), &path) {
+                return IngestPipelineOutcome::default();
+            }
+            if entry.compression_method == 8 && entry.uncompressed_size >= STREAM_ENTRY_MIN_BYTES {
+                let compressed = &zip_bytes[entry.data_start..entry.data_start + entry.compressed_size];
+                return archive_stream::pipeline_zip_entry(
+                    archive_path, &entry, compressed, depth, shard_options, progress, cpus,
+                );
+            }
             let content = match archive::extract_zip_entry(zip_bytes, &entry) {
                 Ok(content) => content,
                 Err(error) => return IngestPipelineOutcome {
@@ -1729,6 +1849,13 @@ fn pipeline_candidate(
             )
         }
         category => {
+            let duplicate = progress
+                .duplicates
+                .and_then(|filter| filter.raw_keys.get(&candidate.path))
+                .is_some_and(|key| !progress.admit(*key, &candidate.path));
+            if duplicate {
+                return IngestPipelineOutcome::default();
+            }
             pipeline_log_slice(
                 &candidate.name,
                 &candidate.path,
@@ -1781,29 +1908,13 @@ pub fn ingest_native_internal(
         return Err("No valid log files found in provided sources".into());
     }
 
-    let total_bytes: u64 = candidates
-        .iter()
-        .map(|c| {
-            if c.mmap.len() >= 4 && &c.mmap[..4] == b"PK\x03\x04" {
-                archive::parse_zip_entries(&c.mmap)
-                    .map(|entries| {
-                        entries
-                            .iter()
-                            .filter(|e| is_extractable_entry(e))
-                            .map(|e| e.uncompressed_size as u64)
-                            .sum()
-                    })
-                    .unwrap_or(c.size)
-            } else {
-                c.size
-            }
-        })
-        .sum();
+    let (duplicates, total_bytes) = DuplicateFilter::plan(&candidates);
 
     let cpus = available_parallelism();
     let shard_options = Pm2ShardOptions::new(pm2_options);
     let mut progress = SharedProgress::new(app_handle, total_bytes);
     progress.nginx = Some(&nginx_context);
+    progress.duplicates = Some(&duplicates);
     progress.archive_count = candidates.iter().filter(|candidate| candidate.category == LogCategory::Archive).count().max(1);
 
     let t_pipeline = Instant::now();
