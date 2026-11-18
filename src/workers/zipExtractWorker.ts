@@ -23,7 +23,8 @@ export type EntryExtractJob = {
   name: string;
   cleanName: string;
   category: "pm2" | "mongo" | "nginx" | "unknown" | "archive";
-  entryBlob: Blob;
+  /** The entry's local header and data, sliced from a File or an in-memory archive. */
+  entryBlob: Blob | ArrayBuffer;
   compressedSize: number;
   uncompressedSize: number;
   isDeflated: boolean;
@@ -100,7 +101,8 @@ function decompressToView(
 async function handleExtractEntry(job: EntryExtractJob): Promise<void> {
   await ensureWasm();
 
-  const sliceBuffer = await job.entryBlob.arrayBuffer();
+  const sliceBuffer =
+    job.entryBlob instanceof ArrayBuffer ? job.entryBlob : await job.entryBlob.arrayBuffer();
 
   // Read local file header (30 bytes)
   let compBytes: Uint8Array;

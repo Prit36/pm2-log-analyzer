@@ -223,6 +223,37 @@ export async function parseMongoFiles(files: File[]): Promise<void> {
   );
 }
 
+export async function parseMongoBuffers(buffers: ArrayBuffer[]): Promise<void> {
+  if (buffers.length === 0) return;
+  const filters = useMongoStore.getState().filters;
+  const totalBytes = buffers.reduce((acc, buffer) => acc + buffer.byteLength, 0);
+  ensureMongoBench({
+    at: new Date().toISOString(),
+    source: "buffers",
+    fileName: `${buffers.length} files`,
+    fileBytes: totalBytes,
+    parseWallMs: 0,
+    reaggTimes: [],
+  });
+  const t0 = performance.now();
+  await runMongoParse({ type: "PARSE_BUFFERS", payload: { buffers, filters } }, buffers);
+  const ms = Math.round(performance.now() - t0);
+  const result = useMongoStore.getState().result;
+  const count = result?.summary.slowQueryCount ?? 0;
+  const collscans = result?.summary.collscanCount ?? 0;
+  ensureMongoBench({
+    parseWallMs: ms,
+    slowQueryCount: count,
+    collscanCount: collscans,
+    patternsCount: result?.patterns.length ?? 0,
+    collectionsCount: result?.collections.length ?? 0,
+    p95DurationMs: result?.summary.p95DurationMs ?? 0,
+  });
+  showToast(
+    `Parsed ${count.toLocaleString()} slow queries across ${buffers.length} files in ${ms}ms`,
+  );
+}
+
 export async function parseMongoText(text: string): Promise<void> {
   const filters = useMongoStore.getState().filters;
   ensureMongoBench({

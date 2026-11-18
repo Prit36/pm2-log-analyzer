@@ -18,7 +18,11 @@ import {
 import { useAppModeStore } from "../store/appModeStore";
 import { parseFiles, parsePm2Buffer, parsePm2Shards } from "../hooks/useParserWorker";
 import type { ShardBufferDescriptor } from "../workers/logParserWorker";
-import { parseMongoBuffer, parseMongoFiles } from "../hooks/useMongoParserWorker";
+import {
+  parseMongoBuffer,
+  parseMongoBuffers,
+  parseMongoFiles,
+} from "../hooks/useMongoParserWorker";
 
 const {
   appendLoadedFiles: appendPm2Files,
@@ -83,7 +87,7 @@ declare global {
 
 const POOL_CAP = Math.min(
   navigator.hardwareConcurrency ? Math.max(2, navigator.hardwareConcurrency) : 2,
-  4,
+  8,
 );
 const workerPool: Worker[] = [];
 const MAX_ARCHIVE_DEPTH = 8;
@@ -178,12 +182,18 @@ function classifyPrefix(bytes: Uint8Array): "pm2" | "mongo" | "nginx" | "unknown
   return "unknown";
 }
 
-async function parseZipCentralDirectoryFromFile(file: File): Promise<ZipCentralEntry[] | null> {
-  const fileSize = file.size;
+async function parseZipCentralDirectoryFromFile(
+  file: Blob | ArrayBuffer,
+): Promise<ZipCentralEntry[] | null> {
+  const read = (start: number, end: number): Promise<ArrayBuffer> =>
+    file instanceof ArrayBuffer
+      ? Promise.resolve(file.slice(start, end))
+      : file.slice(start, end).arrayBuffer();
+  const fileSize = file instanceof ArrayBuffer ? file.byteLength : file.size;
   if (fileSize < 22) return null;
 
   const tailSize = Math.min(fileSize, 65557);
-  const tailBuffer = await file.slice(fileSize - tailSize, fileSize).arrayBuffer();
+  const tailBuffer = await read(fileSize - tailSize, fileSize);
   const tailBytes = new Uint8Array(tailBuffer);
 
   let eocdOffsetInTail = -1;
@@ -216,7 +226,7 @@ async function parseZipCentralDirectoryFromFile(file: File): Promise<ZipCentralE
     cdBuffer = tailBuffer;
     cdOffsetInBuffer = cdOffset - tailStartOffset;
   } else {
-    cdBuffer = await file.slice(cdOffset, cdOffset + cdSize).arrayBuffer();
+    cdBuffer = await read(cdOffset, cdOffset + cdSize);
     cdOffsetInBuffer = 0;
   }
 
@@ -1072,7 +1082,15 @@ export async function handleLogFilesUpload(
   );
   const archives = probes.filter((probe) => probe.archive).map((probe) => probe.file);
   if (archives.length === 1 && files.length === 1) {
-    return handleArchiveUpload(archives[0]!, uploadMode, generation, token);
+    // A ZIP that bundles other archives takes the batch pipeline: it expands nested
+    // archives in parallel, skips duplicate payloads, and keeps logs out of Blob storage.
+    const archive = archives[0]!;
+    const nested =
+      /\.zip$/i.test(archive.name) &&
+      (await parseZipCentralDirectoryFromFile(archive))?.some(
+        (entry) => entry.category === "archive" && !entry.isDir,
+      );
+    if (!nested) return handleArchiveUpload(archive, uploadMode, generation, token);
   }
 
   const rawFiles = probes.filter((probe) => !probe.archive).map((probe) => probe.file);
@@ -1371,8 +1389,9 @@ export async function handleLogFilesUpload(
 
       if (/\.zip$/i.test(item.name)) {
         try {
-          const nestedFile = new File([item.buffer], item.name);
-          const entries = await parseZipCentralDirectoryFromFile(nestedFile);
+          // Keep the nested archive in memory; each entry is sliced out for its decoder.
+          const nestedZip = item.buffer;
+          const entries = await parseZipCentralDirectoryFromFile(nestedZip);
           if (entries) {
             for (let idx = 0; idx < entries.length; idx++) {
               const entry = entries[idx]!;
@@ -1390,7 +1409,7 @@ export async function handleLogFilesUpload(
                 queue.push({
                   id: ++nextTaskId,
                   kind: "zip_entry",
-                  file: nestedFile,
+                  buffer: nestedZip,
                   entry,
                   name: entry.name,
                   cleanName: entry.cleanName,
@@ -1538,9 +1557,10 @@ export async function handleLogFilesUpload(
       worker.addEventListener("message", handleMessage);
       worker.addEventListener("error", handleError);
 
-      if (task.kind === "zip_entry" && task.file && task.entry) {
+      if (task.kind === "zip_entry" && (task.file || task.buffer) && task.entry) {
+        const source = task.file ?? task.buffer!;
         const sliceEnd = Math.min(
-          task.file.size,
+          task.file ? task.file.size : task.buffer!.byteLength,
           task.entry.localHeaderOffset +
             30 +
             task.entry.nameLen +
@@ -1548,20 +1568,23 @@ export async function handleLogFilesUpload(
             task.entry.compressedSize +
             1024,
         );
-        const entryBlob = task.file.slice(task.entry.localHeaderOffset, sliceEnd);
-        worker.postMessage({
-          type: "EXTRACT_ENTRY",
-          payload: {
-            id: task.id,
-            name: task.entry.name,
-            cleanName: task.entry.cleanName,
-            category: task.entry.category === "skip" ? "pm2" : task.entry.category,
-            entryBlob,
-            compressedSize: task.entry.compressedSize,
-            uncompressedSize: task.entry.uncompressedSize,
-            isDeflated: Boolean(task.entry.isDeflated),
-          },
-        } satisfies ZipWorkerMessage);
+        const entryBlob = source.slice(task.entry.localHeaderOffset, sliceEnd);
+        worker.postMessage(
+          {
+            type: "EXTRACT_ENTRY",
+            payload: {
+              id: task.id,
+              name: task.entry.name,
+              cleanName: task.entry.cleanName,
+              category: task.entry.category === "skip" ? "pm2" : task.entry.category,
+              entryBlob,
+              compressedSize: task.entry.compressedSize,
+              uncompressedSize: task.entry.uncompressedSize,
+              isDeflated: Boolean(task.entry.isDeflated),
+            },
+          } satisfies ZipWorkerMessage,
+          entryBlob instanceof ArrayBuffer ? [entryBlob] : [],
+        );
       } else if (task.kind === "gz_file" && task.file) {
         void task.file.arrayBuffer().then((fileBuffer) => {
           worker.postMessage(
@@ -1657,6 +1680,18 @@ export async function handleLogFilesUpload(
       Object.defineProperty(dummyFile, "size", { value: item.size });
       setMongoFiles([dummyFile]);
       void parseMongoBuffer(item.buffer, item.name, item.size);
+    } else if (mongoResults.length > 0 && uploadMode === "replace") {
+      // Transfer the decoded buffers instead of copying them into Blob storage.
+      mongoDispatched = true;
+      mongoResults.sort((a, b) => a.archiveIndex - b.archiveIndex || a.entryIndex - b.entryIndex);
+      setMongoFiles(
+        mongoResults.map((item) => {
+          const file = createTextFile([], item.name, item.lastModified);
+          Object.defineProperty(file, "size", { value: item.size });
+          return file;
+        }),
+      );
+      void parseMongoBuffers(mongoResults.map((item) => item.buffer));
     } else if (mongoResults.length > 0) {
       mongoDispatched = true;
       const files = mongoResults.map((item) =>
@@ -1714,6 +1749,7 @@ export async function handleLogFilesUpload(
         readStart: number;
         readEnd: number;
         buffers: ArrayBuffer[];
+        views: [number, number][];
       }[] = [];
       for (let i = 0; i < n; i++) {
         const start = i * chunk;
@@ -1729,6 +1765,7 @@ export async function handleLogFilesUpload(
           readStart,
           readEnd,
           buffers: [],
+          views: [],
         });
       }
 
@@ -1737,19 +1774,25 @@ export async function handleLogFilesUpload(
         const itemStart = itemOffset;
         const itemEnd = itemOffset + item.size;
         itemOffset += item.size;
+        // The shard holding most of a file receives it whole (a view of its share);
+        // the other shards copy only their boundary spans. Keep the 1-byte lookbehind
+        // and lookahead identical to file sharding.
+        const overlap = (r: (typeof ranges)[number]) =>
+          Math.min(itemEnd, r.readEnd) - Math.max(itemStart, r.readStart);
+        let owner: (typeof ranges)[number] | undefined;
         for (const r of ranges) {
-          const oStart = Math.max(itemStart, r.readStart);
-          const oEnd = Math.min(itemEnd, r.readEnd);
-          if (oEnd > oStart) {
-            const srcStart = oStart - itemStart;
-            const srcEnd = oEnd - itemStart;
-            // Transfer an owned file whole; only shard boundaries need copies.
-            // Keep the 1-byte lookbehind and lookahead identical to file sharding.
-            r.buffers.push(
-              itemStart >= r.start && itemEnd <= r.end
-                ? item.buffer
-                : item.buffer.slice(srcStart, srcEnd),
-            );
+          if (overlap(r) > 0 && (!owner || overlap(r) > overlap(owner))) owner = r;
+        }
+        for (const r of ranges) {
+          const length = overlap(r);
+          if (length <= 0) continue;
+          const srcStart = Math.max(itemStart, r.readStart) - itemStart;
+          if (r === owner) {
+            r.buffers.push(item.buffer);
+            r.views.push([srcStart, length]);
+          } else {
+            r.buffers.push(item.buffer.slice(srcStart, srcStart + length));
+            r.views.push([0, length]);
           }
         }
         item.buffer = new ArrayBuffer(0);
@@ -1762,6 +1805,7 @@ export async function handleLogFilesUpload(
         totalSize: r.totalSize,
         readStart: r.readStart,
         buffers: r.buffers,
+        views: r.views,
       }));
 
       const displayName = uniquePm2.length === 1 ? uniquePm2[0]!.name : `${uniquePm2.length} files`;

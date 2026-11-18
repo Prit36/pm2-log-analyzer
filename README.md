@@ -29,7 +29,7 @@ The analyzer supports two first-class runtime targets sharing a unified React 19
 ### Ingestion & Archive Pipeline
 - **Flexible Sources**: Single log files (`.log`, `.txt`), compressed logs (`.gz`), ZIP, RAR4/RAR5, 7z, TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ/TBZ2, TAR.XZ/TXZ archives, nested folders/directories, and pasted text.
 - **Smart Auto-Classification**: Automatically detects PM2, MongoDB, and Nginx entries, skips irrelevant assets/system files, and dispatches them to their respective engines. Nginx structure is recognized before generic HTTP-method matching, including ambiguously named raw files.
-- **Batch Multi-Archive Import**: Parallel decompression and direct shard partitioning for multi-archive or multi-file drops. Byte-identical logs (the same log in two archives, or a `.gz` next to its unpacked copy) are skipped before decompression using the CRC-32 and size stored in ZIP central directories and GZIP trailers; the first copy in upload order is kept. Browser PM2 shards receive owned entry buffers directly, copying only spans crossing shard boundaries, and large ZIP/Gzip decoder workers are retired after each entry to release their Wasm heaps. Native batch imports stream deflated ZIP entries of 32 MiB or more through the bounded chunk pipeline instead of inflating whole entries.
+- **Batch Multi-Archive Import**: Parallel decompression (up to eight browser decoder workers) and direct shard partitioning for multi-archive or multi-file drops, and for a single ZIP that bundles other archives (`.zip`, `.gz`, 7z, RAR, TAR). Byte-identical logs (the same log in two archives, or a `.gz` next to its unpacked copy) are skipped before decompression using the CRC-32 and size stored in ZIP central directories and GZIP trailers; the first copy in upload order is kept. Nested ZIPs stay in memory and their entries are sliced straight to decoders. Each browser PM2 log is transferred whole to the shard that owns most of it, other shards copy only their boundary spans, and several MongoDB logs are transferred as buffers instead of Blobs. Large ZIP/Gzip decoder workers are retired after each entry to release their Wasm heaps. Native batch imports stream deflated ZIP entries of 32 MiB or more through the bounded chunk pipeline instead of inflating whole entries.
 - **Browser Archive Decoders**: Rust Wasm replaces `libarchive-wasm` and `node-unrar-js`, with no npm decoder fallback. ZIP/Gzip workers are prewarmed; general archive workers load on demand. Plain TAR validates metadata in Rust and reads entry Blob slices directly. Gzip streams into final transferable buffers; Bzip2 and independent XZ blocks use up to four workers. Independent 7z LZMA2 reset ranges decode in parallel; other layouts use the Rust sequential decoder.
 - **Browser RAR**: A separate Rust Wasm asset loads and compiles on the first RAR import. The decoder uses an 8 MiB input reader and copies decoded spans into final transferable buffers, preserving solid archive dictionaries. The vendored `unrar-rs` fixes browser timestamp compilation and truncated-header handling; [patch provenance](wasm/vendor/unrar-rs/PATCH.md) records the exact changes.
 - **Native Archive Decoders**: Native builds require Rust 1.93 or newer. Native imports stream logs through three recycled 16 MiB buffers while parsing concurrently; Bzip2, XZ, and supported 7z layouts use bounded decoder parallelism.
@@ -136,13 +136,23 @@ Corpus: 9 mixed archives and compressed files (`.zip`, `.gz`) yielding 3.72M PM2
 
 | Metric | Browser Wasm | Native Desktop (Tauri) |
 |---|---|---|
-| **Upload → UI Ready** | **2,231 ms** (was 3,078 ms; −28%) | **852 ms** (was 1,022 ms) |
+| **Upload → UI Ready** | **1,892 ms** (2,231 ms on `1d1419e`; 3,078 ms before) | **852 ms** (was 1,022 ms) |
 | **Native Wall** | — | **612 ms** (was 769 ms) |
-| **Peak Working Set / RSS** | **2,702 MiB** (was 3,914 MiB; −31%) | **1,199 MiB** (was 2,922 MiB) |
+| **Peak Working Set / RSS** | **2,675 MiB** (2,702 MiB on `1d1419e`; 3,914 MiB before) | **1,199 MiB** (was 2,922 MiB) |
 
 Means of three fresh-process runs on November 17, 2026; raw sessions and ranges are in [batch benchmark history](scripts/bench/import_batch_history.json). Browser before/after uses the same CRC-deduplicated corpus: compact endpoint histograms, direct slot encoding, multipart shard transfers, and decoder worker retirement reduce UI-ready latency and sampled process-tree peak RSS. The native "was" values are the same corpus on `0b15e26`, where native parsed `api-out.log.2.gz` and its identical copy in `21-09-api.zip` twice (4.68M requests instead of 3.72M).
 
 Both targets report 3,721,413 PM2 requests and 81,846 Mongo slow queries. The existing Mongo grouping difference remains (615 browser patterns versus 626 native); this optimization preserves those counts. Verification includes exact Wasm endpoint wires across 72 normalization/filter combinations, native decoded/wire parity across 36 combinations, full multipart reports and filtered reaggregations versus the combined-buffer path, and nested ZIP/7z reports versus raw inputs. PM2 histograms keep four buckets inline and promote on the fifth distinct bucket; the wire format and quantile buckets are unchanged.
+
+### 4a. Combined ZIP With Nested Archives (Browser, 283.8 MiB)
+Corpus: one ZIP (`test_data/combined/combined-all.zip`, built locally) holding the nine batch files above plus a 166 MiB Nginx access log, a 7z and a TAR.GZ. It yields 3,924,565 PM2 requests, 87,905 Mongo slow queries (638 patterns) and 1,048,576 Nginx requests.
+
+| Input | `1d1419e` UI Ready / Peak RSS | Now UI Ready / Peak RSS |
+|---|---|---|
+| Combined ZIP | Mongo parse fails ("file could not be read"); extraction alone 3.4 s | **2,400 ms / 3,197 MiB** |
+| Same 12 files dropped together | 2,961 ms / 4,165 MiB | **2,100 ms / 3,048 MiB** |
+
+Means of three fresh Chromium runs on November 18, 2026 (`pnpm bench:batch -- --target browser --expect all <files>`). Before this change, a lone ZIP always took the single-archive path: it expanded nested archives one after another and wrapped every decoded log in a Blob, which exhausted Blob storage on this 2.5 GB corpus. A ZIP whose central directory lists nested archives now uses the batch pipeline. Full PM2, MongoDB and Nginx views match the batch import of the same logs on `1d1419e` (minus the standalone `api-error.log.2.gz`: a top-level `.gz` error log is parsed, while the same file inside a ZIP is skipped by name), the 12-file drop matches `1d1419e` exactly, and the 9-file corpus keeps its 3,721,413 requests, 81,846 slow queries and 615 patterns. Single-archive inputs without nested archives (such as `methaq-api&mongodb-07-09.zip`) still use the single-archive path.
 
 ### 5. Browser Archive Optimization (October 17–18, 2026)
 

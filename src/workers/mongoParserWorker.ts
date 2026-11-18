@@ -15,6 +15,7 @@ export type MongoWorkerMessage =
       type: "PARSE_BUFFER";
       payload: { buffer: ArrayBuffer; fileName: string; filters: MongoFilters };
     }
+  | { type: "PARSE_BUFFERS"; payload: { buffers: ArrayBuffer[]; filters: MongoFilters } }
   | { type: "PARSE_TEXT"; payload: { text: string; filters: MongoFilters } }
   | { type: "REAGGREGATE"; payload: { filters: MongoFilters } }
   | { type: "CLEAR" }
@@ -493,15 +494,21 @@ self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
     return;
   }
 
-  if (msg.type === "PARSE_BUFFER") {
+  if (msg.type === "PARSE_BUFFER" || msg.type === "PARSE_BUFFERS") {
     isCancelled = false;
     currentFilters = msg.payload.filters;
     const eng = await ensureEngine();
     eng.clear();
 
     const t0 = performance.now();
-    const { buffer } = msg.payload;
-    await parseBufferSharded(buffer, eng, 0, buffer.byteLength);
+    const buffers = msg.type === "PARSE_BUFFER" ? [msg.payload.buffer] : msg.payload.buffers;
+    const totalBytes = buffers.reduce((acc, buffer) => acc + buffer.byteLength, 0);
+    let bytesSoFar = 0;
+    for (const buffer of buffers) {
+      if (isCancelled) break;
+      await parseBufferSharded(buffer, eng, bytesSoFar, totalBytes);
+      bytesSoFar += buffer.byteLength;
+    }
     terminateShardPool();
 
     if (isCancelled) return;

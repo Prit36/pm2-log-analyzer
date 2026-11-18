@@ -34,6 +34,7 @@ export type ShardRequest =
       epoch: number;
       shardIndex: number;
       buffers: ArrayBuffer[];
+      views: [number, number][];
       start: number;
       end: number;
       totalSize: number;
@@ -317,6 +318,7 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
     if (msg.type === "PARSE_SHARD_BUFFER" || msg.type === "PARSE_SHARD_PARTS") {
       const { start, end, totalSize, readStart, shardIndex, epoch, normalizeMode } = msg;
       const buffers = msg.type === "PARSE_SHARD_PARTS" ? msg.buffers : [msg.buf];
+      const views = msg.type === "PARSE_SHARD_PARTS" ? msg.views : null;
       engine.clear();
       let copyIngestMs = 0;
       let feedMs = 0;
@@ -324,7 +326,10 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
       engine.begin_shard(start, end, totalSize);
       let off = readStart;
       for (let index = 0; index < buffers.length; index++) {
-        const bytes = new Uint8Array(buffers[index]!);
+        const view = views?.[index];
+        const bytes = view
+          ? new Uint8Array(buffers[index]!, view[0], view[1])
+          : new Uint8Array(buffers[index]!);
         let bufOff = 0;
         while (bufOff < bytes.length) {
           const take = Math.min(CHUNK, bytes.length - bufOff);

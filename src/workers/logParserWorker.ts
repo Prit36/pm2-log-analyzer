@@ -83,6 +83,8 @@ export type ShardBufferDescriptor = {
   totalSize: number;
   readStart: number;
   buffers: ArrayBuffer[];
+  /** `[offset, length]` of the bytes each buffer contributes, so a file can be transferred whole. */
+  views: [number, number][];
 };
 
 export type WorkerMessage =
@@ -741,6 +743,7 @@ async function parsePrepartitionedShards(
         readStart: shard.readStart,
         normalizeMode,
         buffers: shard.buffers,
+        views: shard.views,
       });
       if (parsed.partialWire) {
         prekickedTasks[shard.shardIndex] = Promise.resolve({
