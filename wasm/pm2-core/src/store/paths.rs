@@ -175,20 +175,28 @@ impl Engine {
             self.mode_ready[mode_index] = true;
             return;
         }
-        if self.mode_ready[mode_index] && self.path_to_norm[mode_index].len() == self.path_off.len() {
+        let done = self.path_to_norm[mode_index].len();
+        if self.mode_ready[mode_index] && done == self.path_off.len() {
             return;
         }
-        self.norm_bytes[mode_index].clear();
-        self.norm_off[mode_index].clear();
-        self.norm_len[mode_index].clear();
-        self.norm_table[mode_index].clear();
+        // Paths are only appended, so a ready mode extends with the new ones; norm ids
+        // come out exactly as a full rebuild in path order would assign them.
+        let first = if self.mode_ready[mode_index] {
+            done
+        } else {
+            self.norm_bytes[mode_index].clear();
+            self.norm_off[mode_index].clear();
+            self.norm_len[mode_index].clear();
+            self.norm_table[mode_index].clear();
+            0
+        };
         self.path_to_norm[mode_index].resize(self.path_off.len(), 0);
-        self.build_normalized_paths(mode_enum);
+        self.build_normalized_paths(mode_enum, first);
         self.mode_ready[mode_index] = true;
     }
 
-    /// Normalize every interned path into the mode's arena.
-    fn build_normalized_paths(&mut self, mode: NormalizeMode) {
+    /// Normalize interned paths from `first` on into the mode's arena.
+    fn build_normalized_paths(&mut self, mode: NormalizeMode, first: usize) {
         let mode_index = mode as usize;
         let norm_bytes = &mut self.norm_bytes[mode_index];
         let norm_off = &mut self.norm_off[mode_index];
@@ -199,7 +207,7 @@ impl Engine {
         let path_len = &self.path_len;
         let path_to_norm = &mut self.path_to_norm[mode_index];
         let mut scratch = Vec::with_capacity(256);
-        for path_id in 0..path_off.len() {
+        for path_id in first..path_off.len() {
             let offset = path_off[path_id] as usize;
             let length = path_len[path_id] as usize;
             let normalized = normalize_into(&path_bytes[offset..offset + length], mode, &mut scratch);

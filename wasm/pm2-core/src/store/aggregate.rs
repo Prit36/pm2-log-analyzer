@@ -428,16 +428,6 @@ pub(super) struct SummaryTotal {
 }
 
 impl SummaryTotal {
-    pub(super) fn new() -> Self {
-        Self {
-            sum: 0.0,
-            max: 0.0,
-            errors: 0,
-            slow: 0,
-            sketch: RelHist::new(),
-        }
-    }
-
     pub(super) fn record(&mut self, record: &SummaryRecord) {
         self.sum += record.duration as f64;
         if record.duration > self.max {

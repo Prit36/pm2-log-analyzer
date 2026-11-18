@@ -49,6 +49,36 @@ export class FastDecompressor {
     output_ptr(): number;
 }
 
+/**
+ * Resumable raw-deflate or gzip inflater with bounded Wasm memory: JS writes compressed
+ * input into a small window and copies each filled output window out, so neither the
+ * whole compressed entry nor its decoded output lives in linear memory.
+ */
+export class InflateStream {
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Pointer where JS writes the next `len` compressed bytes. Call only after `pump`
+     * returned 0, which means the previous input was consumed.
+     */
+    input_ptr(len: number): number;
+    /**
+     * `gzip` selects a gzip member; otherwise the input is raw deflate (ZIP method 8).
+     */
+    constructor(gzip: boolean, output_capacity: number);
+    output_len(): number;
+    output_ptr(): number;
+    /**
+     * Inflate pending input into the output window. Returns 0 when more input is
+     * needed, 1 when the output window is full, and 2 at the end of the stream.
+     */
+    pump(): number;
+    /**
+     * Mark the output window as copied out.
+     */
+    reset_output(): void;
+}
+
 export class TarStream {
     free(): void;
     [Symbol.dispose](): void;
@@ -90,6 +120,7 @@ export interface InitOutput {
     readonly __wbg_bzipblockdecoder_free: (a: number, b: number) => void;
     readonly __wbg_bzipscanner_free: (a: number, b: number) => void;
     readonly __wbg_fastdecompressor_free: (a: number, b: number) => void;
+    readonly __wbg_inflatestream_free: (a: number, b: number) => void;
     readonly __wbg_tarstream_free: (a: number, b: number) => void;
     readonly bzipblockdecoder_block_length: (a: number) => number;
     readonly bzipblockdecoder_crc: (a: number) => number;
@@ -110,6 +141,12 @@ export interface InitOutput {
     readonly fastdecompressor_output_crc: (a: number, b: number, c: number) => [number, number, number];
     readonly fastdecompressor_output_len: (a: number) => number;
     readonly fastdecompressor_output_ptr: (a: number) => number;
+    readonly inflatestream_input_ptr: (a: number, b: number) => number;
+    readonly inflatestream_new: (a: number, b: number) => number;
+    readonly inflatestream_output_len: (a: number) => number;
+    readonly inflatestream_output_ptr: (a: number) => number;
+    readonly inflatestream_pump: (a: number) => [number, number, number];
+    readonly inflatestream_reset_output: (a: number) => void;
     readonly inspect_sevenz: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly inspect_tar_blob: (a: number, b: any) => [number, number, number, number];
     readonly inspect_xz_blob: (a: number, b: any) => [number, number, number, number];
@@ -118,9 +155,9 @@ export interface InitOutput {
     readonly tarstream_new: (a: any, b: any, c: any, d: any) => number;
     readonly xzblockdecoder_decode: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly xzblockdecoder_output_len: (a: number) => number;
-    readonly xzblockdecoder_new: () => number;
-    readonly sevenz_crc_combine: (a: number, b: number, c: number) => number;
     readonly __wbg_xzblockdecoder_free: (a: number, b: number) => void;
+    readonly sevenz_crc_combine: (a: number, b: number, c: number) => number;
+    readonly xzblockdecoder_new: () => number;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

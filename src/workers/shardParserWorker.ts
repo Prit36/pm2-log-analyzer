@@ -30,17 +30,24 @@ export type ShardRequest =
       normalizeMode?: string;
     }
   | {
-      type: "PARSE_SHARD_PARTS";
+      /** Open a stream: lines starting in `[start, end)` of a `fileSize`-byte file. */
+      type: "STREAM_BEGIN";
       epoch: number;
-      shardIndex: number;
-      buffers: ArrayBuffer[];
-      views: [number, number][];
+      streamId: number;
       start: number;
       end: number;
-      totalSize: number;
-      readStart: number;
-      normalizeMode?: string;
+      fileSize: number;
     }
+  | {
+      type: "STREAM_CHUNK";
+      epoch: number;
+      streamId: number;
+      /** File offset of the first byte of `buf`. */
+      offset: number;
+      buf: ArrayBuffer;
+    }
+  | { type: "STREAM_END"; epoch: number; streamId: number }
+  | { type: "STREAM_FINISH"; epoch: number; shardIndex: number; normalizeMode?: string }
   | {
       type: "PARSE_BYTES";
       epoch: number;
@@ -110,6 +117,15 @@ export type ShardError = {
   message: string;
 };
 
+/** Cron events and unmatched sample of one closed stream, for ordering across files. */
+export type ShardStreamEnded = {
+  type: "STREAM_ENDED";
+  epoch: number;
+  streamId: number;
+  cronWire: ArrayBuffer;
+  unmatchedWire: ArrayBuffer;
+};
+
 export type ShardReady = { type: "SHARD_READY" };
 
 export type ShardModeReady = { type: "SHARD_MODE_READY"; epoch: number };
@@ -118,6 +134,9 @@ const CHUNK = 16 * 1024 * 1024;
 const LINE_EXTEND = 256 * 1024;
 
 let engine: Pm2Engine | null = null;
+/** Epoch of the open stream session; a new epoch clears the engine first. */
+let streamEpoch = -1;
+let streamTiming = { copyIngestMs: 0, feedMs: 0 };
 let wasmMemory: WebAssembly.Memory | null = null;
 let ready = false;
 
@@ -221,7 +240,13 @@ async function parseFileRange(file: File, start: number, end: number): Promise<S
   };
 }
 
-export type ShardResponse = ShardReady | ShardModeReady | ShardParsed | ShardPartial | ShardError;
+export type ShardResponse =
+  | ShardReady
+  | ShardModeReady
+  | ShardParsed
+  | ShardPartial
+  | ShardStreamEnded
+  | ShardError;
 
 interface WorkerGlobal {
   postMessage(message: ShardResponse, transfer?: Transferable[]): void;
@@ -315,37 +340,30 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
       return;
     }
 
-    if (msg.type === "PARSE_SHARD_BUFFER" || msg.type === "PARSE_SHARD_PARTS") {
-      const { start, end, totalSize, readStart, shardIndex, epoch, normalizeMode } = msg;
-      const buffers = msg.type === "PARSE_SHARD_PARTS" ? msg.buffers : [msg.buf];
-      const views = msg.type === "PARSE_SHARD_PARTS" ? msg.views : null;
+    if (msg.type === "PARSE_SHARD_BUFFER") {
+      const { buf, start, end, totalSize, readStart, shardIndex, epoch, normalizeMode } = msg;
       engine.clear();
+      let bytes: Uint8Array | null = new Uint8Array(buf);
       let copyIngestMs = 0;
       let feedMs = 0;
 
       engine.begin_shard(start, end, totalSize);
       let off = readStart;
-      for (let index = 0; index < buffers.length; index++) {
-        const view = views?.[index];
-        const bytes = view
-          ? new Uint8Array(buffers[index]!, view[0], view[1])
-          : new Uint8Array(buffers[index]!);
-        let bufOff = 0;
-        while (bufOff < bytes.length) {
-          const take = Math.min(CHUNK, bytes.length - bufOff);
-          const tCopy = performance.now();
-          const n = writeIngest(bytes.subarray(bufOff, bufOff + take));
-          copyIngestMs += performance.now() - tCopy;
+      let bufOff = 0;
+      while (bufOff < bytes.length) {
+        const take = Math.min(CHUNK, bytes.length - bufOff);
+        const tCopy = performance.now();
+        const n = writeIngest(bytes.subarray(bufOff, bufOff + take));
+        copyIngestMs += performance.now() - tCopy;
 
-          const tFeed = performance.now();
-          engine.feed(n, off);
-          feedMs += performance.now() - tFeed;
+        const tFeed = performance.now();
+        engine.feed(n, off);
+        feedMs += performance.now() - tFeed;
 
-          bufOff += take;
-          off += take;
-        }
-        buffers[index] = new ArrayBuffer(0);
+        bufOff += take;
+        off += take;
       }
+      bytes = null;
 
       const tEnd = performance.now();
       engine.end_shard();
@@ -387,6 +405,108 @@ self.onmessage = async (e: MessageEvent<ShardRequest>) => {
         timing,
       };
 
+      self.postMessage(result, [
+        cronWire,
+        unmatchedWire,
+        hourlyWire,
+        datesWire,
+        dailyWire,
+        partialWire,
+      ]);
+      return;
+    }
+
+    if (msg.type === "STREAM_BEGIN") {
+      if (msg.epoch !== streamEpoch) {
+        engine.clear();
+        streamEpoch = msg.epoch;
+        streamTiming = { copyIngestMs: 0, feedMs: 0 };
+      }
+      engine.begin_stream(msg.streamId, msg.start, msg.end, msg.fileSize);
+      return;
+    }
+
+    if (msg.type === "STREAM_CHUNK") {
+      if (msg.epoch !== streamEpoch) return;
+      const bytes = new Uint8Array(msg.buf);
+      for (let bufOff = 0; bufOff < bytes.length; bufOff += CHUNK) {
+        const take = Math.min(CHUNK, bytes.length - bufOff);
+        const tCopy = performance.now();
+        const n = writeIngest(bytes.subarray(bufOff, bufOff + take));
+        const tFeed = performance.now();
+        engine.feed_stream(msg.streamId, n, msg.offset + bufOff);
+        streamTiming.copyIngestMs += tFeed - tCopy;
+        streamTiming.feedMs += performance.now() - tFeed;
+      }
+      return;
+    }
+
+    if (msg.type === "STREAM_END") {
+      if (msg.epoch !== streamEpoch) return;
+      const wire = engine.end_stream(msg.streamId);
+      const cronLength = new DataView(wire.buffer, wire.byteOffset, 4).getUint32(0, true);
+      const cronWire = wire.slice(4, 4 + cronLength).buffer;
+      const unmatchedWire = wire.slice(4 + cronLength).buffer;
+      self.postMessage(
+        {
+          type: "STREAM_ENDED",
+          epoch: msg.epoch,
+          streamId: msg.streamId,
+          cronWire,
+          unmatchedWire,
+        } satisfies ShardStreamEnded,
+        [cronWire, unmatchedWire],
+      );
+      // Do the finish-time path and summary work for this stream now, while other
+      // archives are still decoding. Default mode; another mode is built at finish.
+      engine.settle_streams(normalizeModeCode("collapseIds"));
+      return;
+    }
+
+    if (msg.type === "STREAM_FINISH") {
+      const { epoch, shardIndex, normalizeMode } = msg;
+      if (epoch !== streamEpoch) {
+        // No stream reached this shard in this epoch.
+        engine.clear();
+        streamEpoch = epoch;
+        streamTiming = { copyIngestMs: 0, feedMs: 0 };
+      }
+      const tEnd = performance.now();
+      engine.finish_streams();
+      const endShardMs = performance.now() - tEnd;
+      const modeCode = normalizeModeCode(normalizeMode ?? "collapseIds");
+      engine.ensure_mode(modeCode);
+      const partialWire = transferableBuffer(
+        engine.reaggregate(modeCode, 0, 0, new Uint8Array(), true),
+      );
+      const tMeta = performance.now();
+      const { cronWire, unmatchedWire, hourlyWire, datesWire, dailyWire } = metaBuffers();
+      const metaWireMs = performance.now() - tMeta;
+      const { copyIngestMs, feedMs } = streamTiming;
+      const result: ShardParsed = {
+        type: "SHARD_PARSED",
+        shardIndex,
+        epoch,
+        hitCount: engine.hit_count(),
+        unmatchedCount: engine.unmatched_count(),
+        methodsMask: engine.methods_mask(),
+        cronWire,
+        unmatchedWire,
+        hourlyWire,
+        datesWire,
+        dailyWire,
+        partialWire,
+        wasmHeapBytes: wasmMemory.buffer.byteLength,
+        pathCount: engine.path_count(),
+        timing: {
+          readMs: 0,
+          copyIngestMs,
+          feedMs,
+          endShardMs,
+          metaWireMs,
+          shardWallMs: copyIngestMs + feedMs + endShardMs + metaWireMs,
+        },
+      };
       self.postMessage(result, [
         cronWire,
         unmatchedWire,

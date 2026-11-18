@@ -23,6 +23,16 @@ export class Pm2Engine {
     begin_shard(start, end, file_size) {
         wasm.pm2engine_begin_shard(this.__wbg_ptr, start, end, file_size);
     }
+    /**
+     * Open stream `id` over `[start, end)` of a `file_size`-byte file, keeping existing columns.
+     * @param {number} id
+     * @param {number} start
+     * @param {number} end
+     * @param {number} file_size
+     */
+    begin_stream(id, start, end, file_size) {
+        wasm.pm2engine_begin_stream(this.__wbg_ptr, id, start, end, file_size);
+    }
     clear() {
         wasm.pm2engine_clear(this.__wbg_ptr);
     }
@@ -60,6 +70,17 @@ export class Pm2Engine {
         wasm.pm2engine_end_shard(this.__wbg_ptr);
     }
     /**
+     * Close stream `id`; returns `[u32 cron length][cron wire][unmatched wire]`.
+     * @param {number} id
+     * @returns {Uint8Array}
+     */
+    end_stream(id) {
+        const ret = wasm.pm2engine_end_stream(this.__wbg_ptr, id);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
      * Lazily build normalize map for one mode (0/1/2). Prefer this over finalize_paths.
      * @param {number} mode
      */
@@ -76,8 +97,25 @@ export class Pm2Engine {
         const ret = wasm.pm2engine_feed(this.__wbg_ptr, len, abs_off);
         return ret >>> 0;
     }
+    /**
+     * Parse `len` bytes written at ingest_ptr as stream `id`, at file offset `abs_off`.
+     * @param {number} id
+     * @param {number} len
+     * @param {number} abs_off
+     * @returns {number}
+     */
+    feed_stream(id, len, abs_off) {
+        const ret = wasm.pm2engine_feed_stream(this.__wbg_ptr, id, len, abs_off);
+        return ret >>> 0;
+    }
     finalize_paths() {
         wasm.pm2engine_finalize_paths(this.__wbg_ptr);
+    }
+    /**
+     * Build summary and hourly/daily metadata after the last stream ends.
+     */
+    finish_streams() {
+        wasm.pm2engine_finish_streams(this.__wbg_ptr);
     }
     /**
      * @returns {number}
@@ -180,6 +218,13 @@ export class Pm2Engine {
         var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v2;
+    }
+    /**
+     * Prepare normalized paths and the summary for everything parsed so far.
+     * @param {number} mode
+     */
+    settle_streams(mode) {
+        wasm.pm2engine_settle_streams(this.__wbg_ptr, mode);
     }
     /**
      * @returns {Uint8Array}

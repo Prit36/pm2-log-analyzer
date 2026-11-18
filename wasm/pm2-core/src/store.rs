@@ -218,6 +218,22 @@ impl DailyAcc {
     }
 }
 
+/// Parse position of one open stream: a byte range of one file. Several streams can be
+/// open at once; their lines land in the same columns, while cron events and unmatched
+/// samples stay per stream so the caller can order them by file.
+#[derive(Default)]
+pub(super) struct StreamCursor {
+    id: u32,
+    shard_start: u64,
+    shard_end: u64,
+    file_size: u64,
+    skip_partial: bool,
+    carry: Vec<u8>,
+    carry_abs: u64,
+    cron_events: Vec<CronEv>,
+    unmatched_sample: Vec<Vec<u8>>,
+}
+
 pub struct Engine {
     pub(super) ingest: Vec<u8>,
     pub(super) carry: Vec<u8>,
@@ -269,6 +285,7 @@ pub struct Engine {
     parsing: bool,
     pub(super) last_path_id: Option<u32>,
     pub(super) path_cache: [(u64, u32, u16, u16); PATH_CACHE_SLOTS],
+    pub(super) streams: Vec<StreamCursor>,
 }
 
 impl Engine {
@@ -313,6 +330,7 @@ impl Engine {
             parsing: false,
             last_path_id: None,
             path_cache: [(0, u32::MAX, 0, 0); PATH_CACHE_SLOTS],
+            streams: Vec::new(),
         }
     }
 
@@ -361,23 +379,36 @@ impl Engine {
         if self.summary_ready {
             return;
         }
-        let mut total = SummaryTotal::new();
-        let mut hourly_buckets: [HourlyAcc; 24] = std::array::from_fn(|_| HourlyAcc::new());
-        let mut daily_accs: Vec<DailyAcc> = self
-            .dates
-            .iter()
-            .map(|&date| DailyAcc::new(date))
-            .collect();
+        self.accumulate_summary();
+        self.summary_ready = true;
+        self.cached_hourly_wire = encode_hourly_vec(&self.hourly_buckets);
+        self.cached_daily_wire = encode_daily_vec(&self.daily_accs);
+    }
 
-        self.hist_keys.reserve(self.entries.len());
-        for entry in &self.entries {
+    /// Fold entries not yet summarized into the running totals. Entries are only
+    /// appended, so summarizing in steps visits them in the same order as one pass.
+    pub(super) fn accumulate_summary(&mut self) {
+        let first = self.hist_keys.len();
+        let mut total = SummaryTotal {
+            sum: self.summary_sum,
+            max: self.summary_max,
+            errors: self.summary_errors,
+            slow: self.summary_slow,
+            sketch: std::mem::replace(&mut self.summary_sketch, RelHist::new()),
+        };
+        let known_dates = self.daily_accs.len();
+        self.daily_accs
+            .extend(self.dates[known_dates..].iter().map(|&date| DailyAcc::new(date)));
+
+        self.hist_keys.reserve(self.entries.len() - first);
+        for entry in &self.entries[first..] {
             let record = SummaryRecord::of(*entry, compact_hist_key(entry.duration));
             self.hist_keys.push(record.hist_key);
             total.record(&record);
-            if let Some(hour) = hourly_buckets.get_mut(record.hour) {
+            if let Some(hour) = self.hourly_buckets.get_mut(record.hour) {
                 hour.record(&record);
             }
-            if let Some(day) = daily_for(&mut daily_accs, record.date_id) {
+            if let Some(day) = daily_for(&mut self.daily_accs, record.date_id) {
                 day.record(&record);
             }
         }
@@ -387,11 +418,6 @@ impl Engine {
         self.summary_errors = total.errors;
         self.summary_slow = total.slow;
         self.summary_sketch = total.sketch;
-        self.summary_ready = true;
-        self.cached_hourly_wire = encode_hourly_vec(&hourly_buckets);
-        self.cached_daily_wire = encode_daily_vec(&daily_accs);
-        self.hourly_buckets = hourly_buckets;
-        self.daily_accs = daily_accs;
     }
 
     /// Encode filter-independent hour-of-day request statistics.

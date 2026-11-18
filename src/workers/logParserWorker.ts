@@ -32,6 +32,7 @@ import type {
   ShardPartial,
   ShardReady,
   ShardRequest,
+  ShardStreamEnded,
   ShardTiming,
 } from "./shardParserWorker";
 import ShardWorkerCtor from "./shardParserWorker.ts?worker&inline";
@@ -76,17 +77,6 @@ export type ReaggPerfStages = {
   totalMs: number;
 };
 
-export type ShardBufferDescriptor = {
-  shardIndex: number;
-  start: number;
-  end: number;
-  totalSize: number;
-  readStart: number;
-  buffers: ArrayBuffer[];
-  /** `[offset, length]` of the bytes each buffer contributes, so a file can be transferred whole. */
-  views: [number, number][];
-};
-
 export type WorkerMessage =
   | { type: "PARSE_FILE"; payload: { file: File; options: ParseOptions } }
   | { type: "PARSE_FILES"; payload: { files: File[]; options: ParseOptions } }
@@ -94,16 +84,27 @@ export type WorkerMessage =
       type: "PARSE_BUFFER";
       payload: { buffer: ArrayBuffer; fileName: string; options: ParseOptions };
     }
+  | { type: "PARSE_TEXT"; payload: { text: string; options: ParseOptions } }
+  /** Create the shard pool ahead of a streamed import without touching parsed data. */
+  | { type: "STREAMS_PREWARM" }
+  /** Start a streamed import: files arrive as streams while archives are still decoding. */
+  | { type: "STREAMS_START" }
   | {
-      type: "PARSE_SHARD_BUFFERS";
+      type: "STREAM_OPEN";
       payload: {
-        shards: ShardBufferDescriptor[];
-        fileName: string;
-        fileBytes: number;
-        options: ParseOptions;
+        streamId: number;
+        /** Upload order of the stream's bytes; cron events and samples follow it. */
+        order: number[];
+        start: number;
+        end: number;
+        fileSize: number;
+        /** Expected bytes, for balancing shards when `end` is unbounded. */
+        sizeHint: number;
       };
     }
-  | { type: "PARSE_TEXT"; payload: { text: string; options: ParseOptions } }
+  | { type: "STREAM_CHUNK"; payload: { streamId: number; offset: number; buffer: ArrayBuffer } }
+  | { type: "STREAM_CLOSE"; payload: { streamId: number } }
+  | { type: "STREAMS_FINISH"; payload: { options: ParseOptions } }
   | { type: "REAGGREGATE"; payload: { options: ParseOptions } }
   | { type: "CLEAR" }
   | { type: "CANCEL" };
@@ -239,10 +240,7 @@ const LINE_EXTEND = 256 * 1024;
 
 function runShardParsed(
   worker: Worker,
-  req: Extract<
-    ShardRequest,
-    { type: "PARSE_SHARD" | "PARSE_BYTES" | "PARSE_SHARD_BUFFER" | "PARSE_SHARD_PARTS" }
-  >,
+  req: Extract<ShardRequest, { type: "PARSE_SHARD" | "PARSE_BYTES" | "PARSE_SHARD_BUFFER" }>,
 ): Promise<ShardParsed> {
   return new Promise((resolve, reject) => {
     const onMsg = (e: MessageEvent<ShardParsed | ShardError>) => {
@@ -256,9 +254,7 @@ function runShardParsed(
       resolve(data);
     };
     worker.addEventListener("message", onMsg);
-    if (req.type === "PARSE_SHARD_PARTS") {
-      worker.postMessage(req, req.buffers);
-    } else if (req.type === "PARSE_BYTES" || req.type === "PARSE_SHARD_BUFFER") {
+    if (req.type === "PARSE_BYTES" || req.type === "PARSE_SHARD_BUFFER") {
       worker.postMessage(req, [req.buf]);
     } else {
       worker.postMessage(req);
@@ -706,89 +702,6 @@ async function parseBufferSharded(buffer: ArrayBuffer, normalizeMode: NormalizeM
   };
 }
 
-async function parsePrepartitionedShards(
-  shards: ShardBufferDescriptor[],
-  normalizeMode: NormalizeMode,
-) {
-  epoch++;
-  const ep = epoch;
-  resetMeta();
-  parseWallOrigin = performance.now();
-  const total = shards[0]?.totalSize ?? 1;
-  const { wasmCompileMs, shardPoolInitMs } = await ensureShardPool(shards.length);
-  clearShards(ep);
-
-  if (cancelled) throw new Error("Cancelled");
-  const defaultOptions: ParseOptions = {
-    normalizeMode,
-    statusFamily: "all",
-    minMs: 0,
-    methodFilter: null,
-    cronQuery: "",
-    cronMinMs: 0,
-    cronShowFailedOnly: false,
-  };
-  const prekickedTasks: Promise<ShardPartial>[] = Array.from({ length: shards.length });
-  prekickedPartials = { epoch: ep, options: defaultOptions, tasks: prekickedTasks };
-
-  const results = await Promise.all(
-    shards.map(async (shard) => {
-      const parsed = await runShardParsed(shardPool[shard.shardIndex]!, {
-        type: "PARSE_SHARD_PARTS",
-        epoch: ep,
-        shardIndex: shard.shardIndex,
-        start: shard.start,
-        end: shard.end,
-        totalSize: shard.totalSize,
-        readStart: shard.readStart,
-        normalizeMode,
-        buffers: shard.buffers,
-        views: shard.views,
-      });
-      if (parsed.partialWire) {
-        prekickedTasks[shard.shardIndex] = Promise.resolve({
-          type: "SHARD_PARTIAL",
-          shardIndex: shard.shardIndex,
-          epoch: ep,
-          partial: parsed.partialWire,
-          reaggMs: 0,
-        });
-      }
-      return parsed;
-    }),
-  );
-
-  if (ep !== epoch) throw new Error("Cancelled");
-  results.sort((a, b) => a.shardIndex - b.shardIndex);
-  const mt = maxTiming(results);
-  absorbMeta(results);
-  activeShardCount = results.length;
-  const wasmHeapMB = results.reduce((s, r) => s + (r.wasmHeapBytes ?? 0), 0) / (1024 * 1024);
-  const perShardEntryMB = results.reduce((s, r) => s + (r.hitCount * 12) / (1024 * 1024), 0);
-  self.postMessage({
-    type: "PROGRESS",
-    payload: { stage: "parsing", processed: total, total, percent: 100 },
-  } satisfies WorkerResponse);
-  const pathCount = results.reduce((s, r) => s + (r.pathCount ?? 0), 0);
-  console.info(
-    `[memprobe] shards=${results.length} wasmTotal=${wasmHeapMB.toFixed(1)}MB entriesMB=${perShardEntryMB.toFixed(1)} paths=${pathCount}`,
-  );
-  lastParsePartial = {
-    wasmCompileMs,
-    shardPoolInitMs,
-    readMs: mt.readMs,
-    copyIngestMs: mt.copyIngestMs,
-    feedMs: mt.feedMs,
-    endShardMs: mt.endShardMs,
-    metaWireMs: mt.metaWireMs,
-    shardWallMaxMs: mt.shardWallMs,
-    mergeMetaMs: 0,
-    shardCount: results.length,
-    workerWasmHeapMB: wasmHeapMB,
-    paths: pathCount,
-  };
-}
-
 async function parseText(text: string, normalizeMode: NormalizeMode) {
   epoch++;
   const ep = epoch;
@@ -823,6 +736,195 @@ async function parseText(text: string, normalizeMode: NormalizeMode) {
   };
 }
 
+type StreamState = {
+  order: number[];
+  shard: number;
+  ended: Promise<ShardStreamEnded>;
+};
+
+/** Open streamed import, if any. Streams are spread over the shards as they open. */
+let streamSession: {
+  epoch: number;
+  streams: Map<number, StreamState>;
+  active: number[];
+  bytes: number[];
+  used: number;
+  pending: Map<number, (ended: ShardStreamEnded) => void>;
+  listeners: ((e: MessageEvent<ShardStreamEnded | ShardError>) => void)[];
+} | null = null;
+
+async function startStreams() {
+  epoch++;
+  const ep = epoch;
+  resetMeta();
+  parseWallOrigin = performance.now();
+  prekickedPartials = null;
+  const n = poolSize();
+  const { wasmCompileMs, shardPoolInitMs } = await ensureShardPool(n);
+  const pending = new Map<number, (ended: ShardStreamEnded) => void>();
+  const listeners = shardPool.map((worker) => {
+    const listener = (e: MessageEvent<ShardStreamEnded | ShardError>) => {
+      if (e.data.type !== "STREAM_ENDED" || e.data.epoch !== ep) return;
+      pending.get(e.data.streamId)?.(e.data);
+      pending.delete(e.data.streamId);
+    };
+    worker.addEventListener("message", listener);
+    return listener;
+  });
+  streamSession = {
+    epoch: ep,
+    streams: new Map(),
+    active: Array.from({ length: n }, () => 0),
+    bytes: Array.from({ length: n }, () => 0),
+    used: 0,
+    pending,
+    listeners,
+  };
+  lastParsePartial = {
+    wasmCompileMs,
+    shardPoolInitMs,
+    readMs: 0,
+    copyIngestMs: 0,
+    feedMs: 0,
+    endShardMs: 0,
+    metaWireMs: 0,
+    shardWallMaxMs: 0,
+    mergeMetaMs: 0,
+    shardCount: 0,
+  };
+}
+
+function openStream(payload: Extract<WorkerMessage, { type: "STREAM_OPEN" }>["payload"]) {
+  const session = streamSession!;
+  // Least busy shard; ties go to the lowest index so the used shards stay a prefix.
+  let shard = 0;
+  for (let i = 1; i < session.active.length; i++) {
+    if (
+      session.active[i]! < session.active[shard]! ||
+      (session.active[i] === session.active[shard] && session.bytes[i]! < session.bytes[shard]!)
+    ) {
+      shard = i;
+    }
+  }
+  session.active[shard]!++;
+  session.bytes[shard]! += payload.sizeHint;
+  session.used = Math.max(session.used, shard + 1);
+  const ended = new Promise<ShardStreamEnded>((resolve) =>
+    session.pending.set(payload.streamId, resolve),
+  );
+  session.streams.set(payload.streamId, { order: payload.order, shard, ended });
+  shardPool[shard]!.postMessage({
+    type: "STREAM_BEGIN",
+    epoch: session.epoch,
+    streamId: payload.streamId,
+    start: payload.start,
+    end: payload.end,
+    fileSize: payload.fileSize,
+  } satisfies ShardRequest);
+}
+
+function compareOrder(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (a[i] !== b[i]) return a[i]! - b[i]!;
+  }
+  return a.length - b.length;
+}
+
+function runShardStreamFinish(
+  worker: Worker,
+  ep: number,
+  shardIndex: number,
+  normalizeMode: NormalizeMode,
+): Promise<ShardParsed> {
+  return new Promise((resolve, reject) => {
+    const onMsg = (e: MessageEvent<ShardParsed | ShardError>) => {
+      const data = e.data;
+      if (data.type !== "SHARD_PARSED" && data.type !== "SHARD_ERROR") return;
+      worker.removeEventListener("message", onMsg);
+      if (data.type === "SHARD_ERROR") {
+        reject(new Error(data.message));
+        return;
+      }
+      resolve(data);
+    };
+    worker.addEventListener("message", onMsg);
+    worker.postMessage({
+      type: "STREAM_FINISH",
+      epoch: ep,
+      shardIndex,
+      normalizeMode,
+    } satisfies ShardRequest);
+  });
+}
+
+async function finishStreams(normalizeMode: NormalizeMode) {
+  const session = streamSession!;
+  const ep = session.epoch;
+  const streams = [...session.streams.values()];
+  const ended = await Promise.all(streams.map((stream) => stream.ended));
+  const results = await Promise.all(
+    Array.from({ length: Math.max(1, session.used) }, (_, shardIndex) =>
+      runShardStreamFinish(shardPool[shardIndex]!, ep, shardIndex, normalizeMode),
+    ),
+  );
+  for (const [index, worker] of shardPool.entries()) {
+    worker.removeEventListener("message", session.listeners[index]!);
+  }
+  streamSession = null;
+  if (ep !== epoch) throw new Error("Cancelled");
+
+  results.sort((a, b) => a.shardIndex - b.shardIndex);
+  absorbMeta(results);
+  // Cron pairing and the unmatched sample follow file order, not shard order.
+  const ordered = streams
+    .map((stream, index) => ({ order: stream.order, ended: ended[index]! }))
+    .sort((a, b) => compareOrder(a.order, b.order));
+  cronEvents = ordered.flatMap(({ ended }) => decodeCronWire(new Uint8Array(ended.cronWire)));
+  unmatchedSample = ordered
+    .flatMap(({ ended }) => decodeUnmatchedWire(new Uint8Array(ended.unmatchedWire)))
+    .slice(0, 40);
+  activeShardCount = results.length;
+  prekickedPartials = {
+    epoch: ep,
+    options: {
+      normalizeMode,
+      statusFamily: "all",
+      minMs: 0,
+      methodFilter: null,
+      cronQuery: "",
+      cronMinMs: 0,
+      cronShowFailedOnly: false,
+    },
+    tasks: results.map((parsed) =>
+      Promise.resolve<ShardPartial>({
+        type: "SHARD_PARTIAL",
+        shardIndex: parsed.shardIndex,
+        epoch: ep,
+        partial: parsed.partialWire!,
+        reaggMs: 0,
+      }),
+    ),
+  };
+
+  const mt = maxTiming(results);
+  const wasmHeapMB = results.reduce((s, r) => s + (r.wasmHeapBytes ?? 0), 0) / (1024 * 1024);
+  const pathCount = results.reduce((s, r) => s + (r.pathCount ?? 0), 0);
+  console.info(
+    `[memprobe] shards=${results.length} streams=${streams.length} wasmTotal=${wasmHeapMB.toFixed(1)}MB paths=${pathCount}`,
+  );
+  lastParsePartial = {
+    ...lastParsePartial!,
+    copyIngestMs: mt.copyIngestMs,
+    feedMs: mt.feedMs,
+    endShardMs: mt.endShardMs,
+    metaWireMs: mt.metaWireMs,
+    shardWallMaxMs: mt.shardWallMs,
+    shardCount: results.length,
+    workerWasmHeapMB: wasmHeapMB,
+    paths: pathCount,
+  };
+}
+
 function buildParsePerf(reagg: ReaggTiming): ParsePerfStages {
   const base = lastParsePartial!;
   return {
@@ -836,8 +938,98 @@ function buildParsePerf(reagg: ReaggTiming): ParsePerfStages {
   };
 }
 
+type StreamMessage = Extract<
+  WorkerMessage,
+  {
+    type:
+      | "STREAMS_PREWARM"
+      | "STREAMS_START"
+      | "STREAM_OPEN"
+      | "STREAM_CHUNK"
+      | "STREAM_CLOSE"
+      | "STREAMS_FINISH";
+  }
+>;
+
+async function handleStreamMessage(msg: StreamMessage): Promise<void> {
+  if (msg.type === "STREAMS_PREWARM") {
+    if (!streamSession) await ensureShardPool(poolSize());
+    return;
+  }
+  if (msg.type === "STREAMS_START") {
+    cancelled = false;
+    await startStreams();
+    return;
+  }
+  if (msg.type === "STREAM_OPEN") {
+    if (streamSession) openStream(msg.payload);
+    return;
+  }
+  if (msg.type === "STREAM_CHUNK") {
+    const stream = streamSession?.streams.get(msg.payload.streamId);
+    if (!stream) return;
+    const { buffer, offset, streamId } = msg.payload;
+    shardPool[stream.shard]!.postMessage(
+      {
+        type: "STREAM_CHUNK",
+        epoch: streamSession!.epoch,
+        streamId,
+        offset,
+        buf: buffer,
+      } satisfies ShardRequest,
+      [buffer],
+    );
+    return;
+  }
+  if (msg.type === "STREAM_CLOSE") {
+    const stream = streamSession?.streams.get(msg.payload.streamId);
+    if (!stream) return;
+    streamSession!.active[stream.shard]!--;
+    shardPool[stream.shard]!.postMessage({
+      type: "STREAM_END",
+      epoch: streamSession!.epoch,
+      streamId: msg.payload.streamId,
+    } satisfies ShardRequest);
+    return;
+  }
+  if (msg.type === "STREAMS_FINISH") {
+    if (!streamSession) throw new Error("No streamed import is open");
+    await finishStreams(msg.payload.options.normalizeMode);
+    if (cancelled) throw new Error("Cancelled");
+    const { result, timing } = await reaggregateShards(msg.payload.options);
+    self.postMessage({ type: "PERF", payload: buildParsePerf(timing) } satisfies WorkerResponse);
+    self.postMessage({ type: "RESULT", payload: result } satisfies WorkerResponse);
+    const heapMB = lastParsePartial?.workerWasmHeapMB;
+    self.postMessage(
+      heapMB != null ? { type: "DONE", payload: { workerWasmHeapMB: heapMB } } : { type: "DONE" },
+    );
+    return;
+  }
+}
+
+/** Stream messages run in arrival order even while an earlier one awaits the shard pool. */
+let streamChain = Promise.resolve();
+
 self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
   const msg = e.data;
+  if (
+    msg.type === "STREAMS_PREWARM" ||
+    msg.type === "STREAMS_START" ||
+    msg.type === "STREAM_OPEN" ||
+    msg.type === "STREAM_CHUNK" ||
+    msg.type === "STREAM_CLOSE" ||
+    msg.type === "STREAMS_FINISH"
+  ) {
+    streamChain = streamChain
+      .then(() => handleStreamMessage(msg))
+      .catch((err: Error) => {
+        self.postMessage({
+          type: "ERROR",
+          payload: { message: err instanceof Error ? err.message : String(err) },
+        } satisfies WorkerResponse);
+      });
+    return;
+  }
   try {
     if (msg.type === "CANCEL") {
       cancelled = true;
@@ -875,24 +1067,6 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
 
     if (msg.type === "PARSE_BUFFER") {
       await parseBufferSharded(msg.payload.buffer, msg.payload.options.normalizeMode);
-      if (cancelled) throw new Error("Cancelled");
-      const { result, timing } = await reaggregateShards(msg.payload.options);
-      if (lastParsePartial) {
-        self.postMessage({
-          type: "PERF",
-          payload: buildParsePerf(timing),
-        } satisfies WorkerResponse);
-      }
-      self.postMessage({ type: "RESULT", payload: result } satisfies WorkerResponse);
-      const heapMB = lastParsePartial?.workerWasmHeapMB;
-      const doneResponse: WorkerResponse =
-        heapMB != null ? { type: "DONE", payload: { workerWasmHeapMB: heapMB } } : { type: "DONE" };
-      self.postMessage(doneResponse);
-      return;
-    }
-
-    if (msg.type === "PARSE_SHARD_BUFFERS") {
-      await parsePrepartitionedShards(msg.payload.shards, msg.payload.options.normalizeMode);
       if (cancelled) throw new Error("Cancelled");
       const { result, timing } = await reaggregateShards(msg.payload.options);
       if (lastParsePartial) {

@@ -12370,5 +12370,812 @@
         }
       ]
     }
+  },
+  {
+    "at": "2026-11-18T14:20:11.888Z",
+    "note": "streamed decode+parse",
+    "target": "browser",
+    "runs": 3,
+    "gitCommit": "572633d",
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v26.5.0"
+    },
+    "inputs": [
+      {
+        "name": "combined-all.zip",
+        "bytes": 297630427
+      }
+    ],
+    "inputBytes": 297630427,
+    "summary": {
+      "browser": {
+        "uploadToReadyMs": {
+          "avg": 1800.5549666666668,
+          "min": 1776.7869,
+          "max": 1818.5532000000003
+        },
+        "rssPeakMB": {
+          "avg": 2352.81640625,
+          "min": 2222.28515625,
+          "max": 2444.0390625
+        },
+        "jsHeapPeakMB": {
+          "avg": 50.38931655883789,
+          "min": 48.615787506103516,
+          "max": 53.706905364990234
+        },
+        "nativeMs": null
+      }
+    },
+    "iterations": {
+      "browser": [
+        {
+          "uploadToReadyMs": 1806.3248000000003,
+          "archive": null,
+          "rssBeforeMB": 287.7421875,
+          "rssPeakMB": 2222.28515625,
+          "rssAfterMB": 1180.96484375,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 287.7421875
+            },
+            {
+              "ms": 139,
+              "rssMB": 776.8515625
+            },
+            {
+              "ms": 269,
+              "rssMB": 1410.125
+            },
+            {
+              "ms": 398,
+              "rssMB": 1617.73828125
+            },
+            {
+              "ms": 517,
+              "rssMB": 1770.84375
+            },
+            {
+              "ms": 649,
+              "rssMB": 2028.99609375
+            },
+            {
+              "ms": 768,
+              "rssMB": 2222.28515625
+            },
+            {
+              "ms": 881,
+              "rssMB": 2142.08984375
+            },
+            {
+              "ms": 1007,
+              "rssMB": 2196.74609375
+            },
+            {
+              "ms": 1128,
+              "rssMB": 1918.25
+            },
+            {
+              "ms": 1249,
+              "rssMB": 1493.53515625
+            },
+            {
+              "ms": 1373,
+              "rssMB": 1252.5390625
+            },
+            {
+              "ms": 1494,
+              "rssMB": 1373.38671875
+            },
+            {
+              "ms": 1618,
+              "rssMB": 1433.17578125
+            },
+            {
+              "ms": 1729,
+              "rssMB": 1161.83984375
+            },
+            {
+              "ms": 1854,
+              "rssMB": 1176.9765625
+            },
+            {
+              "ms": 1982,
+              "rssMB": 1180.96484375
+            }
+          ],
+          "jsHeapPeakMB": 48.615787506103516,
+          "samples": 17,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1140376986,
+            "parseWallMs": 1553,
+            "requests": 3924565,
+            "endpoints": 116121,
+            "workerWasmHeapMB": 242.5625,
+            "stages": {
+              "kind": "parse",
+              "wasmCompileMs": 0,
+              "shardPoolInitMs": 0,
+              "readMs": 0,
+              "copyIngestMs": 65.3699999996461,
+              "feedMs": 654.8150000013411,
+              "endShardMs": 1.8500000000931323,
+              "metaWireMs": 7.470000000204891,
+              "shardWallMaxMs": 728.7000000011176,
+              "mergeMetaMs": 0,
+              "shardCount": 4,
+              "workerWasmHeapMB": 242.5625,
+              "paths": 608169,
+              "shardReaggMaxMs": 18.744999999646097,
+              "decodePartialsMs": 94.62000000011176,
+              "finishApiMs": 84.06000000005588,
+              "firstReaggMs": 197.7050000000745,
+              "totalParseMs": 1264.1400000001304
+            },
+            "reaggStages": []
+          },
+          "mongo": {
+            "fileCount": 2,
+            "bytes": 504529417,
+            "parseWallMs": 937,
+            "slowQueries": 87905,
+            "patterns": 638
+          },
+          "nginx": {
+            "at": "2026-11-18T14:20:05.073Z",
+            "source": "buffer",
+            "fileName": "access.log",
+            "fileBytes": 174524992,
+            "parseWallMs": 268,
+            "requestCount": 1048576,
+            "endpointCount": 128,
+            "reaggTimes": []
+          },
+          "uiSummary": "Parsed 3,924,565 requests across 20 file(s) in 1553ms"
+        },
+        {
+          "uploadToReadyMs": 1776.7869,
+          "archive": null,
+          "rssBeforeMB": 441.73046875,
+          "rssPeakMB": 2392.125,
+          "rssAfterMB": 1397.640625,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 441.73046875
+            },
+            {
+              "ms": 141,
+              "rssMB": 972.5625
+            },
+            {
+              "ms": 267,
+              "rssMB": 1578.8515625
+            },
+            {
+              "ms": 399,
+              "rssMB": 1764.67578125
+            },
+            {
+              "ms": 521,
+              "rssMB": 1966.7265625
+            },
+            {
+              "ms": 636,
+              "rssMB": 2083.79296875
+            },
+            {
+              "ms": 747,
+              "rssMB": 2274.078125
+            },
+            {
+              "ms": 859,
+              "rssMB": 2363.73046875
+            },
+            {
+              "ms": 966,
+              "rssMB": 2392.125
+            },
+            {
+              "ms": 1081,
+              "rssMB": 2210.64453125
+            },
+            {
+              "ms": 1210,
+              "rssMB": 1777.72265625
+            },
+            {
+              "ms": 1324,
+              "rssMB": 1447.109375
+            },
+            {
+              "ms": 1434,
+              "rssMB": 1535.1015625
+            },
+            {
+              "ms": 1549,
+              "rssMB": 1627.3046875
+            },
+            {
+              "ms": 1660,
+              "rssMB": 1432.546875
+            },
+            {
+              "ms": 1770,
+              "rssMB": 1395.19921875
+            },
+            {
+              "ms": 1881,
+              "rssMB": 1398.046875
+            },
+            {
+              "ms": 2000,
+              "rssMB": 1399.83984375
+            },
+            {
+              "ms": 2107,
+              "rssMB": 1397.640625
+            }
+          ],
+          "jsHeapPeakMB": 53.706905364990234,
+          "samples": 19,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1140376986,
+            "parseWallMs": 1546,
+            "requests": 3924565,
+            "endpoints": 116121,
+            "workerWasmHeapMB": 242.5625,
+            "stages": {
+              "kind": "parse",
+              "wasmCompileMs": 0,
+              "shardPoolInitMs": 0,
+              "readMs": 0,
+              "copyIngestMs": 71.73499999940395,
+              "feedMs": 662.8200000012293,
+              "endShardMs": 1.7999999998137355,
+              "metaWireMs": 0.3250000001862645,
+              "shardWallMaxMs": 735.64500000095,
+              "mergeMetaMs": 0,
+              "shardCount": 4,
+              "workerWasmHeapMB": 242.5625,
+              "paths": 608169,
+              "shardReaggMaxMs": 26.56000000005588,
+              "decodePartialsMs": 104.08499999996275,
+              "finishApiMs": 81.97000000020489,
+              "firstReaggMs": 212.9199999999255,
+              "totalParseMs": 1257.5550000001676
+            },
+            "reaggStages": []
+          },
+          "mongo": {
+            "fileCount": 2,
+            "bytes": 504529417,
+            "parseWallMs": 945,
+            "slowQueries": 87905,
+            "patterns": 638
+          },
+          "nginx": {
+            "at": "2026-11-18T14:20:07.918Z",
+            "source": "buffer",
+            "fileName": "access.log",
+            "fileBytes": 174524992,
+            "parseWallMs": 271,
+            "requestCount": 1048576,
+            "endpointCount": 128,
+            "reaggTimes": []
+          },
+          "uiSummary": "Parsed 3,924,565 requests across 20 file(s) in 1546ms"
+        },
+        {
+          "uploadToReadyMs": 1818.5532000000003,
+          "archive": null,
+          "rssBeforeMB": 444.46875,
+          "rssPeakMB": 2444.0390625,
+          "rssAfterMB": 1337.0859375,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 444.46875
+            },
+            {
+              "ms": 151,
+              "rssMB": 1012.984375
+            },
+            {
+              "ms": 272,
+              "rssMB": 1572.765625
+            },
+            {
+              "ms": 397,
+              "rssMB": 1743.83984375
+            },
+            {
+              "ms": 522,
+              "rssMB": 1913.25
+            },
+            {
+              "ms": 651,
+              "rssMB": 2097.8984375
+            },
+            {
+              "ms": 772,
+              "rssMB": 2337.87109375
+            },
+            {
+              "ms": 898,
+              "rssMB": 2444.0390625
+            },
+            {
+              "ms": 1018,
+              "rssMB": 2385.06640625
+            },
+            {
+              "ms": 1142,
+              "rssMB": 2150.46484375
+            },
+            {
+              "ms": 1282,
+              "rssMB": 1666.37890625
+            },
+            {
+              "ms": 1408,
+              "rssMB": 1419.3046875
+            },
+            {
+              "ms": 1524,
+              "rssMB": 1541.24609375
+            },
+            {
+              "ms": 1632,
+              "rssMB": 1589.1640625
+            },
+            {
+              "ms": 1741,
+              "rssMB": 1319.21484375
+            },
+            {
+              "ms": 1852,
+              "rssMB": 1333.60546875
+            },
+            {
+              "ms": 1968,
+              "rssMB": 1337.0859375
+            }
+          ],
+          "jsHeapPeakMB": 48.84525680541992,
+          "samples": 17,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1140376986,
+            "parseWallMs": 1583,
+            "requests": 3924565,
+            "endpoints": 116121,
+            "workerWasmHeapMB": 242.5625,
+            "stages": {
+              "kind": "parse",
+              "wasmCompileMs": 0,
+              "shardPoolInitMs": 0,
+              "readMs": 0,
+              "copyIngestMs": 70.80499999970198,
+              "feedMs": 684.2750000013039,
+              "endShardMs": 1.8850000002421439,
+              "metaWireMs": 0.2999999998137355,
+              "shardWallMaxMs": 756.0400000009686,
+              "mergeMetaMs": 0,
+              "shardCount": 4,
+              "workerWasmHeapMB": 242.5625,
+              "paths": 608169,
+              "shardReaggMaxMs": 23.875,
+              "decodePartialsMs": 101.68999999994412,
+              "finishApiMs": 85.46499999985099,
+              "firstReaggMs": 211.46999999973923,
+              "totalParseMs": 1291.0099999997765
+            },
+            "reaggStages": []
+          },
+          "mongo": {
+            "fileCount": 2,
+            "bytes": 504529417,
+            "parseWallMs": 974,
+            "slowQueries": 87905,
+            "patterns": 638
+          },
+          "nginx": {
+            "at": "2026-11-18T14:20:10.926Z",
+            "source": "buffer",
+            "fileName": "access.log",
+            "fileBytes": 174524992,
+            "parseWallMs": 294,
+            "requestCount": 1048576,
+            "endpointCount": 128,
+            "reaggTimes": []
+          },
+          "uiSummary": "Parsed 3,924,565 requests across 20 file(s) in 1583ms"
+        }
+      ]
+    }
+  },
+  {
+    "at": "2026-11-18T14:21:32.116Z",
+    "note": "9-file batch, streamed decode+parse",
+    "target": "browser",
+    "runs": 3,
+    "gitCommit": "572633d",
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v26.5.0"
+    },
+    "inputs": [
+      {
+        "name": "monday-14-09.zip",
+        "bytes": 90757691
+      },
+      {
+        "name": "16-09-api.zip",
+        "bytes": 38724885
+      },
+      {
+        "name": "21-09-api.zip",
+        "bytes": 42413764
+      },
+      {
+        "name": "12-days-pm2logs-5-to-16-sep.zip",
+        "bytes": 35517
+      },
+      {
+        "name": "pm2.log.2.gz",
+        "bytes": 6041
+      },
+      {
+        "name": "api-error.log.2.gz",
+        "bytes": 51498
+      },
+      {
+        "name": "24-09-api.zip",
+        "bytes": 4079011
+      },
+      {
+        "name": "api-out.log.2.gz",
+        "bytes": 43697321
+      },
+      {
+        "name": "22-09-all-logs.zip",
+        "bytes": 39900982
+      }
+    ],
+    "inputBytes": 259666710,
+    "summary": {
+      "browser": {
+        "uploadToReadyMs": {
+          "avg": 1407.3887666666667,
+          "min": 1353.4929000000002,
+          "max": 1489.111
+        },
+        "rssPeakMB": {
+          "avg": 1865.0625,
+          "min": 1758.859375,
+          "max": 1929.0859375
+        },
+        "jsHeapPeakMB": {
+          "avg": 64.4832534790039,
+          "min": 62.94990158081055,
+          "max": 65.43172073364258
+        },
+        "nativeMs": null
+      }
+    },
+    "iterations": {
+      "browser": [
+        {
+          "uploadToReadyMs": 1489.111,
+          "archive": null,
+          "rssBeforeMB": 288.0703125,
+          "rssPeakMB": 1758.859375,
+          "rssAfterMB": 980.23046875,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 288.0703125
+            },
+            {
+              "ms": 119,
+              "rssMB": 486.7265625
+            },
+            {
+              "ms": 227,
+              "rssMB": 635.91015625
+            },
+            {
+              "ms": 343,
+              "rssMB": 940.58203125
+            },
+            {
+              "ms": 471,
+              "rssMB": 1243.078125
+            },
+            {
+              "ms": 593,
+              "rssMB": 1559.53125
+            },
+            {
+              "ms": 729,
+              "rssMB": 1729.12890625
+            },
+            {
+              "ms": 844,
+              "rssMB": 1758.859375
+            },
+            {
+              "ms": 963,
+              "rssMB": 1229.84765625
+            },
+            {
+              "ms": 1073,
+              "rssMB": 751.73046875
+            },
+            {
+              "ms": 1192,
+              "rssMB": 851.54296875
+            },
+            {
+              "ms": 1307,
+              "rssMB": 952.70703125
+            },
+            {
+              "ms": 1417,
+              "rssMB": 980.23046875
+            }
+          ],
+          "jsHeapPeakMB": 62.94990158081055,
+          "samples": 13,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 1420,
+            "requests": 3721413,
+            "endpoints": 111212,
+            "workerWasmHeapMB": 207.875,
+            "stages": {
+              "kind": "parse",
+              "wasmCompileMs": 0,
+              "shardPoolInitMs": 0,
+              "readMs": 0,
+              "copyIngestMs": 55.455000000074506,
+              "feedMs": 539.0750000020489,
+              "endShardMs": 1.6499999999068677,
+              "metaWireMs": 0.3400000003166497,
+              "shardWallMaxMs": 594.0050000003539,
+              "mergeMetaMs": 0,
+              "shardCount": 4,
+              "workerWasmHeapMB": 207.875,
+              "paths": 576152,
+              "shardReaggMaxMs": 21.694999999832362,
+              "decodePartialsMs": 100.6750000002794,
+              "finishApiMs": 80.71499999985099,
+              "firstReaggMs": 203.5,
+              "totalParseMs": 1168.0100000002421
+            },
+            "reaggStages": []
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 771,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "nginx": null,
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 1420ms"
+        },
+        {
+          "uploadToReadyMs": 1379.5623999999993,
+          "archive": null,
+          "rssBeforeMB": 439.9375,
+          "rssPeakMB": 1907.2421875,
+          "rssAfterMB": 1060.31640625,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 439.9375
+            },
+            {
+              "ms": 124,
+              "rssMB": 830.8203125
+            },
+            {
+              "ms": 239,
+              "rssMB": 1150.7109375
+            },
+            {
+              "ms": 373,
+              "rssMB": 1471.55078125
+            },
+            {
+              "ms": 497,
+              "rssMB": 1749.171875
+            },
+            {
+              "ms": 620,
+              "rssMB": 1879.76953125
+            },
+            {
+              "ms": 742,
+              "rssMB": 1907.2421875
+            },
+            {
+              "ms": 852,
+              "rssMB": 1397.30078125
+            },
+            {
+              "ms": 966,
+              "rssMB": 830.83203125
+            },
+            {
+              "ms": 1086,
+              "rssMB": 948.18359375
+            },
+            {
+              "ms": 1218,
+              "rssMB": 1046.796875
+            },
+            {
+              "ms": 1335,
+              "rssMB": 1053.0625
+            },
+            {
+              "ms": 1444,
+              "rssMB": 1060.31640625
+            }
+          ],
+          "jsHeapPeakMB": 65.0681381225586,
+          "samples": 13,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 1302,
+            "requests": 3721413,
+            "endpoints": 111212,
+            "workerWasmHeapMB": 208.4375,
+            "stages": {
+              "kind": "parse",
+              "wasmCompileMs": 0,
+              "shardPoolInitMs": 0,
+              "readMs": 0,
+              "copyIngestMs": 62.390000000130385,
+              "feedMs": 549.6049999999814,
+              "endShardMs": 1.8500000000931323,
+              "metaWireMs": 0.4050000002607703,
+              "shardWallMaxMs": 612.6650000000373,
+              "mergeMetaMs": 0,
+              "shardCount": 4,
+              "workerWasmHeapMB": 208.4375,
+              "paths": 576152,
+              "shardReaggMaxMs": 13.569999999832362,
+              "decodePartialsMs": 88.05500000016764,
+              "finishApiMs": 79.01000000024214,
+              "firstReaggMs": 180.86500000022352,
+              "totalParseMs": 1055.9499999997206
+            },
+            "reaggStages": []
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 780,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "nginx": null,
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 1302ms"
+        },
+        {
+          "uploadToReadyMs": 1353.4929000000002,
+          "archive": null,
+          "rssBeforeMB": 440.40234375,
+          "rssPeakMB": 1929.0859375,
+          "rssAfterMB": 1070.8671875,
+          "rssSamples": [
+            {
+              "ms": -1,
+              "rssMB": 440.40234375
+            },
+            {
+              "ms": 121,
+              "rssMB": 815.27734375
+            },
+            {
+              "ms": 244,
+              "rssMB": 1182.1484375
+            },
+            {
+              "ms": 376,
+              "rssMB": 1488.48046875
+            },
+            {
+              "ms": 495,
+              "rssMB": 1737.859375
+            },
+            {
+              "ms": 619,
+              "rssMB": 1929.0859375
+            },
+            {
+              "ms": 743,
+              "rssMB": 1839.8125
+            },
+            {
+              "ms": 853,
+              "rssMB": 1329.95703125
+            },
+            {
+              "ms": 965,
+              "rssMB": 872.8515625
+            },
+            {
+              "ms": 1074,
+              "rssMB": 976.31640625
+            },
+            {
+              "ms": 1193,
+              "rssMB": 1057.19140625
+            },
+            {
+              "ms": 1309,
+              "rssMB": 1063.66796875
+            },
+            {
+              "ms": 1418,
+              "rssMB": 1070.8671875
+            }
+          ],
+          "jsHeapPeakMB": 65.43172073364258,
+          "samples": 13,
+          "pm2": {
+            "fileCount": 20,
+            "bytes": 1085587410,
+            "parseWallMs": 1276,
+            "requests": 3721413,
+            "endpoints": 111212,
+            "workerWasmHeapMB": 209,
+            "stages": {
+              "kind": "parse",
+              "wasmCompileMs": 0,
+              "shardPoolInitMs": 0,
+              "readMs": 0,
+              "copyIngestMs": 56.584999999031425,
+              "feedMs": 536.2900000023656,
+              "endShardMs": 2.4699999997392297,
+              "metaWireMs": 0.3000000002793968,
+              "shardWallMaxMs": 593.3800000012852,
+              "mergeMetaMs": 0,
+              "shardCount": 4,
+              "workerWasmHeapMB": 209,
+              "paths": 576152,
+              "shardReaggMaxMs": 23.37000000011176,
+              "decodePartialsMs": 99.86000000033528,
+              "finishApiMs": 81.23499999986961,
+              "firstReaggMs": 205.02499999990687,
+              "totalParseMs": 1034.6350000002421
+            },
+            "reaggStages": []
+          },
+          "mongo": {
+            "fileCount": 1,
+            "bytes": 470982962,
+            "parseWallMs": 789,
+            "slowQueries": 81846,
+            "patterns": 615
+          },
+          "nginx": null,
+          "uiSummary": "Parsed 3,721,413 requests across 20 files in 1276ms"
+        }
+      ]
+    }
   }
 ]

@@ -11,6 +11,10 @@ export class Pm2Engine {
      * Start shard ownership [start, end) within file_size.
      */
     begin_shard(start: number, end: number, file_size: number): void;
+    /**
+     * Open stream `id` over `[start, end)` of a `file_size`-byte file, keeping existing columns.
+     */
+    begin_stream(id: number, start: number, end: number, file_size: number): void;
     clear(): void;
     cron_wire(): Uint8Array;
     daily_wire(): Uint8Array;
@@ -20,6 +24,10 @@ export class Pm2Engine {
      */
     end_shard(): void;
     /**
+     * Close stream `id`; returns `[u32 cron length][cron wire][unmatched wire]`.
+     */
+    end_stream(id: number): Uint8Array;
+    /**
      * Lazily build normalize map for one mode (0/1/2). Prefer this over finalize_paths.
      */
     ensure_mode(mode: number): void;
@@ -27,7 +35,15 @@ export class Pm2Engine {
      * Parse `len` bytes previously written at ingest_ptr; `abs_off` is file offset of those bytes.
      */
     feed(len: number, abs_off: number): number;
+    /**
+     * Parse `len` bytes written at ingest_ptr as stream `id`, at file offset `abs_off`.
+     */
+    feed_stream(id: number, len: number, abs_off: number): number;
     finalize_paths(): void;
+    /**
+     * Build summary and hourly/daily metadata after the last stream ends.
+     */
+    finish_streams(): void;
     hit_count(): number;
     hourly_wire(): Uint8Array;
     /**
@@ -44,6 +60,10 @@ export class Pm2Engine {
     path_bytes(path_id: number): Uint8Array | undefined;
     path_count(): number;
     reaggregate(normalize_mode: number, status_family: number, min_ms: number, date_filter: Uint8Array, need_summary: boolean): Uint8Array;
+    /**
+     * Prepare normalized paths and the summary for everything parsed so far.
+     */
+    settle_streams(mode: number): void;
     summary_wire(): Uint8Array;
     unmatched_count(): number;
     unmatched_sample_wire(): Uint8Array;
@@ -55,14 +75,18 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_pm2engine_free: (a: number, b: number) => void;
     readonly pm2engine_begin_shard: (a: number, b: number, c: number, d: number) => void;
+    readonly pm2engine_begin_stream: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly pm2engine_clear: (a: number) => void;
     readonly pm2engine_cron_wire: (a: number) => [number, number];
     readonly pm2engine_daily_wire: (a: number) => [number, number];
     readonly pm2engine_dates_wire: (a: number) => [number, number];
     readonly pm2engine_end_shard: (a: number) => void;
+    readonly pm2engine_end_stream: (a: number, b: number) => [number, number];
     readonly pm2engine_ensure_mode: (a: number, b: number) => void;
     readonly pm2engine_feed: (a: number, b: number, c: number) => number;
+    readonly pm2engine_feed_stream: (a: number, b: number, c: number, d: number) => number;
     readonly pm2engine_finalize_paths: (a: number) => void;
+    readonly pm2engine_finish_streams: (a: number) => void;
     readonly pm2engine_hit_count: (a: number) => number;
     readonly pm2engine_hourly_wire: (a: number) => [number, number];
     readonly pm2engine_ingest_ptr: (a: number, b: number) => number;
@@ -73,6 +97,7 @@ export interface InitOutput {
     readonly pm2engine_path_bytes: (a: number, b: number) => [number, number];
     readonly pm2engine_path_count: (a: number) => number;
     readonly pm2engine_reaggregate: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
+    readonly pm2engine_settle_streams: (a: number, b: number) => void;
     readonly pm2engine_summary_wire: (a: number) => [number, number];
     readonly pm2engine_unmatched_count: (a: number) => number;
     readonly pm2engine_unmatched_sample_wire: (a: number) => [number, number];

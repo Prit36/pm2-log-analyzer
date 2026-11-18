@@ -1,6 +1,6 @@
 //! Shard ingest: byte windows, carry handling, and per-line acceptance.
 
-use super::{Engine, LINE_EXTEND, UNMATCHED_SAMPLE_LIMIT, UNMATCHED_SAMPLE_LEN, INGEST_CAP};
+use super::{Engine, StreamCursor, encode_cron_vec, encode_unmatched_vec, LINE_EXTEND, UNMATCHED_SAMPLE_LIMIT, UNMATCHED_SAMPLE_LEN, INGEST_CAP};
 use crate::parse::{parse_line_bytes, LineKind, Method};
 use memchr::memchr;
 use std::borrow::Cow;
@@ -216,6 +216,14 @@ impl Engine {
     }
 
     pub fn end_shard(&mut self) {
+        self.flush_carry();
+        self.parsing = false;
+        self.ingest.clear();
+        self.build_summary_and_meta();
+    }
+
+    /// Accept the final line when it has no trailing newline.
+    fn flush_carry(&mut self) {
         if !self.carry.is_empty() {
             let abs_line_start = self.carry_abs;
             if abs_line_start < self.shard_end {
@@ -224,8 +232,80 @@ impl Engine {
             }
             self.carry.clear();
         }
+    }
+
+    /// Open stream `id` owning lines that start in `[start, end)` of a `file_size`-byte file.
+    /// Unlike `begin_shard`, existing columns are kept, so many files can share one engine.
+    pub fn begin_stream(&mut self, id: u32, start: u64, end: u64, file_size: u64) {
+        self.parsing = true;
+        // A hint only: streams of unknown length pass huge bounds.
+        let span = end.min(file_size).saturating_sub(start);
+        self.entries.reserve(span.saturating_div(256).min(1 << 20) as usize);
+        self.streams.push(StreamCursor {
+            id,
+            shard_start: start,
+            shard_end: end,
+            file_size,
+            skip_partial: start > 0,
+            ..StreamCursor::default()
+        });
+    }
+
+    /// Swap the per-stream parse state in or out of the engine fields `feed` uses.
+    fn exchange_stream(&mut self, cursor: &mut StreamCursor) {
+        std::mem::swap(&mut self.shard_start, &mut cursor.shard_start);
+        std::mem::swap(&mut self.shard_end, &mut cursor.shard_end);
+        std::mem::swap(&mut self.file_size, &mut cursor.file_size);
+        std::mem::swap(&mut self.skip_partial, &mut cursor.skip_partial);
+        std::mem::swap(&mut self.carry, &mut cursor.carry);
+        std::mem::swap(&mut self.carry_abs, &mut cursor.carry_abs);
+        std::mem::swap(&mut self.cron_events, &mut cursor.cron_events);
+        std::mem::swap(&mut self.unmatched_sample, &mut cursor.unmatched_sample);
+    }
+
+    /// Feed `len` bytes written at the ingest window to stream `id`, at file offset `abs_off`.
+    pub fn feed_stream(&mut self, id: u32, len: u32, abs_off: u64) -> u32 {
+        let Some(index) = self.streams.iter().position(|cursor| cursor.id == id) else {
+            return 0;
+        };
+        let mut cursor = std::mem::take(&mut self.streams[index]);
+        self.exchange_stream(&mut cursor);
+        let added = self.feed(len, abs_off);
+        self.exchange_stream(&mut cursor);
+        self.streams[index] = cursor;
+        added
+    }
+
+    /// Close stream `id` and return its cron events and unmatched sample:
+    /// `[cron wire length: u32 LE][cron wire][unmatched wire]`.
+    pub fn end_stream(&mut self, id: u32) -> Vec<u8> {
+        let mut cursor = match self.streams.iter().position(|cursor| cursor.id == id) {
+            Some(index) => self.streams.remove(index),
+            None => StreamCursor::default(),
+        };
+        self.exchange_stream(&mut cursor);
+        self.flush_carry();
+        self.exchange_stream(&mut cursor);
+        let cron = encode_cron_vec(&cursor.cron_events);
+        let unmatched = encode_unmatched_vec(&cursor.unmatched_sample);
+        let mut out = Vec::with_capacity(4 + cron.len() + unmatched.len());
+        out.extend_from_slice(&(cron.len() as u32).to_le_bytes());
+        out.extend_from_slice(&cron);
+        out.extend_from_slice(&unmatched);
+        out
+    }
+
+    /// Normalize new paths for `mode` and summarize new entries while other streams
+    /// are still decoding, so `finish_streams` and the first reaggregate only see the rest.
+    pub fn settle_streams(&mut self, mode: u8) {
+        self.ensure_mode(mode);
+        self.accumulate_summary();
+    }
+
+    /// Build the summary once every stream has ended.
+    pub fn finish_streams(&mut self) {
         self.parsing = false;
-        self.ingest.clear();
+        self.ingest = Vec::new();
         self.build_summary_and_meta();
     }
 

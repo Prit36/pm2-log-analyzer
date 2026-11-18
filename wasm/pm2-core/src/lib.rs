@@ -77,6 +77,32 @@ impl Pm2Engine {
         self.inner.end_shard();
     }
 
+    /// Open stream `id` over `[start, end)` of a `file_size`-byte file, keeping existing columns.
+    pub fn begin_stream(&mut self, id: u32, start: f64, end: f64, file_size: f64) {
+        self.inner
+            .begin_stream(id, start as u64, end as u64, file_size as u64);
+    }
+
+    /// Parse `len` bytes written at ingest_ptr as stream `id`, at file offset `abs_off`.
+    pub fn feed_stream(&mut self, id: u32, len: u32, abs_off: f64) -> u32 {
+        self.inner.feed_stream(id, len, abs_off as u64)
+    }
+
+    /// Close stream `id`; returns `[u32 cron length][cron wire][unmatched wire]`.
+    pub fn end_stream(&mut self, id: u32) -> Vec<u8> {
+        self.inner.end_stream(id)
+    }
+
+    /// Prepare normalized paths and the summary for everything parsed so far.
+    pub fn settle_streams(&mut self, mode: u8) {
+        self.inner.settle_streams(mode);
+    }
+
+    /// Build summary and hourly/daily metadata after the last stream ends.
+    pub fn finish_streams(&mut self) {
+        self.inner.finish_streams();
+    }
+
     /// One-shot parse (copies via wasm-bindgen) — tests / small text only.
     pub fn parse_shard(
         &mut self,

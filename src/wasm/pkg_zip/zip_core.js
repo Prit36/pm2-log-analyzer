@@ -206,6 +206,78 @@ export class FastDecompressor {
 }
 if (Symbol.dispose) FastDecompressor.prototype[Symbol.dispose] = FastDecompressor.prototype.free;
 
+/**
+ * Resumable raw-deflate or gzip inflater with bounded Wasm memory: JS writes compressed
+ * input into a small window and copies each filled output window out, so neither the
+ * whole compressed entry nor its decoded output lives in linear memory.
+ */
+export class InflateStream {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        InflateStreamFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_inflatestream_free(ptr, 0);
+    }
+    /**
+     * Pointer where JS writes the next `len` compressed bytes. Call only after `pump`
+     * returned 0, which means the previous input was consumed.
+     * @param {number} len
+     * @returns {number}
+     */
+    input_ptr(len) {
+        const ret = wasm.inflatestream_input_ptr(this.__wbg_ptr, len);
+        return ret >>> 0;
+    }
+    /**
+     * `gzip` selects a gzip member; otherwise the input is raw deflate (ZIP method 8).
+     * @param {boolean} gzip
+     * @param {number} output_capacity
+     */
+    constructor(gzip, output_capacity) {
+        const ret = wasm.inflatestream_new(gzip, output_capacity);
+        this.__wbg_ptr = ret;
+        InflateStreamFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @returns {number}
+     */
+    output_len() {
+        const ret = wasm.inflatestream_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    output_ptr() {
+        const ret = wasm.inflatestream_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Inflate pending input into the output window. Returns 0 when more input is
+     * needed, 1 when the output window is full, and 2 at the end of the stream.
+     * @returns {number}
+     */
+    pump() {
+        const ret = wasm.inflatestream_pump(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0];
+    }
+    /**
+     * Mark the output window as copied out.
+     */
+    reset_output() {
+        wasm.inflatestream_reset_output(this.__wbg_ptr);
+    }
+}
+if (Symbol.dispose) InflateStream.prototype[Symbol.dispose] = InflateStream.prototype.free;
+
 export class TarStream {
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
@@ -479,6 +551,9 @@ const BzipScannerFinalization = (typeof FinalizationRegistry === 'undefined')
 const FastDecompressorFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_fastdecompressor_free(ptr, 1));
+const InflateStreamFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_inflatestream_free(ptr, 1));
 const TarStreamFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_tarstream_free(ptr, 1));

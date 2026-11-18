@@ -1,7 +1,6 @@
 import type {
   ParsePerfStages,
   ReaggPerfStages,
-  ShardBufferDescriptor,
   WorkerMessage,
   WorkerResponse,
 } from "../workers/logParserWorker";
@@ -208,21 +207,62 @@ export async function parsePm2Buffer(
   );
 }
 
-export async function parsePm2Shards(
-  shards: ShardBufferDescriptor[],
+/** Spin up the shard pool while archives are still being read. */
+export function prewarmPm2Streams(): void {
+  getOrCreateWorker().postMessage({ type: "STREAMS_PREWARM" } satisfies WorkerMessage);
+}
+
+let streamStartedAt = 0;
+
+/** Open a streamed import; previous results stay visible until it finishes. */
+export function startPm2Streams(): void {
+  createBenchForParse("stream");
+  streamStartedAt = performance.now();
+  getOrCreateWorker().postMessage({ type: "STREAMS_START" } satisfies WorkerMessage);
+}
+
+/**
+ * Lines starting in `[start, end)` of a `fileSize`-byte file; `order` sorts files by upload
+ * order and `sizeHint` is the expected byte count, used to balance shards.
+ */
+export function openPm2Stream(
+  streamId: number,
+  order: number[],
+  start: number,
+  end: number,
+  fileSize: number,
+  sizeHint = end - start,
+): void {
+  getOrCreateWorker().postMessage({
+    type: "STREAM_OPEN",
+    payload: { streamId, order, start, end, fileSize, sizeHint },
+  } satisfies WorkerMessage);
+}
+
+/** Transfers `buffer`, which holds the stream's bytes from file offset `offset`. */
+export function pushPm2Chunk(streamId: number, offset: number, buffer: ArrayBuffer): void {
+  getOrCreateWorker().postMessage(
+    { type: "STREAM_CHUNK", payload: { streamId, offset, buffer } } satisfies WorkerMessage,
+    [buffer],
+  );
+}
+
+export function closePm2Stream(streamId: number): void {
+  getOrCreateWorker().postMessage({
+    type: "STREAM_CLOSE",
+    payload: { streamId },
+  } satisfies WorkerMessage);
+}
+
+export async function finishPm2Streams(
   fileName: string,
   fileBytes: number,
-  fileCount = 1,
+  fileCount: number,
 ): Promise<void> {
+  ensureBench({ fileName, fileBytes });
   const options = workerParseOptions(useAnalysisStore.getState().filters);
-  createBenchForParse("buffer", fileName, fileBytes);
-  const t0 = performance.now();
-  const transfer = shards.flatMap((s) => s.buffers);
-  await runParse(
-    { type: "PARSE_SHARD_BUFFERS", payload: { shards, fileName, fileBytes, options } },
-    transfer,
-  );
-  const ms = Math.round(performance.now() - t0);
+  await runParse({ type: "STREAMS_FINISH", payload: { options } });
+  const ms = Math.round(performance.now() - streamStartedAt);
   const result = finalizeBench(ms);
   showToast(
     fileCount > 1

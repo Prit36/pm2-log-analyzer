@@ -276,6 +276,99 @@ impl FastDecompressor {
     }
 }
 
+/// Resumable raw-deflate or gzip inflater with bounded Wasm memory: JS writes compressed
+/// input into a small window and copies each filled output window out, so neither the
+/// whole compressed entry nor its decoded output lives in linear memory.
+#[wasm_bindgen]
+pub struct InflateStream {
+    inflate: zlib_rs::Inflate,
+    input: Vec<u8>,
+    in_pos: usize,
+    output: Vec<u8>,
+    out_len: usize,
+    finished: bool,
+}
+
+#[wasm_bindgen]
+impl InflateStream {
+    /// `gzip` selects a gzip member; otherwise the input is raw deflate (ZIP method 8).
+    #[wasm_bindgen(constructor)]
+    pub fn new(gzip: bool, output_capacity: usize) -> InflateStream {
+        InflateStream {
+            inflate: if gzip {
+                zlib_rs::Inflate::new(true, 16 + 15)
+            } else {
+                zlib_rs::Inflate::new(false, 15)
+            },
+            input: Vec::new(),
+            in_pos: 0,
+            output: vec![0; output_capacity.max(64 * 1024)],
+            out_len: 0,
+            finished: false,
+        }
+    }
+
+    /// Pointer where JS writes the next `len` compressed bytes. Call only after `pump`
+    /// returned 0, which means the previous input was consumed.
+    pub fn input_ptr(&mut self, len: usize) -> usize {
+        self.input.resize(len, 0);
+        self.in_pos = 0;
+        self.input.as_mut_ptr() as usize
+    }
+
+    /// Inflate pending input into the output window. Returns 0 when more input is
+    /// needed, 1 when the output window is full, and 2 at the end of the stream.
+    pub fn pump(&mut self) -> Result<u8, JsValue> {
+        loop {
+            if self.finished {
+                return Ok(2);
+            }
+            if self.out_len == self.output.len() {
+                return Ok(1);
+            }
+            // Called even with no input left: a match cut off by a full window still has
+            // bytes to write.
+            let before_in = self.inflate.total_in();
+            let before_out = self.inflate.total_out();
+            let status = self
+                .inflate
+                .decompress(
+                    &self.input[self.in_pos..],
+                    &mut self.output[self.out_len..],
+                    zlib_rs::InflateFlush::NoFlush,
+                )
+                .map_err(|error| {
+                    JsValue::from_str(&format!("Inflate failed: {}", error.as_str()))
+                })?;
+            let consumed = (self.inflate.total_in() - before_in) as usize;
+            let produced = (self.inflate.total_out() - before_out) as usize;
+            self.in_pos += consumed;
+            self.out_len += produced;
+            if status == zlib_rs::Status::StreamEnd {
+                self.finished = true;
+            } else if consumed == 0 && produced == 0 {
+                if self.in_pos == self.input.len() {
+                    return Ok(0);
+                }
+                return Err(JsValue::from_str("Inflate made no progress"));
+            }
+        }
+    }
+
+    pub fn output_ptr(&self) -> usize {
+        self.output.as_ptr() as usize
+    }
+
+    pub fn output_len(&self) -> usize {
+        self.out_len
+    }
+
+    /// Mark the output window as copied out.
+    pub fn reset_output(&mut self) {
+        self.out_len = 0;
+    }
+}
+
 /// Fast classifier for standalone files or buffers
 #[wasm_bindgen]
 pub fn classify_log_name_or_content(name: &str, sample: &[u8]) -> String {

@@ -16,12 +16,24 @@ import {
   parseNginxBuffers,
 } from "../hooks/useNginxParserWorker";
 import { useAppModeStore } from "../store/appModeStore";
-import { parseFiles, parsePm2Buffer, parsePm2Shards } from "../hooks/useParserWorker";
-import type { ShardBufferDescriptor } from "../workers/logParserWorker";
 import {
+  closePm2Stream,
+  finishPm2Streams,
+  openPm2Stream,
+  parseFiles,
+  parsePm2Buffer,
+  prewarmPm2Streams,
+  pushPm2Chunk,
+  startPm2Streams,
+} from "../hooks/useParserWorker";
+import {
+  closeMongoSource,
+  finishMongoStreams,
+  openMongoSource,
   parseMongoBuffer,
-  parseMongoBuffers,
   parseMongoFiles,
+  pushMongoChunk,
+  startMongoStreams,
 } from "../hooks/useMongoParserWorker";
 
 const {
@@ -1044,44 +1056,138 @@ interface BatchExtractTask {
   contentKey?: string | undefined;
 }
 
-/** CRC-32 and size (mod 2^32) of a GZIP file's payload, read from its trailer. */
-async function gzipContentKey(file: File): Promise<string | undefined> {
-  if (file.size < 18) return undefined;
-  const trailer = new DataView(await file.slice(file.size - 8).arrayBuffer());
-  return `${trailer.getUint32(0, true)}:${trailer.getUint32(4, true)}`;
+/** Content key (CRC-32 and size) and size (mod 2^32) of a GZIP payload. */
+type GzipTrailer = { key: string; size: number };
+
+/** Reads a GZIP payload's identity from its 8-byte trailer. */
+function gzipTrailer(trailer: ArrayBuffer): GzipTrailer {
+  const view = new DataView(trailer);
+  const size = view.getUint32(4, true);
+  return { key: `${view.getUint32(0, true)}:${size}`, size };
 }
+
+/** Lines of PM2 streams whose length is only a hint end at the stream's last byte. */
+const UNBOUNDED = Number.MAX_SAFE_INTEGER;
+/** Whole PM2 buffers above this are split into ranges parsed on different shards. */
+const PM2_RANGE_BYTES = 64 * 1024 * 1024;
+const PM2_LINE_EXTEND = 256 * 1024;
+
+type LogCategory = "pm2" | "mongo" | "nginx";
+
+type UploadProbe = {
+  file: File;
+  category: ReturnType<typeof classifyByName>;
+  archive: boolean;
+  /** Log categories this upload may contribute; every category when undefined. */
+  allowed?: LogCategory[] | undefined;
+};
+
+async function probeUpload(file: File, allowed?: LogCategory[]): Promise<UploadProbe> {
+  const prefix = new Uint8Array(await file.slice(0, 4096).arrayBuffer());
+  const suffix = archiveSuffix(prefix);
+  const named = classifyByName(file.name);
+  const sniffed = classifyPrefix(prefix);
+  // A log already shown in one view keeps that view.
+  const category =
+    allowed?.length === 1
+      ? allowed[0]!
+      : named === "skip"
+        ? "skip"
+        : sniffed === "nginx"
+          ? "nginx"
+          : named !== "unknown"
+            ? named
+            : sniffed;
+  let input = file;
+  if (suffix && !file.name.toLowerCase().endsWith(suffix)) {
+    const extension = suffix === ".bz2" || suffix === ".xz" ? ".tar" + suffix : suffix;
+    input = new File([file], file.name + extension, { lastModified: file.lastModified });
+  }
+  return { file: input, category, archive: suffix !== null || isArchiveFile(file), allowed };
+}
+
+type ViewSources = { pm2: File[]; mongo: File[] };
+
+/**
+ * Uploads behind the PM2 and MongoDB views. Replace imports keep only size placeholders
+ * for decoded logs (their bytes went straight to the parsers), so an append decodes
+ * these uploads again together with the new files.
+ */
+const viewSources: ViewSources = { pm2: [], mongo: [] };
+
+/** Placeholder files override `size` and hold no bytes. */
+const isPlaceholder = (file: File) => Object.hasOwn(file, "size");
 
 export async function handleLogFilesUpload(
   files: File[],
   uploadMode: "replace" | "append" = "replace",
 ): Promise<void> {
+  const loaded = () => ({
+    pm2: useAnalysisStore.getState().loadedFiles,
+    mongo: useMongoStore.getState().loadedFiles,
+  });
+  const before = loaded();
+  const probes = await Promise.all(files.map((file) => probeUpload(file)));
+  // Earlier logs each view needs re-imported, or null when appending works as is.
+  let earlier: Map<File, LogCategory[]> | null = null;
+  if (uploadMode === "append") {
+    const plan = new Map<File, LogCategory[]>();
+    let reload = false;
+    for (const category of ["pm2", "mongo"] as const) {
+      const adds = probes.some(
+        (probe) => probe.archive || probe.category === category || probe.category === "unknown",
+      );
+      if (!adds) continue;
+      const placeholders = before[category].some(isPlaceholder);
+      reload ||= placeholders;
+      for (const file of placeholders ? viewSources[category] : before[category]) {
+        plan.set(file, [...(plan.get(file) ?? []), category]);
+      }
+    }
+    for (const file of files) plan.delete(file);
+    if (reload) earlier = plan;
+  }
+
+  if (earlier) {
+    // One streamed replace import of the earlier uploads plus the new files. Earlier
+    // uploads only feed the views they fed before; Nginx still appends natively.
+    const earlierProbes = await Promise.all(
+      [...earlier].map(([file, categories]) => probeUpload(file, categories)),
+    );
+    await importLogFiles([...earlierProbes, ...probes], "replace", "append");
+  } else {
+    await importLogFiles(probes, uploadMode, uploadMode);
+  }
+
+  const after = loaded();
+  for (const category of ["pm2", "mongo"] as const) {
+    if (after[category] === before[category]) continue;
+    const kept = earlier
+      ? [...earlier].filter(([, categories]) => categories.includes(category)).map(([f]) => f)
+      : uploadMode === "append"
+        ? viewSources[category]
+        : [];
+    viewSources[category] = [...kept, ...files];
+  }
+}
+
+async function importLogFiles(
+  probes: UploadProbe[],
+  uploadMode: "replace" | "append",
+  nginxMode: "replace" | "append",
+): Promise<void> {
   const token = ++uploadSequence;
   const generation = getNginxUploadGeneration();
   const nginxActive = () => token === uploadSequence && generation === getNginxUploadGeneration();
-  const probes = await Promise.all(
-    files.map(async (file) => {
-      const prefix = new Uint8Array(await file.slice(0, 4096).arrayBuffer());
-      const suffix = archiveSuffix(prefix);
-      const named = classifyByName(file.name);
-      const sniffed = classifyPrefix(prefix);
-      const category =
-        named === "skip"
-          ? "skip"
-          : sniffed === "nginx"
-            ? "nginx"
-            : named !== "unknown"
-              ? named
-              : sniffed;
-      let input = file;
-      if (suffix && !file.name.toLowerCase().endsWith(suffix)) {
-        const extension = suffix === ".bz2" || suffix === ".xz" ? ".tar" + suffix : suffix;
-        input = new File([file], file.name + extension, { lastModified: file.lastModified });
-      }
-      return { file: input, category, archive: suffix !== null || isArchiveFile(file) };
-    }),
-  );
   const archives = probes.filter((probe) => probe.archive).map((probe) => probe.file);
-  if (archives.length === 1 && files.length === 1) {
+  const archiveAllowed = probes.filter((probe) => probe.archive).map((probe) => probe.allowed);
+  const rawAllowed = probes.filter((probe) => !probe.archive).map((probe) => probe.allowed);
+  /** Whether a `category` log from archive `archiveIndex` (raw file `rawIndex` when -1) is imported. */
+  const admits = (archiveIndex: number, rawIndex: number, category: string) => {
+    const allowed = archiveIndex < 0 ? rawAllowed[rawIndex] : archiveAllowed[archiveIndex];
+    return !allowed || allowed.some((c) => c === (category === "unknown" ? "pm2" : category));
+  };
+  if (archives.length === 1 && probes.length === 1) {
     // A ZIP that bundles other archives takes the batch pipeline: it expands nested
     // archives in parallel, skips duplicate payloads, and keeps logs out of Blob storage.
     const archive = archives[0]!;
@@ -1101,8 +1207,9 @@ export async function handleLogFilesUpload(
     const pm2Files: File[] = [];
     const mongoFiles: File[] = [];
     const nginxFiles: File[] = [];
-    for (const file of rawFiles) {
+    for (const [rawIndex, file] of rawFiles.entries()) {
       const cat = categories.get(file) ?? "unknown";
+      if (!admits(-1, rawIndex, cat)) continue;
       if (cat === "mongo") {
         mongoFiles.push(file);
       } else if (cat === "pm2") {
@@ -1127,7 +1234,7 @@ export async function handleLogFilesUpload(
     }
     if (nginxFiles.length > 0 && nginxActive()) {
       if (!pm2Files.length && !mongoFiles.length) setMode("nginx");
-      await parseNginxFiles(nginxFiles, uploadMode).catch(() => {});
+      await parseNginxFiles(nginxFiles, nginxMode).catch(() => {});
     }
     return;
   }
@@ -1169,6 +1276,10 @@ export async function handleLogFilesUpload(
       if (/\.gz$/i.test(archiveFile.name)) {
         const clean = stripPathAndGz(archiveFile.name);
         const cat = classifyByName(clean);
+        const trailer =
+          archiveFile.size >= 18
+            ? gzipTrailer(await archiveFile.slice(archiveFile.size - 8).arrayBuffer())
+            : undefined;
         initialTasks.push({
           id: ++nextTaskId,
           kind: "gz_file",
@@ -1177,11 +1288,11 @@ export async function handleLogFilesUpload(
           cleanName: clean,
           category: cat,
           compressedSize: archiveFile.size,
-          uncompressedSize: archiveFile.size * 3,
+          uncompressedSize: trailer?.size ?? 0,
           archiveIndex,
           entryIndex: 0,
           lastModified: archiveFile.lastModified,
-          contentKey: await gzipContentKey(archiveFile),
+          contentKey: trailer?.key,
         });
         return;
       }
@@ -1234,12 +1345,79 @@ export async function handleLogFilesUpload(
   const uniqueTasks = initialTasks
     .toSorted((a, b) => a.archiveIndex - b.archiveIndex || a.entryIndex - b.entryIndex)
     .filter((task) => {
+      // Entries named as a category this upload does not feed are not decoded at all.
+      const named =
+        task.category === "pm2" || task.category === "mongo" || task.category === "nginx";
+      if (named && !admits(task.archiveIndex, 0, task.category)) return false;
       if (task.contentKey === undefined) return true;
       if (seenContent.has(task.contentKey)) return false;
       seenContent.add(task.contentKey);
       return true;
     });
   initialTasks.splice(0, initialTasks.length, ...uniqueTasks);
+
+  // Replace mode streams PM2 and Mongo logs into their parsers as they are decoded,
+  // instead of holding every decoded log until the last archive entry finishes.
+  const streaming = uploadMode === "replace";
+  if (streaming) prewarmPm2Streams();
+  type AcceptedLog = {
+    name: string;
+    size: number;
+    order: number[];
+    lastModified?: number | undefined;
+  };
+  const pm2Accepted: AcceptedLog[] = [];
+  const mongoAccepted: AcceptedLog[] = [];
+  const pm2Sizes = new Set<number>();
+  const mongoStreamSizes = new Set<number>();
+  let nextStreamId = 0;
+
+  /** Registers a PM2 log unless one of the same size was already taken (first wins). */
+  const acceptPm2 = (log: AcceptedLog): number | undefined => {
+    if (pm2Sizes.has(log.size)) return undefined;
+    pm2Sizes.add(log.size);
+    if (pm2Accepted.length === 0) startPm2Streams();
+    pm2Accepted.push(log);
+    return ++nextStreamId;
+  };
+  const acceptMongo = (log: AcceptedLog): number | undefined => {
+    if (mongoStreamSizes.has(log.size)) return undefined;
+    mongoStreamSizes.add(log.size);
+    if (mongoAccepted.length === 0) startMongoStreams();
+    mongoAccepted.push(log);
+    return ++nextStreamId;
+  };
+  const streamPm2Buffer = (log: AcceptedLog, buffer: ArrayBuffer) => {
+    const id = acceptPm2(log);
+    if (id === undefined) return;
+    const size = buffer.byteLength;
+    const parts = Math.min(4, Math.ceil(size / PM2_RANGE_BYTES)) || 1;
+    if (parts === 1) {
+      openPm2Stream(id, log.order, 0, size, size);
+      pushPm2Chunk(id, 0, buffer);
+      closePm2Stream(id);
+      return;
+    }
+    const span = Math.ceil(size / parts);
+    for (let part = 0; part < parts; part++) {
+      const start = part * span;
+      const end = Math.min(size, start + span);
+      const readStart = start > 0 ? start - 1 : 0;
+      const readEnd = Math.min(size, end + PM2_LINE_EXTEND);
+      const streamId = part === 0 ? id : ++nextStreamId;
+      openPm2Stream(streamId, [...log.order, start], start, end, size);
+      pushPm2Chunk(streamId, readStart, buffer.slice(readStart, readEnd));
+      closePm2Stream(streamId);
+    }
+  };
+  const streamMongoBuffer = (log: AcceptedLog, buffer: ArrayBuffer) => {
+    const id = acceptMongo(log);
+    if (id === undefined) return;
+    const size = buffer.byteLength;
+    openMongoSource(id, log.order, size, true);
+    pushMongoChunk(id, 0, buffer);
+    closeMongoSource(id, size);
+  };
 
   const rawPm2Items: ExtractedBatchItem[] = [];
   const rawMongoItems: ExtractedBatchItem[] = [];
@@ -1260,6 +1438,7 @@ export async function handleLogFilesUpload(
                 : activeMode === "mongo"
                   ? "mongo"
                   : "pm2";
+      if (!admits(-1, rawIndex, targetCat)) return;
       const buffer = await rawFile.arrayBuffer();
       const item: ExtractedBatchItem = {
         name: rawFile.name,
@@ -1270,8 +1449,16 @@ export async function handleLogFilesUpload(
         entryIndex: rawIndex,
         lastModified: rawFile.lastModified,
       };
-      if (targetCat === "mongo") rawMongoItems.push(item);
-      else if (targetCat === "nginx") rawNginxItems.push(item);
+      const log = {
+        name: item.name,
+        size: item.size,
+        order: [-1, rawIndex],
+        lastModified: item.lastModified,
+      };
+      if (targetCat === "nginx") rawNginxItems.push(item);
+      else if (streaming && targetCat === "mongo") streamMongoBuffer(log, buffer);
+      else if (streaming) streamPm2Buffer(log, buffer);
+      else if (targetCat === "mongo") rawMongoItems.push(item);
       else rawPm2Items.push(item);
     }),
   );
@@ -1288,6 +1475,13 @@ export async function handleLogFilesUpload(
   }
 
   const queue: BatchExtractTask[] = [...initialTasks];
+  /** Keeps the queue largest-first (LPT) as nested archives add their entries. */
+  const enqueue = (task: BatchExtractTask) => {
+    const index = queue.findIndex((queued) => queued.compressedSize < task.compressedSize);
+    if (index < 0) queue.push(task);
+    else queue.splice(index, 0, task);
+    totalDispatched++;
+  };
   let totalDispatched = queue.length;
   let completedCount = 0;
   const runningTasks = new Map<number, BatchExtractTask>();
@@ -1300,7 +1494,6 @@ export async function handleLogFilesUpload(
     if (!pm2BySize.has(item.size)) pm2BySize.set(item.size, index);
   }
   const mongoSizes = new Set(mongoResults.map((item) => item.size));
-  let mongoDispatched = false;
   let nginxDispatched = false;
   const nginxTasks: Promise<void>[] = [];
 
@@ -1313,32 +1506,10 @@ export async function handleLogFilesUpload(
     nginxResults.sort((a, b) => a.archiveIndex - b.archiveIndex || a.entryIndex - b.entryIndex);
     const task = parseNginxBuffers(
       nginxResults.map((item) => ({ buffer: item.buffer, name: item.name, size: item.size })),
-      uploadMode,
+      nginxMode,
     );
     nginxTasks.push(task);
     void task.catch(() => {});
-  };
-
-  const checkEagerMongo = () => {
-    if (mongoDispatched || uploadMode !== "replace") return;
-    if (mongoResults.length === 0) return;
-
-    const hasPendingMongo =
-      queue.some(
-        (t) => t.category === "mongo" || t.category === "unknown" || t.category === "archive",
-      ) ||
-      Array.from(runningTasks.values()).some(
-        (t) => t.category === "mongo" || t.category === "unknown" || t.category === "archive",
-      );
-
-    if (!hasPendingMongo && mongoResults.length === 1) {
-      mongoDispatched = true;
-      const mongoItem = mongoResults[0]!;
-      const dummyFile = createTextFile([], mongoItem.name, mongoItem.lastModified);
-      Object.defineProperty(dummyFile, "size", { value: mongoItem.size });
-      setMongoFiles([dummyFile]);
-      void parseMongoBuffer(mongoItem.buffer, mongoItem.name, mongoItem.size);
-    }
   };
 
   const handleExtractedResult = async (item: ExtractedBatchItem): Promise<void> => {
@@ -1349,7 +1520,7 @@ export async function handleLogFilesUpload(
         return;
       }
       if (isMultiFormatArchive(item.name)) {
-        queue.push({
+        enqueue({
           id: ++nextTaskId,
           kind: "archive_file",
           file: new File([item.buffer], item.name),
@@ -1363,13 +1534,20 @@ export async function handleLogFilesUpload(
           depth,
           lastModified: item.lastModified,
         });
-        totalDispatched++;
         return;
       }
       if (/\.gz$/i.test(item.name)) {
         const clean = stripPathAndGz(item.name);
         const cat = classifyByName(clean);
-        queue.push({
+        // The trailer identifies the payload before it is inflated, so a .gz copy of a
+        // log that is also in another archive is skipped instead of decoded twice.
+        const trailer =
+          item.buffer.byteLength >= 18 ? gzipTrailer(item.buffer.slice(-8)) : undefined;
+        if (trailer) {
+          if (seenContent.has(trailer.key)) return;
+          seenContent.add(trailer.key);
+        }
+        enqueue({
           id: ++nextTaskId,
           kind: "gz_buffer",
           buffer: item.buffer,
@@ -1377,13 +1555,12 @@ export async function handleLogFilesUpload(
           cleanName: clean,
           category: cat,
           compressedSize: item.size,
-          uncompressedSize: item.size * 3,
+          uncompressedSize: trailer?.size ?? 0,
           depth,
           archiveIndex: item.archiveIndex,
           entryIndex: item.entryIndex,
           lastModified: item.lastModified,
         });
-        totalDispatched++;
         return;
       }
 
@@ -1406,7 +1583,7 @@ export async function handleLogFilesUpload(
                 skipped.push(entry.name);
               } else if (!seenContent.has(contentKey)) {
                 seenContent.add(contentKey);
-                queue.push({
+                enqueue({
                   id: ++nextTaskId,
                   kind: "zip_entry",
                   buffer: nestedZip,
@@ -1422,7 +1599,6 @@ export async function handleLogFilesUpload(
                   entryIndex: item.entryIndex + (idx + 1) * 0.01,
                   lastModified: item.lastModified,
                 });
-                totalDispatched++;
               }
             }
             return;
@@ -1434,16 +1610,30 @@ export async function handleLogFilesUpload(
       }
     }
 
-    if (item.category === "nginx") {
+    if (!admits(item.archiveIndex, 0, item.category)) {
+      item.buffer = new ArrayBuffer(0);
+    } else if (item.category === "nginx") {
       nginxResults.push(item);
       checkEagerNginx();
+    } else if (
+      streaming &&
+      (item.category === "mongo" || item.category === "pm2" || item.category === "unknown")
+    ) {
+      const log = {
+        name: item.name,
+        size: item.size,
+        order: [item.archiveIndex, item.entryIndex],
+        lastModified: item.lastModified,
+      };
+      if (item.category === "mongo") streamMongoBuffer(log, item.buffer);
+      else streamPm2Buffer(log, item.buffer);
+      item.buffer = new ArrayBuffer(0);
     } else if (item.category === "mongo") {
       if (mongoSizes.has(item.size)) item.buffer = new ArrayBuffer(0);
       else {
         mongoSizes.add(item.size);
         mongoResults.push(item);
       }
-      checkEagerMongo();
     } else if (item.category === "pm2" || item.category === "unknown") {
       const duplicate = pm2BySize.get(item.size);
       if (duplicate === undefined) {
@@ -1497,11 +1687,40 @@ export async function handleLogFilesUpload(
       return;
     }
     runningTasks.set(task.id, task);
+    const order = [task.archiveIndex, task.entryIndex];
+    // ZIP sizes come from the central directory; gzip trailers store them modulo 2^32.
+    const exactSize = task.kind === "zip_entry";
+    let route: { kind: "pm2" | "mongo"; id: number } | undefined;
 
     return new Promise<void>((resolve) => {
       const handleMessage = async (e: MessageEvent<ZipWorkerResponse>) => {
         const res = e.data;
-        if (res.type === "ENTRY_RESULT" && res.payload.id === task.id) {
+        if (res.type === "ENTRY_CHUNK" && res.payload.id === task.id) {
+          if (route?.kind === "pm2") pushPm2Chunk(route.id, res.payload.offset, res.payload.buffer);
+          else if (route?.kind === "mongo")
+            pushMongoChunk(route.id, res.payload.offset, res.payload.buffer);
+        } else if (res.type === "ENTRY_BEGIN" && res.payload.id === task.id) {
+          const p = res.payload;
+          const log = { name: p.name, size: p.size, order, lastModified: task.lastModified };
+          const id = !admits(task.archiveIndex, 0, p.category)
+            ? undefined
+            : p.category === "pm2"
+              ? acceptPm2(log)
+              : acceptMongo(log);
+          if (id !== undefined) {
+            route = { kind: p.category, id };
+            if (p.category === "mongo") openMongoSource(id, order, p.size, exactSize);
+            else if (exactSize) openPm2Stream(id, order, 0, p.size, p.size);
+            else openPm2Stream(id, order, 0, UNBOUNDED, UNBOUNDED, p.size);
+          }
+        } else if (res.type === "ENTRY_END" && res.payload.id === task.id) {
+          cleanup();
+          runningTasks.delete(task.id);
+          task.uncompressedSize = res.payload.size;
+          if (route?.kind === "pm2") closePm2Stream(route.id);
+          else if (route?.kind === "mongo") closeMongoSource(route.id, res.payload.size);
+          resolve();
+        } else if (res.type === "ENTRY_RESULT" && res.payload.id === task.id) {
           cleanup();
           runningTasks.delete(task.id);
           const p = res.payload;
@@ -1517,27 +1736,12 @@ export async function handleLogFilesUpload(
             lastModified: task.lastModified,
           });
           resolve();
-        } else if (res.type === "RESULT" && res.payload.id === task.id) {
-          cleanup();
-          runningTasks.delete(task.id);
-          const p = res.payload;
-          task.uncompressedSize = p.totalBytes;
-          for (const f of p.files) {
-            await handleExtractedResult({
-              name: f.name,
-              category: f.category,
-              buffer: f.buffer,
-              size: f.size,
-              archiveIndex: task.archiveIndex,
-              entryIndex: task.entryIndex,
-              lastModified: task.lastModified,
-            });
-          }
-          resolve();
         } else if (res.type === "ERROR" && res.payload.id === task.id) {
           cleanup();
           runningTasks.delete(task.id);
           skipped.push(task.name);
+          if (route?.kind === "pm2") closePm2Stream(route.id);
+          else if (route?.kind === "mongo") closeMongoSource(route.id, -1);
           resolve();
         }
       };
@@ -1557,6 +1761,12 @@ export async function handleLogFilesUpload(
       worker.addEventListener("message", handleMessage);
       worker.addEventListener("error", handleError);
 
+      const job = {
+        id: task.id,
+        name: task.name,
+        stream: streaming,
+        expectedSize: task.uncompressedSize,
+      };
       if (task.kind === "zip_entry" && (task.file || task.buffer) && task.entry) {
         const source = task.file ?? task.buffer!;
         const sliceEnd = Math.min(
@@ -1571,46 +1781,37 @@ export async function handleLogFilesUpload(
         const entryBlob = source.slice(task.entry.localHeaderOffset, sliceEnd);
         worker.postMessage(
           {
-            type: "EXTRACT_ENTRY",
+            type: "STREAM_DECODE",
             payload: {
-              id: task.id,
+              ...job,
+              format: task.entry.isDeflated ? "deflate" : "stored",
+              source: entryBlob,
+              zipLocalHeader: true,
+              compressedSize: task.entry.compressedSize,
               name: task.entry.name,
               cleanName: task.entry.cleanName,
-              category: task.entry.category === "skip" ? "pm2" : task.entry.category,
-              entryBlob,
-              compressedSize: task.entry.compressedSize,
-              uncompressedSize: task.entry.uncompressedSize,
-              isDeflated: Boolean(task.entry.isDeflated),
             },
           } satisfies ZipWorkerMessage,
           entryBlob instanceof ArrayBuffer ? [entryBlob] : [],
         );
-      } else if (task.kind === "gz_file" && task.file) {
-        void task.file.arrayBuffer().then((fileBuffer) => {
-          worker.postMessage(
-            {
-              type: "DECOMPRESS_GZ",
-              payload: {
-                id: task.id,
-                fileBuffer,
-                fileName: task.file!.name,
-              },
-            } satisfies ZipWorkerMessage,
-            [fileBuffer],
-          );
-        });
-      } else if (task.kind === "gz_buffer" && task.buffer) {
-        const buf = task.buffer;
+      } else if (
+        (task.kind === "gz_file" && task.file) ||
+        (task.kind === "gz_buffer" && task.buffer)
+      ) {
+        const source = task.file ?? task.buffer!;
         worker.postMessage(
           {
-            type: "DECOMPRESS_GZ",
+            type: "STREAM_DECODE",
             payload: {
-              id: task.id,
-              fileBuffer: buf,
-              fileName: task.name,
+              ...job,
+              format: "gzip",
+              source,
+              zipLocalHeader: false,
+              compressedSize: task.compressedSize,
+              cleanName: stripPathAndGz(task.name),
             },
           } satisfies ZipWorkerMessage,
-          [buf],
+          source instanceof ArrayBuffer ? [source] : [],
         );
       }
     });
@@ -1629,17 +1830,8 @@ export async function handleLogFilesUpload(
         const worker = idleWorkers.pop()!;
         const task = queue.shift()!;
         void executeTask(worker, task).then(() => {
-          // Wasm memory cannot shrink after clear(). Retire large decoder heaps
-          // before subsequent results and parser heaps overlap with them.
-          if (task.uncompressedSize >= 32 * 1024 * 1024) {
-            worker.terminate();
-            const index = workerPool.indexOf(worker);
-            const replacement = new ZipWorkerCtor();
-            workerPool[index] = replacement;
-            idleWorkers.push(replacement);
-          } else {
-            idleWorkers.push(worker);
-          }
+          // Streamed decoding keeps decoder heaps small, so workers are reused.
+          idleWorkers.push(worker);
           completedCount++;
           const percent = Math.min(
             99,
@@ -1649,7 +1841,6 @@ export async function handleLogFilesUpload(
           setMongoProgress({ stage: "reading", processed: percent, total: 100, percent });
           if (nginxActive() && !nginxDispatched)
             setNginxProgress({ stage: "reading", processed: percent, total: 100, percent });
-          checkEagerMongo();
           checkEagerNginx();
           pump();
         });
@@ -1667,157 +1858,62 @@ export async function handleLogFilesUpload(
 
   checkEagerNginx();
   if (!nginxResults.length && nginxActive()) setNginxParsing(false);
-  const pm2Count = pm2Results.length;
-  const mongoCount = mongoResults.length;
+  const pm2Count = streaming ? pm2Accepted.length : pm2Results.length;
+  const mongoCount = streaming ? mongoAccepted.length : mongoResults.length;
   const nginxCount = nginxResults.length;
 
-  // Finalize Mongo parsing if not already dispatched eagerly
-  if (!mongoDispatched) {
-    if (mongoResults.length === 1 && uploadMode === "replace") {
-      mongoDispatched = true;
-      const item = mongoResults[0]!;
-      const dummyFile = createTextFile([], item.name, item.lastModified);
-      Object.defineProperty(dummyFile, "size", { value: item.size });
-      setMongoFiles([dummyFile]);
-      void parseMongoBuffer(item.buffer, item.name, item.size);
-    } else if (mongoResults.length > 0 && uploadMode === "replace") {
-      // Transfer the decoded buffers instead of copying them into Blob storage.
-      mongoDispatched = true;
-      mongoResults.sort((a, b) => a.archiveIndex - b.archiveIndex || a.entryIndex - b.entryIndex);
-      setMongoFiles(
-        mongoResults.map((item) => {
-          const file = createTextFile([], item.name, item.lastModified);
-          Object.defineProperty(file, "size", { value: item.size });
-          return file;
-        }),
+  const byOrder = (a: AcceptedLog, b: AcceptedLog) => {
+    for (let i = 0; i < Math.min(a.order.length, b.order.length); i++) {
+      if (a.order[i] !== b.order[i]) return a.order[i]! - b.order[i]!;
+    }
+    return a.order.length - b.order.length;
+  };
+  const placeholderFiles = (logs: AcceptedLog[]) =>
+    logs.toSorted(byOrder).map((log) => {
+      const file = createTextFile([], log.name, log.lastModified);
+      Object.defineProperty(file, "size", { value: log.size });
+      return file;
+    });
+  const totalSize = (logs: AcceptedLog[]) => logs.reduce((sum, log) => sum + log.size, 0);
+
+  if (streaming) {
+    if (mongoAccepted.length > 0) {
+      setMongoFiles(placeholderFiles(mongoAccepted));
+      void finishMongoStreams(mongoAccepted.length, totalSize(mongoAccepted));
+    } else {
+      setMongoParsing(false);
+    }
+    if (pm2Accepted.length > 0) {
+      const files = placeholderFiles(pm2Accepted);
+      setPm2Files(files);
+      void finishPm2Streams(
+        files.length === 1 ? files[0]!.name : `${files.length} files`,
+        totalSize(pm2Accepted),
+        files.length,
       );
-      void parseMongoBuffers(mongoResults.map((item) => item.buffer));
-    } else if (mongoResults.length > 0) {
-      mongoDispatched = true;
+    } else {
+      setPm2Parsing(false);
+    }
+  } else {
+    if (mongoResults.length > 0) {
       const files = mongoResults.map((item) =>
         createTextFile([item.buffer], item.name, item.lastModified),
       );
-      const result = uploadMode === "append" ? appendMongoFiles(files) : setMongoFiles(files);
+      const result = appendMongoFiles(files);
       if (result.length > 0) void parseMongoFiles(result);
     } else {
       setMongoParsing(false);
     }
-  }
-
-  // Finalize PM2 parsing
-  if (pm2Results.length === 0) {
-    setPm2Parsing(false);
-  } else {
-    // Maintain deterministic sequential order across archives and entries
-    pm2Results.sort((a, b) =>
-      a.archiveIndex !== b.archiveIndex
-        ? a.archiveIndex - b.archiveIndex
-        : a.entryIndex - b.entryIndex,
-    );
-
-    // Deduplicate by size (matching setLoadedFiles behavior)
-    const seenSizes = new Set<number>();
-    const uniquePm2: ExtractedBatchItem[] = [];
-    for (const item of pm2Results) {
-      if (!seenSizes.has(item.size)) {
-        seenSizes.add(item.size);
-        uniquePm2.push(item);
-      }
-    }
-
-    if (uploadMode === "replace") {
-      // Direct transferable buffer pipeline
-      const dummyFiles = uniquePm2.map((item) => {
-        const f = createTextFile([], item.name, item.lastModified);
-        Object.defineProperty(f, "size", { value: item.size });
-        return f;
-      });
-      setPm2Files(dummyFiles);
-
-      const totalPm2Bytes = uniquePm2.reduce((acc, item) => acc + item.size, 0);
-      const total = totalPm2Bytes || 1;
-      const hc = navigator.hardwareConcurrency ? Math.max(2, navigator.hardwareConcurrency) : 4;
-      const n = Math.max(2, Math.min(4, hc));
-      const chunk = Math.ceil(total / n);
-      const LINE_EXTEND = 256 * 1024;
-
-      const ranges: {
-        shardIndex: number;
-        start: number;
-        end: number;
-        totalSize: number;
-        readStart: number;
-        readEnd: number;
-        buffers: ArrayBuffer[];
-        views: [number, number][];
-      }[] = [];
-      for (let i = 0; i < n; i++) {
-        const start = i * chunk;
-        const end = i === n - 1 ? total : Math.min(total, (i + 1) * chunk);
-        if (start >= total) break;
-        const readStart = start > 0 ? start - 1 : start;
-        const readEnd = Math.min(total, end + LINE_EXTEND);
-        ranges.push({
-          shardIndex: i,
-          start,
-          end,
-          totalSize: total,
-          readStart,
-          readEnd,
-          buffers: [],
-          views: [],
-        });
-      }
-
-      let itemOffset = 0;
-      for (const item of uniquePm2) {
-        const itemStart = itemOffset;
-        const itemEnd = itemOffset + item.size;
-        itemOffset += item.size;
-        // The shard holding most of a file receives it whole (a view of its share);
-        // the other shards copy only their boundary spans. Keep the 1-byte lookbehind
-        // and lookahead identical to file sharding.
-        const overlap = (r: (typeof ranges)[number]) =>
-          Math.min(itemEnd, r.readEnd) - Math.max(itemStart, r.readStart);
-        let owner: (typeof ranges)[number] | undefined;
-        for (const r of ranges) {
-          if (overlap(r) > 0 && (!owner || overlap(r) > overlap(owner))) owner = r;
-        }
-        for (const r of ranges) {
-          const length = overlap(r);
-          if (length <= 0) continue;
-          const srcStart = Math.max(itemStart, r.readStart) - itemStart;
-          if (r === owner) {
-            r.buffers.push(item.buffer);
-            r.views.push([srcStart, length]);
-          } else {
-            r.buffers.push(item.buffer.slice(srcStart, srcStart + length));
-            r.views.push([0, length]);
-          }
-        }
-        item.buffer = new ArrayBuffer(0);
-      }
-
-      const shardDescriptors: ShardBufferDescriptor[] = ranges.map((r) => ({
-        shardIndex: r.shardIndex,
-        start: r.start,
-        end: r.end,
-        totalSize: r.totalSize,
-        readStart: r.readStart,
-        buffers: r.buffers,
-        views: r.views,
-      }));
-
-      const displayName = uniquePm2.length === 1 ? uniquePm2[0]!.name : `${uniquePm2.length} files`;
-      pm2Results.length = 0;
-      mongoResults.length = 0;
-      initialTasks.length = 0;
-      queue.length = 0;
-      runningTasks.clear();
-      uniquePm2.length = 0;
-      void parsePm2Shards(shardDescriptors, displayName, totalPm2Bytes, dummyFiles.length);
+    if (pm2Results.length === 0) {
+      setPm2Parsing(false);
     } else {
-      const files = uniquePm2.map((item) =>
+      // Maintain deterministic sequential order across archives and entries
+      pm2Results.sort((a, b) =>
+        a.archiveIndex !== b.archiveIndex
+          ? a.archiveIndex - b.archiveIndex
+          : a.entryIndex - b.entryIndex,
+      );
+      const files = pm2Results.map((item) =>
         createTextFile([item.buffer], item.name, item.lastModified),
       );
       const result = appendPm2Files(files);

@@ -223,34 +223,67 @@ export async function parseMongoFiles(files: File[]): Promise<void> {
   );
 }
 
-export async function parseMongoBuffers(buffers: ArrayBuffer[]): Promise<void> {
-  if (buffers.length === 0) return;
-  const filters = useMongoStore.getState().filters;
-  const totalBytes = buffers.reduce((acc, buffer) => acc + buffer.byteLength, 0);
+let streamStartedAt = 0;
+
+/** Open a streamed import; previous results stay visible until it finishes. */
+export function startMongoStreams(): void {
+  streamStartedAt = performance.now();
   ensureMongoBench({
     at: new Date().toISOString(),
-    source: "buffers",
-    fileName: `${buffers.length} files`,
-    fileBytes: totalBytes,
+    source: "stream",
     parseWallMs: 0,
     reaggTimes: [],
   });
-  const t0 = performance.now();
-  await runMongoParse({ type: "PARSE_BUFFERS", payload: { buffers, filters } }, buffers);
-  const ms = Math.round(performance.now() - t0);
+  getOrCreateMongoWorker().postMessage({ type: "STREAMS_START" } satisfies MongoWorkerMessage);
+}
+
+/** `exactSize` is false when `size` is only a hint, as with gzip trailers. */
+export function openMongoSource(
+  sourceId: number,
+  order: number[],
+  size: number,
+  exactSize: boolean,
+): void {
+  getOrCreateMongoWorker().postMessage({
+    type: "SOURCE_OPEN",
+    payload: { sourceId, order, size, exactSize },
+  } satisfies MongoWorkerMessage);
+}
+
+/** Transfers `buffer`, which holds the source's bytes from offset `offset`. */
+export function pushMongoChunk(sourceId: number, offset: number, buffer: ArrayBuffer): void {
+  getOrCreateMongoWorker().postMessage(
+    { type: "SOURCE_CHUNK", payload: { sourceId, offset, buffer } } satisfies MongoWorkerMessage,
+    [buffer],
+  );
+}
+
+export function closeMongoSource(sourceId: number, size: number): void {
+  getOrCreateMongoWorker().postMessage({
+    type: "SOURCE_CLOSE",
+    payload: { sourceId, size },
+  } satisfies MongoWorkerMessage);
+}
+
+export async function finishMongoStreams(fileCount: number, fileBytes: number): Promise<void> {
+  const filters = useMongoStore.getState().filters;
+  ensureMongoBench({ fileName: `${fileCount} files`, fileBytes });
+  await runMongoParse({ type: "STREAMS_FINISH", payload: { filters } });
+  const ms = Math.round(performance.now() - streamStartedAt);
   const result = useMongoStore.getState().result;
   const count = result?.summary.slowQueryCount ?? 0;
-  const collscans = result?.summary.collscanCount ?? 0;
   ensureMongoBench({
     parseWallMs: ms,
     slowQueryCount: count,
-    collscanCount: collscans,
+    collscanCount: result?.summary.collscanCount ?? 0,
     patternsCount: result?.patterns.length ?? 0,
     collectionsCount: result?.collections.length ?? 0,
     p95DurationMs: result?.summary.p95DurationMs ?? 0,
   });
   showToast(
-    `Parsed ${count.toLocaleString()} slow queries across ${buffers.length} files in ${ms}ms`,
+    fileCount > 1
+      ? `Parsed ${count.toLocaleString()} slow queries across ${fileCount} files in ${ms}ms`
+      : `Parsed ${count.toLocaleString()} slow queries in ${ms}ms`,
   );
 }
 

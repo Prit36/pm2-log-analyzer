@@ -15,8 +15,23 @@ export type MongoWorkerMessage =
       type: "PARSE_BUFFER";
       payload: { buffer: ArrayBuffer; fileName: string; filters: MongoFilters };
     }
-  | { type: "PARSE_BUFFERS"; payload: { buffers: ArrayBuffer[]; filters: MongoFilters } }
   | { type: "PARSE_TEXT"; payload: { text: string; filters: MongoFilters } }
+  /** Start a streamed import: logs arrive in chunks while archives are still decoding. */
+  | { type: "STREAMS_START" }
+  | {
+      type: "SOURCE_OPEN";
+      payload: {
+        sourceId: number;
+        /** Upload order; sources are merged in this order, as whole buffers were. */
+        order: number[];
+        size: number;
+        /** False when `size` is only a hint (gzip trailers); the source is then buffered whole. */
+        exactSize: boolean;
+      };
+    }
+  | { type: "SOURCE_CHUNK"; payload: { sourceId: number; offset: number; buffer: ArrayBuffer } }
+  | { type: "SOURCE_CLOSE"; payload: { sourceId: number; size: number } }
+  | { type: "STREAMS_FINISH"; payload: { filters: MongoFilters } }
   | { type: "REAGGREGATE"; payload: { filters: MongoFilters } }
   | { type: "CLEAR" }
   | { type: "CANCEL" };
@@ -408,8 +423,266 @@ async function parseBufferSharded(
   }
 }
 
+type StreamRange = {
+  index: number;
+  start: number;
+  end: number;
+  readEnd: number;
+  bytes: Uint8Array | null;
+  filled: number;
+};
+
+type StreamSource = {
+  order: number[];
+  size: number;
+  exactSize: boolean;
+  /** Whole source for buffered and single-shard sources. */
+  whole: Uint8Array | null;
+  parts: { offset: number; bytes: Uint8Array }[];
+  /** Shard plan for large exact-size sources, filled as chunks arrive. */
+  ranges: StreamRange[];
+  results: Promise<MongoShardParsed>[];
+};
+
+/**
+ * Streamed import. Each source keeps the shard plan it would get as a whole buffer, so
+ * merged results match; a range is parsed as soon as its bytes (plus the line lookahead)
+ * have arrived instead of after the whole archive is decoded.
+ */
+let streamSession: {
+  epoch: number;
+  sources: Map<number, StreamSource>;
+  queue: {
+    range: StreamRange;
+    source: StreamSource;
+    resolve: (r: MongoShardParsed) => void;
+    reject: (e: Error) => void;
+  }[];
+  idle: Worker[];
+  poolStarted: boolean;
+} | null = null;
+let streamFailure: string | null = null;
+const STREAM_LINE_EXTEND = 256 * 1024;
+const STREAM_POOL = 2;
+
+function pumpStreamQueue() {
+  const session = streamSession;
+  if (!session) return;
+  while (session.idle.length > 0 && session.queue.length > 0) {
+    const worker = session.idle.pop()!;
+    const job = session.queue.shift()!;
+    const { range, source } = job;
+    // SAFETY: range bytes are allocated with `new Uint8Array(length)`, so not shared memory.
+    const buf = range.bytes!.buffer as ArrayBuffer;
+    range.bytes = null;
+    runShardParsed(
+      worker,
+      {
+        type: "PARSE_SHARD_BUFFER",
+        epoch: session.epoch,
+        buf,
+        start: range.start,
+        end: range.end,
+        shardIndex: range.index,
+        totalSize: source.size,
+      },
+      [buf],
+    ).then(
+      (parsed) => {
+        job.resolve(parsed);
+        session.idle.push(worker);
+        pumpStreamQueue();
+      },
+      (error: Error) => {
+        job.reject(error);
+        session.idle.push(worker);
+        pumpStreamQueue();
+      },
+    );
+  }
+}
+
+function dispatchRange(source: StreamSource, range: StreamRange) {
+  source.results[range.index] = new Promise((resolve, reject) => {
+    streamSession!.queue.push({ range, source, resolve, reject });
+  });
+  pumpStreamQueue();
+}
+
+function planStreamRanges(source: StreamSource) {
+  source.ranges = mongoShardPlan(source.size, shardCountFor(source.size)).map((r, index) => ({
+    index,
+    start: r.start,
+    end: r.end,
+    readEnd: Math.min(source.size, r.end + STREAM_LINE_EXTEND),
+    bytes: null,
+    filled: 0,
+  }));
+}
+
+function addRangeBytes(source: StreamSource, offset: number, bytes: Uint8Array) {
+  const chunkEnd = offset + bytes.length;
+  for (const range of source.ranges) {
+    if (range.filled === range.readEnd - range.start && range.bytes === null) continue;
+    const from = Math.max(offset, range.start);
+    const to = Math.min(chunkEnd, range.readEnd);
+    if (from >= to) continue;
+    range.bytes ??= new Uint8Array(range.readEnd - range.start);
+    range.bytes.set(bytes.subarray(from - offset, to - offset), from - range.start);
+    range.filled += to - from;
+    if (range.filled === range.readEnd - range.start) dispatchRange(source, range);
+  }
+}
+
+async function startStreamPool(session: NonNullable<typeof streamSession>) {
+  if (session.poolStarted) return;
+  session.poolStarted = true;
+  await ensureShardPool(STREAM_POOL);
+  session.idle.push(...shardPool);
+}
+
+async function startMongoStreams() {
+  isCancelled = false;
+  streamFailure = null;
+  const eng = await ensureEngine();
+  eng.clear();
+  terminateShardPool();
+  epoch++;
+  streamSession = { epoch, sources: new Map(), queue: [], idle: [], poolStarted: false };
+}
+
+async function handleStreamMessage(msg: StreamMessage): Promise<void> {
+  if (msg.type === "STREAMS_START") {
+    await startMongoStreams();
+    return;
+  }
+  const session = streamSession;
+  if (!session) {
+    // Report the failure that closed the session instead of leaving the import waiting.
+    if (msg.type === "STREAMS_FINISH")
+      throw new Error(streamFailure ?? "No streamed import is open");
+    return;
+  }
+  if (msg.type === "SOURCE_OPEN") {
+    const { sourceId, order, size, exactSize } = msg.payload;
+    const source: StreamSource = {
+      order,
+      size,
+      exactSize,
+      whole: null,
+      parts: [],
+      ranges: [],
+      results: [],
+    };
+    if (exactSize && shardCountFor(size) > 1) {
+      await startStreamPool(session);
+      planStreamRanges(source);
+    }
+    session.sources.set(sourceId, source);
+    return;
+  }
+  if (msg.type === "SOURCE_CHUNK") {
+    const source = session.sources.get(msg.payload.sourceId);
+    if (!source) return;
+    const bytes = new Uint8Array(msg.payload.buffer);
+    if (source.ranges.length > 0) addRangeBytes(source, msg.payload.offset, bytes);
+    else source.parts.push({ offset: msg.payload.offset, bytes });
+    return;
+  }
+  if (msg.type === "SOURCE_CLOSE") {
+    const source = session.sources.get(msg.payload.sourceId);
+    if (!source) return;
+    const size = msg.payload.size;
+    if (source.ranges.length > 0) {
+      if (size !== source.size) throw new Error("MongoDB log size changed while decoding");
+      return;
+    }
+    // Buffered source: assemble it, then plan exactly as a whole buffer would be.
+    const whole =
+      source.parts.length === 1 && source.parts[0]!.bytes.length === size
+        ? source.parts[0]!.bytes
+        : new Uint8Array(size);
+    if (whole !== source.parts[0]?.bytes) {
+      for (const part of source.parts) whole.set(part.bytes, part.offset);
+    }
+    source.parts = [];
+    source.size = size;
+    if (shardCountFor(size) === 1) {
+      source.whole = whole;
+      return;
+    }
+    await startStreamPool(session);
+    planStreamRanges(source);
+    addRangeBytes(source, 0, whole);
+    return;
+  }
+  if (msg.type === "STREAMS_FINISH") {
+    const t0 = performance.now();
+    currentFilters = msg.payload.filters;
+    const eng = await ensureEngine();
+    const sources = [...session.sources.values()].sort((a, b) => {
+      for (let i = 0; i < Math.min(a.order.length, b.order.length); i++) {
+        if (a.order[i] !== b.order[i]) return a.order[i]! - b.order[i]!;
+      }
+      return a.order.length - b.order.length;
+    });
+    const totalBytes = sources.reduce((sum, source) => sum + source.size, 0);
+    let bytesSoFar = 0;
+    for (const source of sources) {
+      if (source.whole) {
+        // SAFETY: whole sources are transferred ArrayBuffers or `new Uint8Array(size)` copies.
+        streamParseBuffer(source.whole.buffer as ArrayBuffer, bytesSoFar, totalBytes, eng);
+        source.whole = null;
+      } else {
+        const results = await Promise.all(source.results);
+        if (isCancelled || session !== streamSession) return;
+        for (const res of results) eng.merge_shard_bytes(new Uint8Array(res.wire));
+      }
+      bytesSoFar += source.size;
+    }
+    streamSession = null;
+    terminateShardPool();
+    if (isCancelled) return;
+    const result = runReaggregate(eng, currentFilters);
+    self.postMessage({ type: "RESULT", payload: result } satisfies MongoWorkerResponse);
+    self.postMessage({
+      type: "PERF",
+      payload: { kind: "parse", totalMs: Math.round(performance.now() - t0) },
+    } satisfies MongoWorkerResponse);
+  }
+}
+
+type StreamMessage = Extract<
+  MongoWorkerMessage,
+  { type: "STREAMS_START" | "SOURCE_OPEN" | "SOURCE_CHUNK" | "SOURCE_CLOSE" | "STREAMS_FINISH" }
+>;
+
+/** Stream messages run in arrival order even while an earlier one awaits the pool. */
+let streamChain = Promise.resolve();
+
 self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
   const msg = e.data;
+
+  if (
+    msg.type === "STREAMS_START" ||
+    msg.type === "SOURCE_OPEN" ||
+    msg.type === "SOURCE_CHUNK" ||
+    msg.type === "SOURCE_CLOSE" ||
+    msg.type === "STREAMS_FINISH"
+  ) {
+    streamChain = streamChain
+      .then(() => handleStreamMessage(msg))
+      .catch((err: Error) => {
+        if (streamSession) streamFailure = err.message;
+        streamSession = null;
+        terminateShardPool();
+        self.postMessage({
+          type: "ERROR",
+          payload: { message: err instanceof Error ? err.message : String(err) },
+        } satisfies MongoWorkerResponse);
+      });
+    return;
+  }
 
   if (msg.type === "CANCEL") {
     isCancelled = true;
@@ -494,21 +767,15 @@ self.onmessage = async (e: MessageEvent<MongoWorkerMessage>) => {
     return;
   }
 
-  if (msg.type === "PARSE_BUFFER" || msg.type === "PARSE_BUFFERS") {
+  if (msg.type === "PARSE_BUFFER") {
     isCancelled = false;
     currentFilters = msg.payload.filters;
     const eng = await ensureEngine();
     eng.clear();
 
     const t0 = performance.now();
-    const buffers = msg.type === "PARSE_BUFFER" ? [msg.payload.buffer] : msg.payload.buffers;
-    const totalBytes = buffers.reduce((acc, buffer) => acc + buffer.byteLength, 0);
-    let bytesSoFar = 0;
-    for (const buffer of buffers) {
-      if (isCancelled) break;
-      await parseBufferSharded(buffer, eng, bytesSoFar, totalBytes);
-      bytesSoFar += buffer.byteLength;
-    }
+    const { buffer } = msg.payload;
+    await parseBufferSharded(buffer, eng, 0, buffer.byteLength);
     terminateShardPool();
 
     if (isCancelled) return;
